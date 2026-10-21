@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/conversations/{id}/messages", s.handleListMessages)
 	userMux.HandleFunc("POST /v1/conversations/{id}/messages", s.handleSendMessage)
 	userMux.HandleFunc("POST /v1/conversations/{id}/orchestrate", s.handleOrchestrate)
+	userMux.HandleFunc("POST /v1/conversations/{id}/kickoff", s.handleKickoff)
 
 	authMW := Auth(s.auth.Verify)
 	for _, p := range []string{

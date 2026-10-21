@@ -609,10 +609,101 @@
         return;
       }
 
+      if (ev.type === 'pass') {
+        // 有人选择不说话：留一条极轻的痕迹，不占气泡
+        const n = document.createElement('div');
+        n.className = 'pass-note';
+        n.textContent = ev.name + ' 没接话';
+        container.appendChild(n);
+        return;
+      }
+
+      if (ev.type === 'ask') {
+        if (curEl) curEl.classList.add('asking');
+        return;
+      }
+
       if (ev.type === 'error') {
         addSysNote(ev.name + ' 出错了：' + ev.content);
         return;
       }
+    }
+  }
+
+  /* ---------------- 自主开场 ---------------- */
+  async function kickoff(convId) {
+    if (state.busy) return;
+    state.busy = true;
+    $('#sendBtn').disabled = true;
+    const container = document.createElement('div');
+    $('#msgWrap').appendChild(container);
+    renderPipeline(true);
+
+    let curEl = null, curText = '';
+
+    try {
+      const res = await fetch(API + '/v1/conversations/' + convId + '/kickoff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.token },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) return;
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop();
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith('data:')) continue;
+          let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+          if (ev.type === 'start') {
+            curText = '';
+            curEl = document.createElement('div');
+            curEl.className = 'msg';
+            curEl.innerHTML = `
+              ${makeAv(ev.name, ev.color)}
+              <div class="msg-body">
+                <div class="msg-head">
+                  <span class="msg-name" style="color:${ev.color}">${esc(ev.name)}</span>
+                  <span class="msg-time"></span>
+                </div>
+                <div class="thinking"><i></i><i></i><i></i></div>
+                <div class="msg-text" style="display:none"></div>
+              </div>`;
+            container.appendChild(curEl);
+            scrollBottom();
+          } else if (ev.type === 'delta' && curEl) {
+            curEl.querySelector('.thinking').style.display = 'none';
+            const tx = curEl.querySelector('.msg-text');
+            tx.style.display = '';
+            curText += ev.content;
+            tx.textContent = curText;
+            tx.classList.add('caret');
+            scrollBottom();
+          } else if (ev.type === 'end' && curEl) {
+            curEl.querySelector('.msg-text').classList.remove('caret');
+            curEl.querySelector('.msg-time').textContent = timeStr(new Date());
+          } else if (ev.type === 'pass') {
+            const n = document.createElement('div');
+            n.className = 'pass-note';
+            n.textContent = ev.name + ' 没接话';
+            container.appendChild(n);
+            scrollBottom();
+          }
+        }
+      }
+    } catch (e) {
+      /* 静默失败：开场不重要 */
+    } finally {
+      state.busy = false;
+      $('#sendBtn').disabled = !ta.value.trim();
+      scrollBottom();
+      loadConvs();
     }
   }
 
@@ -703,11 +794,9 @@
       $('#scenes').classList.remove('on');
       await loadConvs();
       await openConv(conv.id);
-      // 开场白
-      if (sc.opening) {
-        addSysNote('群已建好');
-      }
       toast('群聊已创建');
+      // 建完就让角色自己聊起来，用户进来时群里是活的
+      setTimeout(() => kickoff(conv.id), 400);
     } catch (e) {
       toast(e.message);
     }

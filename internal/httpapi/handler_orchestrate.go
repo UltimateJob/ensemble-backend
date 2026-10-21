@@ -65,6 +65,46 @@ func (s *Server) handleOrchestrate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleKickoff 让群里的角色自己聊起来（没有用户消息也能触发）。
+func (s *Server) handleKickoff(w http.ResponseWriter, r *http.Request) {
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	var req struct {
+		Topic string `json:"topic"`
+	}
+	_ = decode(r, &req)
+
+	conv, err := s.chat.Get(u.ID, r.PathValue("id"))
+	if err != nil {
+		notFound(w, "会话不存在")
+		return
+	}
+
+	flusher, canFlush := w.(http.Flusher)
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	send := func(ev service.Event) {
+		b, err := json.Marshal(ev)
+		if err != nil {
+			return
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+			return
+		}
+		if canFlush {
+			flusher.Flush()
+		}
+	}
+	s.orchestrator.Kickoff(r.Context(), conv, u, req.Topic, send)
+}
+
 // handleDraftAgent 用模型生成一个角色设定。
 func (s *Server) handleDraftAgent(w http.ResponseWriter, r *http.Request) {
 	var req struct {

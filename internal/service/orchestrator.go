@@ -3,28 +3,35 @@ package service
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
+	"github.com/UltimateJob/ensemble-backend/internal/pkg/logx"
 	"github.com/UltimateJob/ensemble-backend/internal/store"
 )
 
 // Event 编排过程中推给前端的一件事。
 type Event struct {
-	Type    string `json:"type"`              // start | delta | end | artifact | error | done
-	Agent   string `json:"agent,omitempty"`   // agent key
-	Name    string `json:"name,omitempty"`    // 显示名
-	Color   string `json:"color,omitempty"`   // 角色色
-	Content string `json:"content,omitempty"` // 增量文本
-	Title   string `json:"title,omitempty"`   // artifact 标题
-	Detail  string `json:"detail,omitempty"`  // artifact 说明
+	Type    string `json:"type"` // start | delta | end | artifact | pass | ask | error | done
+	Agent   string `json:"agent,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Color   string `json:"color,omitempty"`
+	Content string `json:"content,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Detail  string `json:"detail,omitempty"`
 	Tokens  int    `json:"tokens,omitempty"`
 	Latency int    `json:"latency,omitempty"`
 }
 
-// Orchestrator 让群里的多个 Agent 依次发言，后一个能看到前面的内容。
+// Orchestrator 模拟真实群聊：谁想说谁说，可以不说，也可以直接问人。
+//
+// 与"轮流发言"的区别：
+//   - 每个角色独立判断这个话题跟自己有没有关系，无关就 [PASS]
+//   - 说话顺序不固定，由"上一位是谁 + 是否说过"决定，带一点随机
+//   - 角色可以直接向用户提问，问到人就停下来等回复
 type Orchestrator struct {
 	store store.Store
 	gw    *gateway.Gateway
@@ -34,38 +41,53 @@ func NewOrchestrator(s store.Store, gw *gateway.Gateway) *Orchestrator {
 	return &Orchestrator{store: s, gw: gw}
 }
 
-// Run 执行一轮群聊。emit 在调用方 goroutine 里同步执行。
-func (o *Orchestrator) Run(
-	ctx context.Context,
-	conv *domain.Conversation,
-	user *domain.User,
-	userText string,
-	emit func(Event),
-) {
-	sc, ok := FindScenario(conv.Studio)
-	if !ok {
-		sc, _ = FindScenario("bid")
-	}
-
-	// 用户消息入库
+// Run 用户发言后，让群里的人自己决定接不接话。
+func (o *Orchestrator) Run(ctx context.Context, conv *domain.Conversation, user *domain.User, userText string, emit func(Event)) {
 	_ = o.store.AppendMessage(&domain.Message{
 		ConversationID: conv.ID,
 		Role:           domain.RoleUser,
 		Content:        userText,
 	})
+	o.loop(ctx, conv, user, emit, fmt.Sprintf("用户刚说：%s", userText), false)
+}
 
-	history := o.store.ListMessages(conv.ID, 12)
-	round := sc.Round
-	if round <= 0 || round > len(sc.Agents) {
-		round = len(sc.Agents)
+// Kickoff 没有用户消息时，让角色之间自己聊起来。
+func (o *Orchestrator) Kickoff(ctx context.Context, conv *domain.Conversation, user *domain.User, topic string, emit func(Event)) {
+	prompt := "群里现在没人说话，安静了一会儿。"
+	if topic != "" {
+		prompt = "用户刚才提到：" + topic + "，但还没人回应。"
+	}
+	// 没有人先开口时，第一个人必须说话，否则整轮都是沉默
+	o.loop(ctx, conv, user, emit, prompt, true)
+}
+
+// loop 核心循环：最多让 N 个人开口，其余可以沉默。
+func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user *domain.User, emit func(Event), trigger string, forceFirst bool) {
+	sc, ok := FindScenario(conv.Studio)
+	if !ok {
+		sc, _ = FindScenario("bid")
+	}
+	agents := sc.Agents
+	if len(agents) == 0 {
+		emit(Event{Type: "done"})
+		return
 	}
 
-	// 本轮已发生的发言，供后续 Agent 参考
-	var transcript strings.Builder
-	transcript.WriteString("【本轮群聊记录】\n用户：" + userText + "\n")
+	history := o.store.ListMessages(conv.ID, 16)
+	maxSpeakers := sc.Round
+	if maxSpeakers <= 0 {
+		maxSpeakers = 3
+	}
+	if maxSpeakers > len(agents) {
+		maxSpeakers = len(agents)
+	}
 
-	for i := 0; i < round; i++ {
-		agent := sc.Agents[i]
+	spoken := map[string]bool{}
+	speakers := 0
+	lastKey := ""
+
+	// 最多尝试 2 倍于发言人数的次数，允许一部分人沉默
+	for attempt := 0; attempt < len(agents)*2 && speakers < maxSpeakers; attempt++ {
 		select {
 		case <-ctx.Done():
 			emit(Event{Type: "done"})
@@ -73,114 +95,218 @@ func (o *Orchestrator) Run(
 		default:
 		}
 
-		emit(Event{Type: "start", Agent: agent.Key, Name: agent.Name, Color: agent.Color})
-
-		msgs := o.buildMessages(sc, agent, history, transcript.String())
-		req := domain.ChatRequest{
-			Model:    conv.Model,
-			Messages: msgs,
-			Stream:   true,
-		}
-
-		start := time.Now()
-		stream, err := o.gw.Stream(ctx, req)
-		if err != nil {
-			emit(Event{Type: "error", Agent: agent.Key, Name: agent.Name, Content: "上游不可用：" + err.Error()})
+		agent := pickSpeaker(agents, spoken, lastKey)
+		if agent.Key == "" {
 			break
 		}
 
-		var buf strings.Builder
-		tokens := 0
-		for chunk := range stream {
-			if chunk.Err != nil {
-				emit(Event{Type: "error", Agent: agent.Key, Name: agent.Name, Content: chunk.Err.Error()})
-				break
-			}
-			if chunk.Content != "" {
-				buf.WriteString(chunk.Content)
-				emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Content: chunk.Content})
-			}
-			if chunk.Usage != nil {
-				tokens = chunk.Usage.CompletionTokens
-			}
-			if chunk.Done {
-				break
-			}
+		force := forceFirst && speakers == 0
+		res, err := o.ask(ctx, sc, *agent, history, trigger, emit, force)
+		if err != nil {
+			logx.Req(ctx).Warn("agent speak failed", "agent", agent.Name, "err", err.Error())
+			spoken[agent.Key] = true
+			continue
 		}
 
-		text := strings.TrimSpace(buf.String())
-		latency := int(time.Since(start).Milliseconds())
-
-		if text != "" {
-			_ = o.store.AppendMessage(&domain.Message{
-				ConversationID: conv.ID,
-				Role:           domain.RoleAssistant,
-				Agent:          agent.Name,
-				Content:        text,
-				Model:          conv.Model,
-				TokensOut:      tokens,
-				LatencyMS:      latency,
-			})
-			transcript.WriteString(agent.Name + "：" + text + "\n")
+		if res.pass {
+			// 沉默：告诉前端这条支线走过了，不产生气泡
+			emit(Event{Type: "pass", Agent: agent.Key, Name: agent.Name, Color: agent.Color})
+			spoken[agent.Key] = true
+			continue
 		}
 
-		emit(Event{
-			Type: "end", Agent: agent.Key, Name: agent.Name,
-			Color: agent.Color, Tokens: tokens, Latency: latency,
+		// 入库
+		_ = o.store.AppendMessage(&domain.Message{
+			ConversationID: conv.ID,
+			Role:           domain.RoleAssistant,
+			Agent:          agent.Name,
+			Content:        res.text,
+			Model:          conv.Model,
+			TokensOut:      res.tokens,
+			LatencyMS:      res.latency,
+		})
+		history = append(history, &domain.Message{
+			ConversationID: conv.ID,
+			Role:           domain.RoleAssistant,
+			Agent:          agent.Name,
+			Content:        res.text,
 		})
 
-		// 有产物的角色，结束后推一张文件卡
-		if agent.Artifact != "" && text != "" {
-			emit(Event{
-				Type: "artifact", Agent: agent.Key, Name: agent.Name,
-				Title: agent.Artifact, Detail: summarize(text),
-			})
-		}
+		spoken[agent.Key] = true
+		lastKey = agent.Key
+		speakers++
 
-		// 用户额度
+		// 被点名问到，就停下等用户
+		trigger = fmt.Sprintf("刚才 %s 说：%s", agent.Name, res.text)
+
 		user.Used++
 		_ = o.store.UpdateUser(user)
+
+		if res.asksUser {
+			break
+		}
 	}
 
 	_ = o.store.UpdateConv(conv)
 	emit(Event{Type: "done"})
 }
 
-// buildMessages 组装单个 Agent 的上下文。
-func (o *Orchestrator) buildMessages(sc Scenario, agent Agent, history []*domain.Message, transcript string) []domain.ChatMessage {
-	sys := fmt.Sprintf(`%s
-
-你是群聊「%s」里的一员，你的名字是「%s」，职责是「%s」。
-群里还有：%s。
-规则：
-- 只说你自己会说的话，不要替别人说话，不要写旁白。
-- 不要复述别人刚说过的内容。
-- 简短，像真人在群里发消息。通常 1-3 句，最多 120 字。
-- 中文，不要用 markdown 标题，不要用「首先/其次/总之」这类套话。`,
-		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key))
-
-	out := []domain.ChatMessage{{Role: "system", Content: sys}}
-
-	// 历史上下文（跳过本轮刚入库的用户消息，稍后单独加）
-	for i, m := range history {
-		if i == len(history)-1 && m.Role == domain.RoleUser {
+// pickSpeaker 选择下一个发言者：优先没说过话的，避免同一个人连着说。
+func pickSpeaker(agents []Agent, spoken map[string]bool, lastKey string) *Agent {
+	var pool []Agent
+	for _, a := range agents {
+		if spoken[a.Key] || a.Key == lastKey {
 			continue
 		}
+		pool = append(pool, a)
+	}
+	if len(pool) == 0 {
+		return nil
+	}
+	// 带一点随机，避免每次都是同一个顺序
+	i := rand.Intn(len(pool))
+	return &pool[i]
+}
+
+type speakResult struct {
+	text     string
+	pass     bool
+	asksUser bool
+	tokens   int
+	latency  int
+}
+
+// ask 让一个角色自己决定要不要说话、说什么。
+func (o *Orchestrator) ask(ctx context.Context, sc Scenario, agent Agent, history []*domain.Message, trigger string, emit func(Event), force bool) (speakResult, error) {
+	emit(Event{Type: "start", Agent: agent.Key, Name: agent.Name, Color: agent.Color})
+
+	sys := fmt.Sprintf(`%s
+
+你正在一个群聊里，群名「%s」，你的名字是「%s」，身份是「%s」。
+群里还有：%s。
+
+这是真实群聊，不是客服。规则：
+1. 你有权保持沉默。如果这个话题跟你无关、或者别人已经说清楚了，只回复 [PASS]，不要硬接。
+2. 想说话就直接说你要说的话，不要加「%s：」这样的前缀，不要写旁白。
+3. 如果缺关键信息、必须问用户才能继续，就直接问，用「@用户」开头。
+4. 一句话到三句话，像真人在群里打字。不要用 markdown、不要列点、不要客套。
+5. 不要复述别人刚说过的话。%s`,
+		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key), agent.Name,
+		forceLine(force))
+
+	msgs := []domain.ChatMessage{{Role: "system", Content: sys}}
+	for _, m := range history {
 		content := m.Content
 		if m.Role == domain.RoleAssistant && m.Agent != "" {
 			content = m.Agent + "：" + content
 		}
-		out = append(out, domain.ChatMessage{Role: string(m.Role), Content: content})
+		msgs = append(msgs, domain.ChatMessage{Role: string(m.Role), Content: content})
+	}
+	instruction := "现在轮到你判断：要不要说话？说就直说，不说就回 [PASS]。"
+	if force {
+		instruction = "群里冷场了，必须由你起个头。直接说一句话把话头挑起来，不要说 [PASS]。"
+	}
+	msgs = append(msgs, domain.ChatMessage{Role: "user", Content: trigger + "\n\n" + instruction})
+
+	start := time.Now()
+	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: "", Messages: msgs, Stream: true})
+	if err != nil {
+		return speakResult{}, err
 	}
 
-	if transcript != "" {
-		out = append(out, domain.ChatMessage{Role: "user", Content: transcript})
-		out = append(out, domain.ChatMessage{
-			Role:    "user",
-			Content: fmt.Sprintf("现在轮到你（%s）说话。只回你要说的内容。", agent.Name),
+	var buf strings.Builder
+	var pending strings.Builder
+	flushed := false
+	tokens := 0
+
+	for chunk := range stream {
+		if chunk.Err != nil {
+			return speakResult{}, chunk.Err
+		}
+		if chunk.Content != "" {
+			buf.WriteString(chunk.Content)
+			if flushed {
+				emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: chunk.Content})
+			} else {
+				// 先缓冲，确认不是 [PASS] 再开始推流
+				pending.WriteString(chunk.Content)
+				if pending.Len() >= 6 {
+					if !looksLikePass(pending.String()) {
+						flushed = true
+						emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: pending.String()})
+						pending.Reset()
+					}
+				}
+			}
+		}
+		if chunk.Usage != nil {
+			tokens = chunk.Usage.CompletionTokens
+		}
+		if chunk.Done {
+			break
+		}
+	}
+
+	text := strings.TrimSpace(buf.String())
+	latency := int(time.Since(start).Milliseconds())
+
+	// 判定沉默
+	if isPass(text) {
+		emit(Event{Type: "end", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Latency: latency})
+		return speakResult{pass: true, latency: latency}, nil
+	}
+
+	// 清理模型偶尔带出的前缀
+	text = strings.TrimPrefix(text, agent.Name+"：")
+	text = strings.TrimPrefix(text, agent.Name+":")
+
+	asksUser := strings.Contains(text, "@用户") || strings.Contains(text, "@你")
+	if asksUser {
+		emit(Event{Type: "ask", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: text})
+	}
+
+	emit(Event{
+		Type: "end", Agent: agent.Key, Name: agent.Name, Color: agent.Color,
+		Tokens: tokens, Latency: latency,
+	})
+
+	if agent.Artifact != "" {
+		emit(Event{
+			Type: "artifact", Agent: agent.Key, Name: agent.Name,
+			Title: agent.Artifact, Detail: summarize(text),
 		})
 	}
-	return out
+
+	return speakResult{text: text, asksUser: asksUser, tokens: tokens, latency: latency}, nil
+}
+
+// looksLikePass 前缀判定，用于流式缓冲阶段。
+func looksLikePass(s string) bool {
+	u := strings.ToUpper(strings.TrimSpace(s))
+	return strings.HasPrefix(u, "[PASS") || strings.HasPrefix(u, "PASS") || strings.HasPrefix(u, "[PASS]")
+}
+
+// isPass 完整判定。
+func isPass(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return true
+	}
+	u := strings.ToUpper(t)
+	if u == "[PASS]" || u == "PASS" || u == "（无）" {
+		return true
+	}
+	if strings.Contains(u, "[PASS]") && len([]rune(t)) < 12 {
+		return true
+	}
+	return false
+}
+
+func forceLine(force bool) string {
+	if force {
+		return "\n6. 现在群里冷场了，你必须开口起个头——问一句、抛个话题、或者对刚才的事表态。"
+	}
+	return ""
 }
 
 func otherAgents(sc Scenario, self string) string {
