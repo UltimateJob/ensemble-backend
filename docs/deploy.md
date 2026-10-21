@@ -65,6 +65,32 @@ ERROR   4. 没有配置 DEEPSEEK_API_KEY——对外服务会一直返回演示�
 
 ---
 
+## 数据文件损坏了怎么办
+
+服务**会拒绝启动**，而不是从空库继续。
+
+原因：内存是空的，下一次 Flush 会用空数组覆盖掉原文件，用户数据就真没了。之前的行为是打一条 WARN 然后从空库启动——**静默的数据丢失**。
+
+启动时会看到：
+
+```
+ERROR 存储初始化失败
+  err: 数据文件损坏，拒绝启动（从空库启动会用空数据覆盖原文件）
+       unexpected end of JSON input
+       处理方式：
+         1. 先备份整个 data 目录
+         2. 检查哪个 .json 坏了，从 backups/ 里恢复：make restore FILE=...
+         3. 确实要带着损坏启动（会丢数据）：ALLOW_CORRUPT_START=true
+```
+
+`data/` 里每个 `.json` 都是独立的，坏一个不影响其他。`python3 -m json.tool data/conversations.json` 能定位哪个坏了。
+
+有备份就 `make restore`。没有的话，把坏的 `.json` 移走再启动——坏的那个文件对应的数据会丢，但其他数据还在。
+
+**`ALLOW_CORRUPT_START=true` 是逃生舱，会丢数据，别在生产用。**
+
+---
+
 ## 监控
 
 ```bash

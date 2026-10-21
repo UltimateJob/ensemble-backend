@@ -2,9 +2,11 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,13 +83,40 @@ func NewFileStore(dir string) (*FileStore, error) {
 		lock:      lk,
 	}
 	if err := fs.load(); err != nil {
-		logx.L().Warn("读取历史数据时出错，从空库继续", "err", err.Error())
+		// 数据文件读不出来时，绝不能「从空库继续」——
+		// 内存是空的，下一次 Flush 就会用空数组覆盖掉原文件，
+		// 用户的数据就真没了。而且只有一个 WARN 日志。
+		//
+		// 正确做法是停下来，把损坏的文件留档，让人来处理。
+		// 确实想带着损坏继续跑（比如只是某个边缘文件出问题），
+		// 设 ALLOW_CORRUPT_START=true。
+		quarantine := fmt.Sprintf("%s.corrupt-%d", fs.dir, time.Now().Unix())
+		if allowCorruptStart() {
+			logx.L().Warn("数据文件损坏，按 ALLOW_CORRUPT_START 强制从空库启动",
+				"err", err.Error(), "备份目录", quarantine)
+		} else {
+			return nil, fmt.Errorf(
+				"数据文件损坏，拒绝启动（从空库启动会用空数据覆盖原文件）\n"+
+					"  %v\n"+
+					"  处理方式：\n"+
+					"    1. 先备份整个 %s 目录\n"+
+					"    2. 检查哪个 .json 坏了，从 backups/ 里恢复：make restore FILE=...\n"+
+					"    3. 确实要带着损坏启动（会丢数据）：ALLOW_CORRUPT_START=true",
+				err, fs.dir)
+		}
 	}
 	go fs.loop()
 	return fs, nil
 }
 
 /* ---------------- 加载 ---------------- */
+
+// allowCorruptStart 逃生舱：数据损坏时仍要启动。
+// 默认关闭——从空库启动会用空数据覆盖原文件。
+func allowCorruptStart() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("ALLOW_CORRUPT_START")))
+	return v == "1" || v == "true" || v == "yes"
+}
 
 func (fs *FileStore) load() error {
 	// 兼容旧版单文件格式
