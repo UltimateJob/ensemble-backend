@@ -1,38 +1,49 @@
-# 执行器与工作区设计
+# 本机执行器与工作区设计
 
-> 目标：让代码工作室、文档生成这类场景真正能读文件、改代码、跑测试、产出文档，同时不把宿主机的文件和命令权限直接交给模型。
+> 产品决策（2026-10-21）：
+>
+> 1. **工作区来源**：桌面端直接选本机目录；未来做大后支持云端操控 Git 仓库。
+> 2. **运行时**：就在本地，参考 PI-agent 的本地 agent 模式，不默认上 Docker。
+> 3. **权限**：每个 Agent 可单独设置——只读 / 执行命令需批准 / 完全访问。
 
-## 1. 先说结论
+目标：让代码工作室、文档生成真正能读写文件、执行命令、产出 diff 和 artifact，同时把「本地用户权限」和「Agent 权限」分开。
 
-- **代码工作室需要执行器**：只靠聊天模型改不了仓库，必须能读写工作区、运行测试、看 diff。
-- **但不能直接给宿主 shell**：PI-agent 自己明确说「没有内置权限系统，默认以启动用户的权限运行」，项目信任只限制启动资源，不限制工具执行。我们面向多用户，直接给宿主权限等于把 `$HOME`、密钥、其他用户数据一起交出去。
-- **默认用 Docker 沙箱**：只挂载一个 per-conversation 的 workspace；非 root、无 docker socket、无宿主网络、只读根文件系统、CPU/内存/PID/时间限制。
-- **执行器与会话分离**：角色聊天继续走现有 `Orchestrator`；代码/文档任务走新的 `Workspace + Run + Executor`，不要把两套循环混在一起。
-- **写操作可回滚**：每次 Run 前做 git snapshot，写文件产生 diff/patch，Run 结束可一键 revert。
-- **高风险操作要审批**：读自动；workspace 内写自动但留 diff；安装依赖、联网、`git push/reset`、删除大量文件、越界路径必须人工批准。
+---
 
-## 2. PI-agent 给我们的参考
+## 1. 结论
 
-源码已 clone 到 `research/pi`（临时研究目录，不进产品）。
+- **代码工作室必须有执行器**：只靠聊天模型改不了仓库。需要 `read/write/edit/list/grep/run`，还要能看 diff、跑测试。
+- **执行器跑在本地**：桌面端 Go 进程以当前用户身份运行，工作区就是用户选中的本机目录。
+- **本地运行时不是安全沙箱**：Agent 的「完全访问」本质上和 PI-agent 一样，拥有启动用户的权限。产品必须在执行器层做路径约束、命令风险分类、审批、快照和审计。
+- **权限按 Agent 配**：同一个群里，架构/审校可以只读，operator 可以「命令需批准」，只有用户明确授权的 Agent 才能「完全访问」。
+- **写操作可回滚**：每次 Run 前做 snapshot；写入产生 diff；Run 结束可 revert。
+- **默认不联网、不越界**：即使「完全访问」，默认也只允许工作区内路径；宿主级无限制访问需要单独开关，不作为首版默认。
 
-值得借的：
+---
 
-1. **Agent loop**：模型返回 tool calls → 执行 → 把 tool result 放回上下文 → 再请求模型，直到没有 tool call。事件流覆盖 `tool_execution_start/update/end`、turn、agent end。
-2. **Tool 语义**：
-   - `read`：按行读取、分页、图片附件、输出截断；
-   - `write`：整文件写；
-   - `edit`：精确文本替换，多个不重叠 edits 一次提交，生成 diff/patch；
-   - `bash`：cwd、超时、取消、流式输出、输出截断、完整输出落盘。
-3. **可插拔 operations**：read/edit/bash 都把文件/命令操作抽成 `Operations`，可以替换成 SSH/远程/沙箱实现。
-4. **RPC/SDK**：Pi 提供 JSONL RPC 长驻子进程（适合 Go 后端跨语言集成）和 TypeScript SDK。RPC 有 `prompt/steer/followUp/abort/bash` 等命令，事件可流式消费。
-5. **Session tree + compaction**：会话是树，分支/恢复/压缩都有明确语义；我们的记忆层已经解决长期记忆，不需要照搬整棵 session tree，但「原始事件保留、上下文可压缩」值得借。
-6. **Skills/extensions**：按需加载技能说明和工具，适合以后给代码/文档场景装不同工具包。
+## 2. PI-agent 参考
 
-不能照搬的：
+源码已 clone 到 `research/pi`（研究目录，不进产品）。
 
-- Pi 默认没有文件/进程/网络/凭据的权限系统，工具直接用宿主用户权限运行；`security.md` 明确说「不要靠看 transcript、项目信任、review 变化来建立安全边界」。
-- Pi 的 project trust 只控制加载哪些项目资源，不限制工具能访问什么。
-- Pi 推荐用容器/VM 隔离；这正是我们产品必须默认做的。
+值得借：
+
+1. **Agent loop**：模型返回 tool calls → 执行 → tool result 回填 → 再请求模型，直到没有工具调用。
+2. **工具语义**：
+   - `read` 分页、图片、截断；
+   - `write` 整文件写；
+   - `edit` 精确文本替换，多个不重叠 edits，生成 diff/patch；
+   - `bash` 支持 cwd、超时、取消、流式输出、截断，完整输出落盘。
+3. **可插拔 operations**：文件/命令操作抽象成 `Operations`，可替换成本地、远程、容器实现。
+4. **RPC/SDK**：JSONL 长驻子进程，适合 Go 后端跨语言集成；也有 TypeScript SDK。
+5. **Session/Compaction/Skills**：会话树、上下文压缩、按需技能；我们已有记忆层，不需要照搬整棵树，但「原始事件保留、上下文可压缩」值得借。
+
+不能照搬：
+
+- PI 没有内置权限系统，默认以启动用户权限运行；项目信任只控制加载哪些资源，不限制工具访问。
+- PI 的安全文档明确说：不要靠 transcript、项目信任、review 变化来建立安全边界。
+- 我们做本地运行时，必须自己补上执行器层的权限与审计。
+
+---
 
 ## 3. 分层
 
@@ -40,36 +51,38 @@
 ┌────────────────────────────────────────────────────┐
 │ 会话层（已有）                                      │
 │ 角色 / 群聊 / 记忆 / 场景 / SSE                     │
-│ 角色可以讨论、拆任务、 review，但不直接握有宿主权限 │
+│ 角色可以讨论、拆任务、review；不等于有执行权限       │
 └──────────────────────┬─────────────────────────────┘
                        │ 用户确认「执行」
 ┌──────────────────────▼─────────────────────────────┐
 │ 工作层（新增）                                      │
 │ Workspace · Run · ToolCall · Approval · Artifact    │
-│ AgentRunner：模型 tool-call 循环 + 事件流            │
+│ AgentRunner：tool-call 循环 + 事件流 + 预算          │
 │ Snapshot / Diff / Revert / Audit                    │
 └──────────────────────┬─────────────────────────────┘
                        │ Executor 接口
 ┌──────────────────────▼─────────────────────────────┐
-│ 运行时层（新增）                                    │
-│ LocalSandbox（仅开发）                              │
-│ DockerSandbox（默认）                               │
-│ RemoteSandbox / Pi RPC sidecar（可选）              │
+│ 运行时层（首版本地）                                │
+│ LocalExecutor（当前用户权限 + 工作区根目录约束）     │
+│ 可选：Docker / Remote / Pi RPC sidecar（以后）       │
 └────────────────────────────────────────────────────┘
 ```
 
 ### 3.1 会话层
 
-现有 `Orchestrator` 保持「角色自主发言」。代码工作室里可以有一个 **operator** 角色负责执行，其他角色做架构/审校/测试建议。operator 的工具调用必须经过工作层，不允许直接 `exec.Command` 宿主命令。
+现有 `Orchestrator` 继续负责角色自主聊天。代码工作室里设一个 **operator** 角色负责执行，其他角色只读和 review。
+
+角色在聊天里说「我来改」不等于真的执行；执行必须经过工作层的 Run + 权限检查。
 
 ### 3.2 工作层
 
-一个 Run 是「一次任务」：
+一次任务是一个 Run：
 
 ```text
 Run
  ├─ workspace_id
  ├─ conversation_id / user_id
+ ├─ operator_agent_key
  ├─ status: queued | running | waiting_approval | done | failed | cancelled
  ├─ step / token / wall-time budgets
  ├─ tool_calls[]
@@ -78,18 +91,9 @@ Run
  └─ artifacts[]
 ```
 
-ToolCall 记录：
-
-```text
-id, run_id, tool, args_json, risk, status,
-started_at, ended_at, exit_code,
-stdout_hash, stderr_hash, output_artifact_id,
-diff, approval_id
-```
-
 ### 3.3 运行时层
 
-`Executor` 统一文件与命令：
+统一 `Executor` 接口：
 
 ```go
 type Executor interface {
@@ -104,71 +108,112 @@ type Executor interface {
 }
 ```
 
-关键点：
+所有工具都走同一个 `Workspace`：
 
-- 所有路径先 `resolve + clean`，必须落在 workspace root 内；拒绝 `..`、绝对路径逃逸、symlink 逃逸。
-- `Run` 不接任意 shell 字符串，优先 `argv[]`；如果必须 shell，走受限 shell + 命令白名单/风险分类。
-- 输出按字节截断，完整输出写 artifact；事件流只发摘要。
-- 每次写文件前记录旧内容 hash，Run 结束生成统一 patch。
+- `root` 是用户选中的本机目录；
+- 所有路径 `Abs + EvalSymlinks + Rel` 校验，拒绝 `..`、绝对路径逃逸、symlink 逃逸；
+- 不读 `$HOME`、`/etc`、密钥文件，除非 root 本身就是那个目录且用户明确授权；
+- 命令默认使用最小环境变量，不继承宿主全部 env。
 
-## 4. 权限矩阵
+---
 
-| 操作 | 默认 | 说明 |
-|---|---|---|
-| 读 workspace 文件 | 自动 | 只读 workspace；不读 `$HOME`、`/etc`、密钥 |
-| 写 workspace 文件 | 自动 + diff | 保留旧版本/快照；UI 可查看 diff |
-| 运行测试/构建 | 自动 | 白名单：`go test/build`、`npm test`、`pytest` 等 |
-| 安装依赖 | 需批准 | `npm install`、`pip install`、`go get` 可能执行 lifecycle script |
-| 联网 | 默认拒绝 | 需要显式 `network=true` 的 sandbox 配置 |
-| 删除大量文件 | 需批准 | 路径/数量/体积阈值 |
-| `git push/reset/clean` | 需批准 | 只允许本地 commit/branch 自动 |
-| 越界路径 | 拒绝 | workspace 外一律拒绝，不弹批准 |
-| 读取密钥/环境变量 | 拒绝/脱敏 | 不把宿主 env 注入；只给最小 env |
-| 启动长时间进程 | 需批准 | 超时/CPU/内存限制 |
+## 4. Agent 权限模型
 
-审批分级：
+### 4.1 三档权限
 
-```text
-auto       读、workspace 内写、白名单测试
-ask        安装依赖、联网、删除、git 破坏性操作
-deny       越界、宿主 shell、docker socket、密钥
+| 权限 | 读 | 写工作区 | 执行命令 | 说明 |
+|---|---|---|---|---|
+| `readonly` | 自动 | 拒绝 | 拒绝 | 架构、审校、测试分析用 |
+| `approval` | 自动 | 自动 + diff | **每次需批准** | 默认 operator |
+| `full` | 自动 | 自动 + diff | 自动 | 用户明确授权的 Agent |
+
+补充：
+
+- `approval` 的写操作默认允许，但会产生 diff 和 snapshot；如果用户希望写也审批，可以在 Workspace 上开 `writeApproval=true`。
+- `full` 仍然受工作区根目录约束；越界路径一律拒绝。宿主级无限制访问不是首版默认，要单独开 `allowHostAccess` 并二次确认。
+- 删除大量文件、`git push/reset/clean`、安装依赖、联网，即使在 `full` 下也建议单独确认；这些是不可逆/高影响动作。
+- 协作者不能把自己的权限改成 `full`；只有群主/工作区所有者能改。
+
+### 4.2 默认角色权限
+
+代码工作室：
+
+- 架构：`readonly`
+- 后端/前端 operator：`approval`（用户可改 `full`）
+- 测试：`readonly`（跑测试命令需要 operator 或批准）
+- 审校：`readonly`
+
+文档工作室：
+
+- 主笔：`approval`
+- 检索/审校：`readonly`
+- 成文/导出：`approval`
+
+### 4.3 审批记录
+
+```go
+type Approval struct {
+    ID, RunID, ToolCallID string
+    AgentKey string
+    Risk     string // run/install/network/delete/git/outside
+    Summary  string
+    Command  string
+    Diff     string
+    Status   string // pending/approved/rejected/expired
+    DecidedBy string
+    DecidedAt time.Time
+}
 ```
 
-## 5. 沙箱
+审批选项：`允许一次`、`本次 Run 允许`、`本次会话允许`（只对同类命令）、`拒绝`。
 
-### 默认：Docker
+---
 
-```text
-docker run --rm \
-  --network none \
-  --read-only \
-  --tmpfs /tmp:rw,noexec,nosuid,size=256m \
-  --user 1000:1000 \
-  --cap-drop ALL \
-  --security-opt no-new-privileges \
-  --pids-limit 256 \
-  --memory 2g --cpus 2 \
-  -v <workspace>:/workspace:rw \
-  -w /workspace \
-  <runner-image>
-```
+## 5. 本地运行时
 
-- 不挂 docker socket；不挂 `$HOME`；不传宿主 secrets。
-- 需要联网时用单独的 network profile，或由宿主代理注入短期凭据。
-- 每个 workspace 一个容器或一个长期容器池；Run 结束销毁/回收。
-- 镜像里预装 Go/Node/Python/常用文档库，按场景选择镜像，避免运行中安装。
+### 5.1 工作区来源
 
-### 开发模式：LocalSandbox
+**首版：桌面端选择本机目录。**
 
-- 只允许本机、单用户、显式 `EXECUTOR=local`。
-- 强制 workspace 根目录，命令白名单，禁止 `sudo`、`ssh`、`curl`、`rm -rf /` 等。
-- UI 明确标「本地开发模式，不具备生产隔离」。
+- 桌面壳（Electron/Tauri）调用原生 folder picker，把绝对路径交给本地 Go 后端；
+- 后端校验目录存在、可读、可写，记录 `Workspace.Root`；
+- 浏览器模式没有原生 picker 时，提供「输入本机路径」输入框，仅允许 localhost 使用；
+- 工作区路径只存在本地，不上传云端。
 
-### 可选：Pi RPC sidecar
+**未来：云端 Git。**
 
-- 在同一个沙箱里跑 `pi --mode rpc --no-session --tools read,write,edit,bash`，Go 通过 JSONL 通信。
-- 优点：成熟工具、skills、compaction；缺点：Node 运行时、协议/会话映射、权限仍要外层包。
-- 定位：P1 的「高级代码执行器」选项，不作为默认。
+- `Workspace.Source = "git"`，记录 repo URL、branch、credential ref；
+- 云端 runner clone 到隔离目录，执行、生成 patch/commit；
+- 本地目录和云端 Git 共用同一套 Run/Tool/Approval/Artifact 模型。
+
+### 5.2 本地执行的风险
+
+本地运行时**没有 OS 隔离**，`full` Agent 能做的操作和当前用户一样多。必须承认这一点。
+
+首版缓解：
+
+- 工作区根目录约束；
+- 命令风险分类 + 审批；
+- 写前 snapshot、写后 diff；
+- 最小 env，不传密钥；
+- 运行日志/审计，记录 agent、命令、退出码、diff；
+- 高风险命令黑名单（`sudo`、`ssh`、`curl | sh`、`rm -rf /`、磁盘格式化、关机等）；
+- 超时、输出上限、进程组清理；
+- 用户二次确认 `full` 权限。
+
+以后需要更强隔离时，再把 `LocalExecutor` 替换成 Docker/VM，接口不变。
+
+### 5.3 命令执行
+
+- 优先 `argv[]`，不直接接任意 shell 字符串；
+- 必须支持 shell 时，走受限 shell，记录完整命令；
+- 默认工作目录 = workspace root；
+- 默认超时 120s，可配置；
+- stdout/stderr 流式回传，超过 256KB 截断，完整输出写 artifact；
+- 取消时杀整个进程组，避免孙进程残留；
+- 不继承宿主全部环境变量，只传 `PATH`、`HOME`（指向 workspace 临时 home）、`LANG` 等最小集合。
+
+---
 
 ## 6. 代码工作室 vs 文档生成
 
@@ -176,22 +221,24 @@ docker run --rm \
 
 1. 用户说需求。
 2. 架构角色拆任务，operator 读取仓库、列文件、搜索。
-3. operator 产出计划（哪些文件、怎么改、怎么测）。
-4. 执行：read → edit → test → 读失败 → 再 edit，最多 N 步。
-5. UI 显示文件 diff、测试输出、artifact；用户可 approve/revert。
-6. 结束：本地 commit 到临时分支，生成 patch；不自动 push。
+3. operator 给出计划：改哪些文件、怎么测。
+4. 执行：read → edit → test → 失败再 edit，最多 N 步。
+5. UI 显示 tool 时间线、文件 diff、测试输出、artifact。
+6. 结束只做本地 commit/生成 patch，**不自动 push**；用户可 approve/revert。
 
 ### 文档生成
 
-- 不必给任意 shell；给 `docx/xlsx/pptx/pdf` 工具包，底层在沙箱里调用 Python 库。
-- 输入：资料文件/网页/对话；输出：artifact + preview。
-- 和代码场景共用 Workspace/Run/Artifact，只是 ToolPack 不同。
-- 生成后返回文件卡片，用户下载；不把二进制塞进聊天消息。
+- 共用 Workspace/Run/Artifact，只换工具包；
+- 工具：`docx_create`、`xlsx_create`、`pptx_create`、`pdf_export`；
+- 底层在本地调用 Python/Go 库，不把二进制塞聊天消息；
+- 生成后返回文件卡片和预览。
+
+---
 
 ## 7. API 草案
 
 ```text
-POST   /v1/workspaces                  创建/导入 workspace（zip 或 git）
+POST   /v1/workspaces                  绑定本机目录 / 未来 git
 GET    /v1/workspaces/{id}/tree
 GET    /v1/workspaces/{id}/file?path=
 POST   /v1/workspaces/{id}/runs        创建任务
@@ -203,23 +250,35 @@ POST   /v1/runs/{id}/revert
 GET    /v1/artifacts/{id}
 ```
 
-- 所有接口按 `user_id` / `conversation_id` 鉴权；workspace 不跨用户。
-- 同一 workspace 同时只允许一个 active Run；排队。
-- Run 事件持久化，刷新后可恢复；不只依赖 SSE 内存。
+- 所有接口按 `user_id` / `conversation_id` 鉴权；
+- 同一 workspace 同时只允许一个 active Run；
+- 事件持久化，刷新后可恢复；
+- Agent 权限在创建 Run 时从会话角色配置读取，服务端强制执行。
+
+---
 
 ## 8. 数据模型
 
 ```go
+type AgentPermission string
+
+const (
+    PermissionReadonly AgentPermission = "readonly"
+    PermissionApproval AgentPermission = "approval"
+    PermissionFull     AgentPermission = "full"
+)
+
 type Workspace struct {
     ID, UserID, ConversationID string
-    Root string          // 沙箱内路径，不暴露宿主绝对路径
-    Sandbox string       // docker | local | remote
+    Source string        // local | git
+    Root   string        // 本地绝对路径；不对外暴露给其他用户
     Status string
     CreatedAt time.Time
 }
 
 type Run struct {
     ID, WorkspaceID, ConversationID, UserID string
+    OperatorAgentKey string
     Task string
     Status string
     Step, MaxSteps int
@@ -227,60 +286,73 @@ type Run struct {
     SnapshotID string
 }
 
-type Approval struct {
-    ID, RunID, ToolCallID string
-    Risk string          // install/network/delete/git
-    Summary string
+type ToolCall struct {
+    ID, RunID, AgentKey, Tool string
+    ArgsJSON string
+    Risk string
+    Status string
+    ExitCode int
+    OutputArtifactID string
     Diff string
-    Status string        // pending/approved/rejected/expired
-}
-
-type Artifact struct {
-    ID, RunID string
-    Path, MIME, SHA256 string
-    Size int64
+    ApprovalID string
 }
 ```
 
+`ConvAgent` / `SavedAgent` 增加：
+
+```go
+Permission AgentPermission `json:"permission,omitempty"` // 缺省按场景默认
+```
+
+---
+
 ## 9. 分阶段落地
 
-### P0（先做，能跑通代码工作室）
+### P0（本地执行器）
 
-- Workspace 创建（zip 上传 + git clone）。
-- Docker sandbox + 只读根 + workspace 挂载。
-- `read/list/glob/grep/write/edit/run`。
-- Run SSE 时间线、diff、snapshot/revert。
-- 命令白名单 + 风险分类；安装/联网/删除审批。
-- 一个 operator 角色调用工具；其他角色只读/建议。
-- 预算：最多 20 步、10 分钟、2GB、2 CPU。
+- 桌面端选择本机目录 / 浏览器输入路径（localhost）。
+- LocalExecutor：`read/list/glob/grep/write/edit/run`。
+- 路径守卫、symlink 守卫、最小 env。
+- Agent 权限三档，服务端强制执行。
+- 命令审批：`approval` 每次弹批准；`full` 直接执行；`readonly` 拒绝。
+- Run SSE + tool 时间线 + diff + snapshot/revert。
+- 一个 operator 角色；其他角色只读。
+- 预算：20 步、10 分钟、输出 256KB/工具。
 
 ### P1
 
-- `git` 工具（status/diff/commit/branch）。
-- 测试结果结构化（失败用例/堆栈）。
 - 文档工具包（docx/xlsx/pptx/pdf）+ artifact 预览。
-- 审批 UI、运行历史、取消/重试。
-- 可选 Pi RPC sidecar（容器内）。
+- Git 工具：status/diff/commit/branch；push 仍需批准。
+- 审批「本次 Run/会话允许」。
+- 运行历史、取消/重试。
+- 可选 Docker 执行器（同一接口）。
 
 ### P2
 
-- Skills/MCP：按场景加载工具包。
+- 云端 Git workspace + 远程 runner。
+- Skills/MCP 按场景加载。
 - 多角色 review：架构/测试/审校只读，operator 写。
-- 远程 runner / 队列 / 配额。
-- 记忆：只记决策、文件、测试结论和 artifact，不记全量 tool 输出。
+- 配额、审计导出、团队权限。
+
+---
 
 ## 10. 关键取舍
 
-1. **不把 PI 直接当产品内核**：它是很好的参考和可选执行器，但默认无权限系统；我们的多用户产品必须自己包一层。
-2. **不把 shell 字符串直接给模型**：优先结构化 argv；shell 仅作为受限兼容层。
-3. **不让所有角色都有写权限**：operator 一个写，其他 review；减少并发冲突和误操作。
-4. **不自动 push**：Run 结束只产生本地 commit/patch；push 是人工动作。
-5. **不把二进制塞 DB/聊天**：artifact 独立存储、hash、下载/预览。
+1. **本地运行时不做假隔离**：它是用户权限，不是沙箱；权限靠执行器强制。
+2. **不把 shell 字符串直接给模型**：优先 argv；shell 仅作兼容层。
+3. **不让所有角色都有写权限**：operator 写，其他 review。
+4. **不自动 push**：Run 结束只产生本地 commit/patch。
+5. **不把二进制塞聊天/DB**：artifact 独立存储、hash、预览/下载。
+6. **不把 Docker 作为首版默认**：本地运行优先；Docker 作为以后的隔离选项。
 
-## 11. 需要产品确认的三个默认值
+---
 
-- Workspace 来源：默认 **zip 上传 + git clone**，不做宿主目录挂载。
-- 默认运行时：**Docker**；本地模式只给开发机。
-- 代码工作室默认：**workspace 内写自动 + 高风险命令审批**；不默认每次写都弹窗。
+## 11. 已确认的默认值
 
-如果这三个默认值 OK，P0 可以直接按上面的接口和工具集落地。
+- 工作区：**桌面端选本机目录**；未来加云端 Git。
+- 运行时：**本地进程**，参考 PI-agent；Docker 以后可选。
+- 权限：**每个 Agent 可选 `readonly` / `approval` / `full`**；服务端强制执行，不靠提示词。
+- 写操作：**工作区内自动 + diff/snapshot**；命令按权限审批。
+- `full`：**工作区内完全访问**；越界路径仍拒绝，宿主级无限制访问需单独开关 + 二次确认。
+
+下一步就是 P0：先把 Workspace + LocalExecutor + 三档权限 + 审批/快照跑通，再接 operator 的 tool loop 和 UI。
