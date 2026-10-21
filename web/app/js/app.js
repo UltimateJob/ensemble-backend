@@ -228,7 +228,7 @@ function renderOnboard() {
     {
       done: state.library.length > 0,
       text: '造一个自己的角色',
-      hint: '场景页 <em>自己造角色</em>',
+      hint: '场景页 <em>添加角色</em>',
     },
     {
       done: state.scenarios.some(s => s.custom),
@@ -278,7 +278,7 @@ function renderLibPick() {
   if (!box) return;
   if (!state.library.length) {
     box.innerHTML = `<div class="lib-box"><div class="lib-head"><b>我的角色</b></div>
-      <div class="lib-empty">还没有存过角色。点下面「自己造角色」，生成后存入角色库，这里就能勾选。</div></div>`;
+      <div class="lib-empty">还没有存过角色。点下面「添加角色」——从角色库挑，或者自己造一个，存进来就能在这里勾选。</div></div>`;
     return;
   }
   box.innerHTML = `<div class="lib-box">

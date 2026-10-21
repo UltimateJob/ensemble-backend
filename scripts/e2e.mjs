@@ -234,6 +234,10 @@ async function run() {
     ok('「添加角色」按钮文案与实际能力一致', await cdp.eval(
       'document.querySelector("#openForge").textContent.trim() === "添加角色"'
     ));
+    // 改过名字的按钮，引导文案里也不能还留着旧名字
+    ok('界面上没有过时的「自己造角色」文案', await cdp.eval(
+      '!document.body.textContent.includes("自己造角色")'
+    ));
 
     ok('场景页有「官方给的」分区', await cdp.eval(
       '[...document.querySelectorAll(".scene-sec")].some(e => e.textContent.includes("官方"))'

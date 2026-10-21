@@ -214,6 +214,18 @@ type Provider interface {
 
 ---
 
+## 走查
+
+自动化测试验证「点了有反应」，走查问的是「知道该点哪里」。
+
+```bash
+node scripts/walk.mjs
+```
+
+开一个新号，从登录走到第一次说话，每步把界面上的东西打印出来，关键时刻截图。不做断言——判断留给人。
+
+这个项目里走了三次，抓到七个问题，没有一个能被 E2E 发现。方法记在 [docs/walkthrough.md](docs/walkthrough.md)。
+
 ## 为什么这么做
 
 设计判断记在 [docs/decisions.md](docs/decisions.md) 里：沉默为什么是一等公民、拉角色进群为什么是复制、假的在线状态为什么比没有更糟、轮次线为什么做得那么淡、为什么单实例而不是分布式。

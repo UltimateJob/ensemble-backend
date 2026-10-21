@@ -36,6 +36,10 @@ concurrent:
 resilience:
 	@node scripts/resilience.mjs
 
+# 新用户走查（不是测试，输出给人看）
+walk:
+	@node scripts/walk.mjs
+
 # 界面完整性：按钮/菜单项/图标都有活的逻辑
 audit:
 	@python3 scripts/audit-ui.py
