@@ -28,10 +28,17 @@ test-live:
 quality:
 	@node scripts/quality.mjs
 
+# 长时间运行 / 并发
+soak:
+	@ROUNDS=100 node scripts/soak.mjs
+concurrent:
+	@USERS=20 ROUNDS=2 node scripts/concurrent.mjs
+
 # 浏览器端到端
 e2e:
 	@node scripts/e2e.mjs
 	@node scripts/e2e-mobile.mjs
+	@node scripts/multi-tab.mjs
 
 clean:
 	rm -rf bin data

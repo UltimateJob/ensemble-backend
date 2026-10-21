@@ -393,7 +393,9 @@ function UI_confirm_delete(conv) {
 
 /* ---------------- 发送（核心） ---------------- */
 export async function send() {
-  if (state.busy || !state.cur) return;
+  // 上一轮还没结束就静默 return 的话，用户点了发送却毫无反应，会以为卡死了
+  if (state.busy) { toast('还在说，等这一轮结束'); return; }
+  if (!state.cur) { toast('先选一个群'); return; }
   const ta = $('#ta');
   const text = ta.value.trim();
   if (!text) return;
