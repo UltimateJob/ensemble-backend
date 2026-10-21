@@ -273,6 +273,10 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	if maxSpeakers > len(agents) {
 		maxSpeakers = len(agents)
 	}
+	// 用户明确说「每个人/所有人」时，别只让五个人代表全船。
+	if wantsAll(anchor) {
+		maxSpeakers = len(agents)
+	}
 
 	spoken := map[string]bool{}
 	speakers := 0
