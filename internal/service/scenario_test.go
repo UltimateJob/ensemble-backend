@@ -186,3 +186,30 @@ func TestStreamBufferStripsPrefix(t *testing.T) {
 		}
 	}
 }
+
+// 沉默门槛的行为约定。
+// 之前规则写的是「你有权保持沉默」，结果专业角色（审校、交付、后端、
+// 前端、测试）开口率是 0%——负责人霸占所有发言，多角色协作名存实亡。
+// 改成「默认开口，只有两种情况才 PASS」之后，实测各角色都能从自己的
+// 职责角度补充具体内容。
+func TestSilenceRuleIsNotTooPermissive(t *testing.T) {
+	src, err := os.ReadFile("orchestrator.go")
+	if err != nil {
+		t.Skip("读不到源码")
+	}
+	code := string(src)
+
+	// 必须明确「默认开口」，而不是「有权沉默」
+	if !strings.Contains(code, "轮到你时默认开口") {
+		t.Fatal("沉默规则应该以「默认开口」为基线")
+	}
+	// 必须给出「从你的职责角度补一句」的具体指引，
+	// 否则专业角色仍然会觉得自己没话可说
+	if !strings.Contains(code, "从你的职责角度补一句具体的") {
+		t.Fatal("缺少让专业角色从职责角度发言的指引")
+	}
+	// 不能只有「有权沉默」而没有反面提醒
+	if !strings.Contains(code, "沉默不是安全选项") {
+		t.Fatal("应该提醒模型沉默不是安全选项")
+	}
+}
