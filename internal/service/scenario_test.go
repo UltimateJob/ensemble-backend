@@ -165,3 +165,24 @@ func TestStripPrefixInRandomScene(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamBufferStripsPrefix(t *testing.T) {
+	// 流式缓冲到 8 个字符时就要判断前缀，不能等流结束——
+	// 否则用户会先看到「工头：」再看到它消失。
+	sc := Scenario{Agents: []Agent{{Key: "a", Name: "工头"}, {Key: "b", Name: "查证"}}}
+	self := Agent{Key: "a", Name: "工头"}
+
+	// 缓冲区里是前 8 个字符的样子
+	cases := map[string]string{
+		"工头：卡在哪一步":   "卡在哪一步",
+		"工头: 卡在哪一步":  "卡在哪一步",
+		"卡在哪一步先说清":   "卡在哪一步先说清",
+		"[PASS] 我不懂": "", // looksLikePass 会拦住，这里只验证前缀函数不 panic
+	}
+	for in, want := range cases {
+		got := stripSpeakerPrefix(in, sc, self)
+		if want != "" && got != want {
+			t.Fatalf("stripSpeakerPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

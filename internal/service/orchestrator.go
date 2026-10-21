@@ -305,12 +305,19 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 			if flushed {
 				emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: chunk.Content})
 			} else {
-				// 先缓冲，确认不是 [PASS] 再开始推流
+				// 先缓冲，确认不是 [PASS]、也不是「某某：」这种说话人前缀，
+				// 再开始推流。
+				//
+				// 只靠结尾清理的话，用户会先看到「工头：卡在哪一步」，
+				// 然后这几个字突然消失——比一开始就不显示更难看。
 				pending.WriteString(chunk.Content)
-				if pending.Len() >= 6 {
+				if pending.Len() >= 8 {
 					if !looksLikePass(pending.String()) {
+						head := stripSpeakerPrefix(pending.String(), sc, agent)
 						flushed = true
-						emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: pending.String()})
+						if head != "" {
+							emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: head})
+						}
 						pending.Reset()
 					}
 				}
