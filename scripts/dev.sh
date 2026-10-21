@@ -22,6 +22,21 @@ else
 fi
 
 ADDR_VAL="${ADDR:-:8080}"
+
+# 端口被占用时给一句人话，而不是让用户盯着 "address already in use"
+PORT_NUM="${ADDR_VAL##*:}"
+if command -v lsof >/dev/null 2>&1; then
+  BUSY=$(lsof -ti:"$PORT_NUM" 2>/dev/null | head -1 || true)
+  if [ -n "$BUSY" ]; then
+    echo ""
+    echo "  端口 ${PORT_NUM} 已被占用（PID ${BUSY}）。"
+    echo "  要么先停掉它：  kill ${BUSY}"
+    echo "  要么换个端口：  ADDR=:8081 ./scripts/dev.sh"
+    echo ""
+    exit 1
+  fi
+fi
+
 echo ""
 echo "  客户端   http://localhost${ADDR_VAL}/app/"
 echo "  运维台   http://localhost${ADDR_VAL}/admin/   token: ${ADMIN_TOKEN:-admin-dev-token}"

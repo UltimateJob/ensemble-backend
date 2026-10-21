@@ -38,6 +38,14 @@ DEEPSEEK_API_KEY=sk-... ./scripts/dev.sh
 | http://localhost:8080/admin/ | 运维台（token `admin-dev-token`） |
 | http://localhost:8080/healthz | 健康检查 |
 
+端口被占用时会给一句人话（而不是让你盯着 `address already in use`）：
+
+```
+端口 8080 已被占用（PID 76490）。
+要么先停掉它：  kill 76490
+要么换个端口：  ADDR=:8081 ./scripts/dev.sh
+```
+
 其他命令：
 
 ```bash
