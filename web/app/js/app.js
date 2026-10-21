@@ -422,6 +422,7 @@ $('#sceneCreate').addEventListener('click', async () => {
   if (!sc) return;
   const title = await uiPrompt('给这个群起个名字', sc.name, {
     okText: '创建', placeholder: '群名',
+    hint: '不改也行，直接用场景名。之后在群菜单里还能改。',
   });
   if (title === null) return;
   try {
@@ -636,6 +637,7 @@ $('#forgeDone').addEventListener('click', async () => {
   if (!forged.length) return;
   const title = await uiPrompt('给这个群起个名字', forged.map(a => a.name).join('、'), {
     okText: '创建', placeholder: '群名',
+    hint: '不改也行，用的是角色名。之后还能改。',
   });
   if (title === null) return;
   try {

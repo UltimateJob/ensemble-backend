@@ -46,6 +46,13 @@ export async function openConv(id) {
   $('#crumbName').textContent = conv.title;
   setChatStatus('');
   setDocTitle(conv.title, false);
+
+  // 工作场景说「派活」，闲聊场景说「随便聊聊」——同一个 placeholder 套所有场景会很怪
+  const ta = $('#ta');
+  if (ta) {
+    const fun = conv.studio === 'companion' || conv.studio === 'anime';
+    ta.placeholder = fun ? '随便聊聊，或者说说今天怎么样' : '说点什么，或者直接派活…';
+  }
   renderMembers();
   renderPipeline(true);
 
@@ -510,6 +517,10 @@ export async function runRound(path, body, opts = {}) {
     markRoundEnd($('#msgWrap'));
     scrollBottom();
     loadConvs();
+    // 一轮结束就把焦点还给输入框：用户看完最想做的事是说话，
+    // 让他再点一次输入框是多此一举
+    const box = $('#ta');
+    if (box && !box.disabled && document.activeElement === document.body) box.focus();
     if (opts.onDone) opts.onDone();
   }
 }

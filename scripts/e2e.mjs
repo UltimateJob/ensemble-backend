@@ -275,6 +275,13 @@ async function run() {
     await cdp.waitFor('document.querySelector("#msgs").style.display !== "none"', 15000, '聊天区打开');
     ok('聊天区已打开', true);
 
+    // 「开场结束后焦点在输入框」这条不在这里断言：
+    // headless 下窗口无焦点时 focus() 不生效（和 beforeunload 一样），
+    // 走查脚本在活动窗口里验证过是好的。
+    // 闲聊场景不该说「派活」
+    const ph = await cdp.eval('document.querySelector("#ta").placeholder');
+    ok(`闲聊场景的提示语合适（${ph}）`, !ph.includes('派活'));
+
     const members = await cdp.eval('document.querySelectorAll("#memberList .member").length');
     ok(`成员面板有角色（${members} 个）`, members >= 2);
 
