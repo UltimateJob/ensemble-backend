@@ -577,6 +577,11 @@ export async function send() {
   const ta = $('#ta');
   const text = ta.value.trim();
   if (!text) return;
+  // 后端上限 4000 字。前端先拦一道，省得用户打完才被拒。
+  if ([...text].length > 4000) {
+    toast('太长了，最多 4000 字。拆成几条发更好');
+    return;
+  }
 
   ta.value = '';
   ta.style.height = 'auto';

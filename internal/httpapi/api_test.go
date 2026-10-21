@@ -820,3 +820,44 @@ func TestMetricsEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// 异常输入：空白、超长、非法 JSON
+func TestOrchestrateInputValidation(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "输入校验", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	cases := []struct {
+		name    string
+		content string
+		want    int
+	}{
+		{"空字符串", "", 400},
+		{"只有空格", "     ", 400},
+		{"只有换行", "\n\n\t", 400},
+		{"超长（5000 字）", strings.Repeat("长", 5000), 400},
+		{"正常", "这是一句正常的话", 200},
+	}
+	for _, c := range cases {
+		rec, _ := doJSON(t, h, "POST", "/v1/conversations/"+convID+"/orchestrate", token,
+			map[string]interface{}{"content": c.content})
+		if rec.Code != c.want {
+			t.Fatalf("%s：期望 %d，得到 %d（%s）", c.name, c.want, rec.Code, rec.Body.String())
+		}
+	}
+
+	// 非法 JSON 不能 500
+	req := httptest.NewRequest("POST", "/v1/conversations/"+convID+"/orchestrate",
+		strings.NewReader("{bad json"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("非法 JSON 应 400，得到 %d", rec.Code)
+	}
+}
