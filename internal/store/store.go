@@ -1,0 +1,296 @@
+// Package store 定义存储接口与内存实现。
+// 生产接入 PostgreSQL 只需实现同一接口，上层不动。
+package store
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/UltimateJob/ensemble-backend/internal/domain"
+)
+
+// Store 所有持久化能力的集合。
+type Store interface {
+	// 用户
+	CreateUser(u *domain.User) error
+	GetUser(id string) (*domain.User, bool)
+	GetUserByPhone(phone string) (*domain.User, bool)
+	GetUserByEmail(email string) (*domain.User, bool)
+	ListUsers() []*domain.User
+	UpdateUser(u *domain.User) error
+
+	// 会话
+	CreateConv(c *domain.Conversation) error
+	GetConv(id string) (*domain.Conversation, bool)
+	ListConvs(userID string) []*domain.Conversation
+	UpdateConv(c *domain.Conversation) error
+	DeleteConv(id string) error
+
+	// 消息
+	AppendMessage(m *domain.Message) error
+	ListMessages(convID string, limit int) []*domain.Message
+
+	// 审计
+	AppendAudit(a *domain.AuditLog) error
+	ListAudit(limit int) []*domain.AuditLog
+
+	// 记录（互动/事件）
+	AppendEvent(e *domain.Event) error
+	ListEvents(kind string, limit int) []*domain.Event
+}
+
+// Memory 进程内实现，带读写锁。重启即清空，用于首版与本地演示。
+type Memory struct {
+	mu     sync.RWMutex
+	users  map[string]*domain.User
+	convs  map[string]*domain.Conversation
+	msgs   []*domain.Message
+	audits []*domain.AuditLog
+	events []*domain.Event
+}
+
+func NewMemory() *Memory {
+	return &Memory{
+		users: make(map[string]*domain.User),
+		convs: make(map[string]*domain.Conversation),
+	}
+}
+
+// NewID 生成短 ID。
+func NewID(prefix string) string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return prefix + "_" + hex.EncodeToString(b)
+}
+
+func (m *Memory) CreateUser(u *domain.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if u.ID == "" {
+		u.ID = NewID("u")
+	}
+	if u.CreatedAt.IsZero() {
+		u.CreatedAt = time.Now()
+	}
+	cp := *u
+	m.users[u.ID] = &cp
+	return nil
+}
+
+func (m *Memory) GetUser(id string) (*domain.User, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	u, ok := m.users[id]
+	if !ok {
+		return nil, false
+	}
+	cp := *u
+	return &cp, true
+}
+
+func (m *Memory) GetUserByPhone(phone string) (*domain.User, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, u := range m.users {
+		if u.Phone == phone && phone != "" {
+			cp := *u
+			return &cp, true
+		}
+	}
+	return nil, false
+}
+
+func (m *Memory) GetUserByEmail(email string) (*domain.User, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, u := range m.users {
+		if u.Email == email && email != "" {
+			cp := *u
+			return &cp, true
+		}
+	}
+	return nil, false
+}
+
+func (m *Memory) ListUsers() []*domain.User {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*domain.User, 0, len(m.users))
+	for _, u := range m.users {
+		cp := *u
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+func (m *Memory) UpdateUser(u *domain.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *u
+	m.users[u.ID] = &cp
+	return nil
+}
+
+func (m *Memory) CreateConv(c *domain.Conversation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c.ID == "" {
+		c.ID = NewID("c")
+	}
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = time.Now()
+	}
+	c.UpdatedAt = c.CreatedAt
+	cp := *c
+	m.convs[c.ID] = &cp
+	return nil
+}
+
+func (m *Memory) GetConv(id string) (*domain.Conversation, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, ok := m.convs[id]
+	if !ok {
+		return nil, false
+	}
+	cp := *c
+	return &cp, true
+}
+
+func (m *Memory) ListConvs(userID string) []*domain.Conversation {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*domain.Conversation, 0)
+	for _, c := range m.convs {
+		if userID == "" || c.UserID == userID {
+			cp := *c
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out
+}
+
+func (m *Memory) UpdateConv(c *domain.Conversation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c.UpdatedAt = time.Now()
+	cp := *c
+	m.convs[c.ID] = &cp
+	return nil
+}
+
+func (m *Memory) DeleteConv(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.convs, id)
+	filtered := m.msgs[:0]
+	for _, msg := range m.msgs {
+		if msg.ConversationID != id {
+			filtered = append(filtered, msg)
+		}
+	}
+	m.msgs = filtered
+	return nil
+}
+
+func (m *Memory) AppendMessage(msg *domain.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if msg.ID == "" {
+		msg.ID = NewID("m")
+	}
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now()
+	}
+	cp := *msg
+	m.msgs = append(m.msgs, &cp)
+	return nil
+}
+
+func (m *Memory) ListMessages(convID string, limit int) []*domain.Message {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*domain.Message
+	for _, msg := range m.msgs {
+		if msg.ConversationID == convID {
+			cp := *msg
+			out = append(out, &cp)
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
+func (m *Memory) AppendAudit(a *domain.AuditLog) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if a.ID == "" {
+		a.ID = NewID("a")
+	}
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now()
+	}
+	cp := *a
+	m.audits = append(m.audits, &cp)
+	if len(m.audits) > 5000 {
+		m.audits = m.audits[len(m.audits)-5000:]
+	}
+	return nil
+}
+
+func (m *Memory) ListAudit(limit int) []*domain.AuditLog {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := len(m.audits)
+	start := 0
+	if limit > 0 && n > limit {
+		start = n - limit
+	}
+	out := make([]*domain.AuditLog, 0, n-start)
+	for i := n - 1; i >= start; i-- {
+		cp := *m.audits[i]
+		out = append(out, &cp)
+	}
+	return out
+}
+
+func (m *Memory) AppendEvent(e *domain.Event) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e.ID == "" {
+		e.ID = NewID("e")
+	}
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = time.Now()
+	}
+	cp := *e
+	m.events = append(m.events, &cp)
+	if len(m.events) > 10000 {
+		m.events = m.events[len(m.events)-10000:]
+	}
+	return nil
+}
+
+func (m *Memory) ListEvents(kind string, limit int) []*domain.Event {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []*domain.Event
+	for i := len(m.events) - 1; i >= 0; i-- {
+		e := m.events[i]
+		if kind == "" || e.Kind == kind {
+			cp := *e
+			out = append(out, &cp)
+			if limit > 0 && len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out
+}

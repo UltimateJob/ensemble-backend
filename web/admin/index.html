@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>运维台 · 合奏</title>
+<style>
+:root{
+  --bg:#F3F4F7; --card:rgba(255,255,255,.97); --line:#E3E3E9; --line2:#D6D6DE;
+  --tx:#0D0D10; --tx2:#47474F; --tx3:#77777F; --tx4:#A5A5AE;
+  --pri:#4F46E5; --pri2:#7C3AED; --grad:linear-gradient(135deg,#4F46E5,#7C3AED);
+  --ok:#059669; --okbg:rgba(5,150,105,.09);
+  --warn:#D97706; --warnbg:rgba(217,119,6,.11);
+  --bad:#DC2626; --badbg:rgba(220,38,38,.08);
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:
+    radial-gradient(70% 60% at 10% -6%, rgba(196,202,222,.46), transparent 66%),
+    radial-gradient(60% 50% at 96% 100%, rgba(226,220,210,.38), transparent 66%),
+    var(--bg);
+  background-attachment:fixed;
+  font:13px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--tx); min-height:100vh;
+}
+button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select{font-family:inherit}
+a{color:inherit;text-decoration:none}
+
+/* 登录 */
+.login{
+  min-height:100vh; display:grid; place-items:center;
+}
+.login-card{
+  width:360px; padding:30px 28px 26px;
+  background:var(--card); border:1px solid var(--line); border-radius:16px;
+  box-shadow:0 30px 70px -30px rgba(20,20,40,.28), inset 0 1px 0 #fff;
+}
+.logo{display:flex;align-items:center;gap:9px;margin-bottom:22px}
+.logo i{
+  width:28px;height:28px;border-radius:9px;background:var(--grad);color:#fff;
+  display:grid;place-items:center;font-size:12px;font-weight:600;font-style:normal;
+  box-shadow:0 4px 12px -4px rgba(79,70,229,.5);
+}
+.logo b{font-size:14px;font-weight:600}
+.logo span{margin-left:auto;font-size:10px;color:var(--tx4);letter-spacing:.14em;text-transform:uppercase}
+.fld{margin-bottom:14px}
+.fld label{display:block;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tx4);margin-bottom:6px}
+.fld input{
+  width:100%;height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:10px;
+  font-size:13px;background:#fff;color:var(--tx);
+}
+.fld input:focus{outline:0;border-color:var(--pri);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+.btn{
+  height:40px;padding:0 18px;border-radius:10px;font-size:13px;font-weight:500;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+}
+.btn-grad{background:var(--grad);color:#fff;width:100%;box-shadow:0 8px 20px -10px rgba(79,70,229,.6)}
+.btn-line{border:1px solid var(--line2);background:#fff;color:var(--tx2)}
+.btn-line:hover{color:var(--tx)}
+.btn-sm{height:30px;padding:0 12px;border-radius:8px;font-size:12px}
+
+/* 布局 */
+.app{display:none}
+.app.on{display:block}
+.nav{
+  height:56px;display:flex;align-items:center;gap:22px;padding:0 28px;
+  background:rgba(255,255,255,.78);backdrop-filter:blur(24px);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:50;
+}
+.nav .logo{margin:0}
+.tabs{display:flex;gap:4px;margin-left:14px}
+.tab{
+  padding:7px 14px;border-radius:8px;font-size:12.5px;color:var(--tx3);
+}
+.tab:hover{background:rgba(255,255,255,.7);color:var(--tx)}
+.tab.on{background:#fff;color:var(--tx);font-weight:600;box-shadow:0 1px 2px rgba(20,20,40,.06), inset 0 1px 0 #fff}
+.nav-r{margin-left:auto;display:flex;align-items:center;gap:10px}
+.live{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--tx3)}
+.live i{width:6px;height:6px;border-radius:99px;background:var(--ok);box-shadow:0 0 0 3px var(--okbg)}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 28px 60px}
+.page{display:none}
+.page.on{display:block}
+
+/* 卡片 */
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g2{grid-template-columns:1.4fr 1fr}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;box-shadow:inset 0 1px 0 #fff, 0 10px 26px -22px rgba(20,20,40,.3);
+}
+.card-h{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.card-h h3{font-size:13px;font-weight:600}
+.card-h .r{margin-left:auto;font-size:11px;color:var(--tx4)}
+.metric .k{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tx4)}
+.metric .v{font-size:26px;font-weight:600;letter-spacing:-.03em;margin-top:6px;font-variant-numeric:tabular-nums}
+.metric .s{font-size:11px;color:var(--tx4);margin-top:3px}
+.metric .v.bad{color:var(--bad)}
+
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{
+  text-align:left;font-size:10px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--tx4);padding:0 10px 9px;border-bottom:1px solid var(--line);
+}
+td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr:hover td{background:rgba(255,255,255,.6)}
+.num{font-variant-numeric:tabular-nums;text-align:right;font-family:var(--mono);font-size:12px}
+.mono{font-family:var(--mono);font-size:11.5px;color:var(--tx2)}
+
+/* 徽章 */
+.b{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;display:inline-block}
+.b-ok{background:var(--okbg);color:var(--ok)}
+.b-warn{background:var(--warnbg);color:var(--warn)}
+.b-bad{background:var(--badbg);color:var(--bad)}
+.b-gray{background:rgba(120,130,170,.09);color:var(--tx3)}
+.b-pri{background:rgba(79,70,229,.08);color:var(--pri)}
+
+/* 开关 */
+.sw{position:relative;width:34px;height:20px;border-radius:99px;background:#D6D6DE;transition:.18s}
+.sw.on{background:var(--pri)}
+.sw::after{
+  content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.2);
+}
+.sw.on::after{left:16px}
+
+/* 上游卡片 */
+.prov{padding:15px 16px;border:1px solid var(--line);border-radius:12px;background:#fff;margin-bottom:10px}
+.prov-h{display:flex;align-items:center;gap:9px}
+.prov-n{font-size:13px;font-weight:600}
+.prov-st{margin-left:auto}
+.prov-stats{display:flex;gap:18px;margin-top:12px}
+.prov-stats div{font-size:11px;color:var(--tx4)}
+.prov-stats b{display:block;font-size:15px;color:var(--tx);font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+
+/* 提示 */
+.toast{
+  position:fixed;left:50%;bottom:30px;transform:translate(-50%,12px);
+  background:rgba(20,20,32,.93);color:#fff;padding:10px 18px;border-radius:99px;
+  font-size:12.5px;opacity:0;visibility:hidden;transition:.22s;z-index:200;
+}
+.toast.on{opacity:1;visibility:visible;transform:translate(-50%,0)}
+.empty{padding:34px;text-align:center;font-size:12.5px;color:var(--tx4)}
+.err-box{
+  padding:12px 14px;border-radius:10px;background:var(--badbg);
+  border:1px solid rgba(220,38,38,.2);color:#B91C1C;font-size:12.5px;margin-bottom:12px;
+}
+input.inline{
+  height:30px;width:78px;padding:0 8px;border:1px solid var(--line2);border-radius:7px;
+  font-size:12px;text-align:right;font-variant-numeric:tabular-nums;
+}
+input.inline:focus{outline:0;border-color:var(--pri)}
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div class="login" id="login">
+  <div class="login-card">
+    <div class="logo"><i>合</i><b>合奏运维台</b><span>Admin</span></div>
+    <div class="fld">
+      <label>管理员令牌</label>
+      <input id="token" type="password" placeholder="admin-dev-token" autocomplete="off">
+    </div>
+    <div id="loginErr" class="err-box" style="display:none"></div>
+    <button class="btn btn-grad" id="loginBtn">进入</button>
+    <p style="margin-top:14px;font-size:11px;color:#A5A5AE;text-align:center">
+      通过 ADMIN_TOKEN 环境变量配置
+    </p>
+  </div>
+</div>
+
+<!-- 主体 -->
+<div class="app" id="app">
+  <div class="nav">
+    <div class="logo"><i>合</i><b>合奏</b><span style="margin-left:6px;font-size:10px;color:#A5A5AE;letter-spacing:.12em">OPS</span></div>
+    <div class="tabs">
+      <button class="tab on" data-p="dash">总览</button>
+      <button class="tab" data-p="models">模型</button>
+      <button class="tab" data-p="users">用户</button>
+      <button class="tab" data-p="logs">日志</button>
+    </div>
+    <div class="nav-r">
+      <div class="live"><i></i><span id="liveTxt">运行中</span></div>
+      <button class="btn btn-line btn-sm" id="logout">退出</button>
+    </div>
+  </div>
+
+  <div class="wrap">
+
+    <!-- 总览 -->
+    <div class="page on" id="p-dash">
+      <div class="grid g4" style="margin-bottom:12px">
+        <div class="card metric">
+          <div class="k">请求总数</div>
+          <div class="v" id="mReq">—</div>
+          <div class="s" id="mReqSub">—</div>
+        </div>
+        <div class="card metric">
+          <div class="k">错误</div>
+          <div class="v" id="mErr">—</div>
+          <div class="s" id="mErrSub">—</div>
+        </div>
+        <div class="card metric">
+          <div class="k">平均延迟</div>
+          <div class="v" id="mLat">—</div>
+          <div class="s" id="mLatSub">—</div>
+        </div>
+        <div class="card metric">
+          <div class="k">Token 用量</div>
+          <div class="v" id="mTok">—</div>
+          <div class="s" id="mTokSub">—</div>
+        </div>
+      </div>
+
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-h"><h3>上游健康</h3><span class="r" id="provAt">—</span></div>
+          <div id="provList"></div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3>业务概览</h3></div>
+          <table>
+            <tr><td>用户总数</td><td class="num" id="sUsers">—</td></tr>
+            <tr><td>24h 活跃</td><td class="num" id="sActive">—</td></tr>
+            <tr><td>会话数</td><td class="num" id="sConvs">—</td></tr>
+            <tr><td>消息数</td><td class="num" id="sMsgs">—</td></tr>
+            <tr><td>模型数</td><td class="num" id="sModels">—</td></tr>
+            <tr><td>运行时长</td><td class="num" id="sUptime">—</td></tr>
+            <tr><td>版本</td><td class="num" id="sVer">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h3>模型用量（Token）</h3><span class="r">按会话累计</span></div>
+        <table><thead><tr><th>模型</th><th style="text-align:right">Token</th></tr></thead>
+          <tbody id="usageBody"></tbody></table>
+      </div>
+    </div>
+
+    <!-- 模型 -->
+    <div class="page" id="p-models">
+      <div class="card">
+        <div class="card-h">
+          <h3>模型路由表</h3>
+          <span class="r">权重决定加权轮询比例</span>
+          <button class="btn btn-line btn-sm" id="addModel" style="margin-left:12px">新增</button>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Key</th><th>Provider</th><th>上游模型</th>
+            <th style="text-align:right">权重</th><th style="text-align:right">单价/1K</th>
+            <th>状态</th><th style="width:60px"></th>
+          </tr></thead>
+          <tbody id="modelBody"></tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h3>熔断状态</h3><span class="r">连续失败自动打开，超时后自动试探</span></div>
+        <div id="breakerList"></div>
+      </div>
+    </div>
+
+    <!-- 用户 -->
+    <div class="page" id="p-users">
+      <div class="card">
+        <div class="card-h"><h3>用户</h3><span class="r" id="userCount">—</span></div>
+        <table>
+          <thead><tr>
+            <th>用户</th><th>登录标识</th><th>套餐</th>
+            <th style="text-align:right">额度</th><th style="text-align:right">已用</th>
+            <th>状态</th><th style="width:150px">操作</th>
+          </tr></thead>
+          <tbody id="userBody"></tbody>
+        </table>
+        <div class="empty" id="userEmpty" style="display:none">还没有用户。让前端走一次登录就会出现。</div>
+      </div>
+    </div>
+
+    <!-- 日志 -->
+    <div class="page" id="p-logs">
+      <div class="card">
+        <div class="card-h"><h3>操作审计</h3><span class="r">最近 200 条</span></div>
+        <table>
+          <thead><tr><th>时间</th><th>操作</th><th>对象</th><th>来源</th></tr></thead>
+          <tbody id="auditBody"></tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h3>用户行为</h3><span class="r">登录 / 对话 / 审批</span></div>
+        <table>
+          <thead><tr><th>时间</th><th>类型</th><th>用户</th><th>目标</th></tr></thead>
+          <tbody id="eventBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const urlToken = new URLSearchParams(location.search).get('token');
+  let token = urlToken || localStorage.getItem('ens_admin') || '';
+  if(urlToken) localStorage.setItem('ens_admin', urlToken);
+  let timer = null;
+
+  function toast(msg){
+    const t = $('#toast');
+    t.textContent = msg; t.classList.add('on');
+    setTimeout(()=> t.classList.remove('on'), 1800);
+  }
+
+  async function api(path, opt){
+    opt = opt || {};
+    const res = await fetch('/admin/api' + path, {
+      method: opt.method || 'GET',
+      headers: Object.assign({
+        'X-Admin-Token': token,
+        'Content-Type': 'application/json'
+      }, opt.headers || {}),
+      body: opt.body ? JSON.stringify(opt.body) : undefined
+    });
+    const json = await res.json().catch(()=>({}));
+    if(!res.ok || json.ok === false){
+      const msg = (json.error && json.error.message) || ('HTTP ' + res.status);
+      throw new Error(msg);
+    }
+    return json.data;
+  }
+
+  /* ---- 登录 ---- */
+  async function login(){
+    const v = $('#token').value.trim();
+    if(!v) return;
+    try{
+      await fetch('/admin/api/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({token: v})
+      }).then(async r => {
+        const j = await r.json();
+        if(!r.ok) throw new Error((j.error && j.error.message) || '令牌不正确');
+      });
+      token = v;
+      localStorage.setItem('ens_admin', v);
+      enter();
+    }catch(e){
+      const el = $('#loginErr');
+      el.textContent = e.message; el.style.display = 'block';
+    }
+  }
+
+  function enter(){
+    $('#login').style.display = 'none';
+    $('#app').classList.add('on');
+    refresh();
+    timer = setInterval(refresh, 4000);
+  }
+
+  $('#loginBtn').addEventListener('click', login);
+  $('#token').addEventListener('keydown', e => { if(e.key === 'Enter') login(); });
+  $('#logout').addEventListener('click', () => {
+    localStorage.removeItem('ens_admin');
+    location.reload();
+  });
+
+  /* ---- 标签页 ---- */
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+      document.querySelectorAll('.page').forEach(x => x.classList.remove('on'));
+      t.classList.add('on');
+      $('#p-' + t.dataset.p).classList.add('on');
+      refresh();
+    });
+  });
+
+  /* ---- 格式化 ---- */
+  const nf = n => (n == null ? '—' : Number(n).toLocaleString('zh-CN'));
+  const ms = n => n >= 1000 ? (n/1000).toFixed(1) + 's' : Math.round(n) + 'ms';
+  function uptime(sec){
+    if(sec < 60) return sec + 's';
+    if(sec < 3600) return Math.floor(sec/60) + 'm';
+    if(sec < 86400) return Math.floor(sec/3600) + 'h ' + Math.floor(sec%3600/60) + 'm';
+    return Math.floor(sec/86400) + 'd';
+  }
+  function ago(iso){
+    const d = (Date.now() - new Date(iso).getTime())/1000;
+    if(d < 60) return Math.floor(d) + '秒前';
+    if(d < 3600) return Math.floor(d/60) + '分钟前';
+    if(d < 86400) return Math.floor(d/3600) + '小时前';
+    return Math.floor(d/86400) + '天前';
+  }
+
+  /* ---- 总览 ---- */
+  async function loadDash(){
+    const d = await api('/overview');
+    const m = d.metrics;
+    $('#mReq').textContent = nf(m.requests);
+    $('#mReqSub').textContent = m.inFlight + ' 个进行中';
+    $('#mErr').textContent = nf(m.errors);
+    $('#mErr').className = 'v' + (m.errors > 0 ? ' bad' : '');
+    $('#mErrSub').textContent = m.requests ? ((m.errors/m.requests*100).toFixed(1) + '% 错误率') : '暂无请求';
+    $('#mLat').textContent = ms(m.avgLatencyMs || 0);
+    $('#mLatSub').textContent = 'P95 ≈ ' + ms(m.p95LatencyMs || 0);
+    $('#mTok').textContent = nf(m.tokensUsed);
+    $('#mTokSub').textContent = '累计消耗';
+
+    $('#sUsers').textContent = nf(d.users);
+    $('#sActive').textContent = nf(d.activeUsers);
+    $('#sConvs').textContent = nf(d.conversations);
+    $('#sMsgs').textContent = nf(d.messages);
+    $('#sModels').textContent = nf(d.models);
+    $('#sUptime').textContent = uptime(m.uptime);
+    $('#sVer').textContent = d.version;
+
+    $('#provAt').textContent = new Date().toLocaleTimeString('zh-CN');
+    $('#provList').innerHTML = (m.providers || []).map(p => {
+      const cls = p.state === 'closed' ? 'b-ok' : p.state === 'half-open' ? 'b-warn' : 'b-bad';
+      return `<div class="prov">
+        <div class="prov-h">
+          <span class="prov-n">${p.name}</span>
+          <span class="b ${cls}">${p.state === 'closed' ? '正常' : p.state === 'half-open' ? '试探中' : '熔断'}</span>
+          <span class="prov-st"></span>
+        </div>
+        <div class="prov-stats">
+          <div>成功<b>${nf(p.success)}</b></div>
+          <div>失败<b>${nf(p.failure)}</b></div>
+          <div>平均延迟<b>${ms(p.latencyMs || 0)}</b></div>
+        </div>
+        ${p.lastErr ? `<div style="margin-top:10px;font-size:11px;color:#B91C1C;font-family:var(--mono)">${p.lastErr.slice(0,120)}</div>` : ''}
+      </div>`;
+    }).join('') || '<div class="empty">没有注册上游</div>';
+
+    const usage = m.modelUsage || {};
+    const rows = Object.keys(usage).sort((a,b) => usage[b]-usage[a]);
+    $('#usageBody').innerHTML = rows.length
+      ? rows.map(k => `<tr><td class="mono">${k}</td><td class="num">${nf(usage[k])}</td></tr>`).join('')
+      : '<tr><td colspan="2" class="empty">还没有调用记录</td></tr>';
+  }
+
+  /* ---- 模型 ---- */
+  async function loadModels(){
+    const list = await api('/models');
+    $('#modelBody').innerHTML = list.map(m => `
+      <tr>
+        <td class="mono">${m.key}</td>
+        <td><span class="b b-pri">${m.provider}</span></td>
+        <td class="mono">${m.upstream || '—'}</td>
+        <td class="num">${m.weight}</td>
+        <td class="num">${m.costPer1K ? m.costPer1K.toFixed(4) : '—'}</td>
+        <td><button class="sw ${m.enabled?'on':''}" data-toggle="${m.key}"></button></td>
+        <td><button class="btn btn-line btn-sm" data-del="${m.key}">删除</button></td>
+      </tr>`).join('');
+
+    document.querySelectorAll('[data-toggle]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const key = b.dataset.toggle;
+        const m = list.find(x => x.key === key);
+        m.enabled = !m.enabled;
+        await api('/models', { method:'POST', body: m });
+        toast(key + (m.enabled ? ' 已启用' : ' 已停用'));
+        loadModels();
+      });
+    });
+    document.querySelectorAll('[data-del]').forEach(b => {
+      b.addEventListener('click', async () => {
+        if(!confirm('删除模型 ' + b.dataset.del + '？')) return;
+        await api('/models/' + b.dataset.del, { method:'DELETE' });
+        toast('已删除'); loadModels();
+      });
+    });
+
+    const ov = await api('/overview');
+    $('#breakerList').innerHTML = (ov.metrics.providers || []).map(p => `
+      <div class="prov">
+        <div class="prov-h">
+          <span class="prov-n">${p.name}</span>
+          <span class="b ${p.state==='closed'?'b-ok':p.state==='half-open'?'b-warn':'b-bad'}">
+            ${p.state==='closed'?'正常':p.state==='half-open'?'试探中':'熔断'}
+          </span>
+          <span class="prov-st">
+            <button class="btn btn-line btn-sm" data-reset="${p.name}">重置</button>
+          </span>
+        </div>
+      </div>`).join('');
+    document.querySelectorAll('[data-reset]').forEach(b => {
+      b.addEventListener('click', async () => {
+        await api('/providers/' + b.dataset.reset + '/reset', { method:'POST' });
+        toast('已重置 ' + b.dataset.reset);
+        loadModels();
+      });
+    });
+  }
+
+  $('#addModel').addEventListener('click', async () => {
+    const key = prompt('模型 Key（如 deepseek-reasoner）');
+    if(!key) return;
+    const provider = prompt('Provider（deepseek / mock）', 'deepseek');
+    if(!provider) return;
+    await api('/models', { method:'POST', body:{
+      key, provider, upstream: key, enabled:true, weight:5, costPer1K:0.001
+    }});
+    toast('已添加'); loadModels();
+  });
+
+  /* ---- 用户 ---- */
+  async function loadUsers(){
+    const list = await api('/users');
+    $('#userCount').textContent = list.length + ' 位用户';
+    $('#userEmpty').style.display = list.length ? 'none' : 'block';
+    $('#userBody').innerHTML = list.map(u => `
+      <tr>
+        <td><b style="font-weight:600">${u.name}</b></td>
+        <td class="mono">${u.phone || u.email}</td>
+        <td><span class="b b-gray">${u.plan}</span></td>
+        <td class="num"><input class="inline" value="${u.quota}" data-quota="${u.id}"></td>
+        <td class="num">${u.used}</td>
+        <td><span class="b ${u.status==='active'?'b-ok':'b-bad'}">${u.status==='active'?'正常':'已停用'}</span></td>
+        <td>
+          <button class="btn btn-line btn-sm" data-st="${u.id}" data-cur="${u.status}">
+            ${u.status==='active'?'停用':'启用'}
+          </button>
+        </td>
+      </tr>`).join('');
+
+    document.querySelectorAll('[data-st]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const next = b.dataset.cur === 'active' ? 'disabled' : 'active';
+        await api('/users/' + b.dataset.st + '/status', { method:'POST', body:{ status: next }});
+        toast('已' + (next==='active'?'启用':'停用'));
+        loadUsers();
+      });
+    });
+    document.querySelectorAll('[data-quota]').forEach(inp => {
+      inp.addEventListener('change', async () => {
+        await api('/users/' + inp.dataset.quota + '/quota', {
+          method:'POST', body:{ quota: Number(inp.value) || 0 }
+        });
+        toast('额度已更新');
+      });
+    });
+  }
+
+  /* ---- 日志 ---- */
+  async function loadLogs(){
+    const [audits, events] = await Promise.all([
+      api('/logs?limit=200'),
+      api('/events?limit=200')
+    ]);
+    $('#auditBody').innerHTML = audits.length ? audits.map(a => `
+      <tr>
+        <td class="mono">${ago(a.createdAt)}</td>
+        <td><span class="b b-pri">${a.action}</span></td>
+        <td class="mono">${a.target || '—'}</td>
+        <td class="mono">${a.ip || '—'}</td>
+      </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无操作记录</td></tr>';
+
+    $('#eventBody').innerHTML = events.length ? events.map(e => `
+      <tr>
+        <td class="mono">${ago(e.createdAt)}</td>
+        <td><span class="b b-gray">${e.kind}</span></td>
+        <td class="mono">${e.userId || '—'}</td>
+        <td class="mono">${e.target || '—'}</td>
+      </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无行为记录</td></tr>';
+  }
+
+  /* ---- 轮询 ---- */
+  async function refresh(){
+    const active = document.querySelector('.page.on').id;
+    try{
+      if(active === 'p-dash') await loadDash();
+      if(active === 'p-models') await loadModels();
+      if(active === 'p-users') await loadUsers();
+      if(active === 'p-logs') await loadLogs();
+      $('#liveTxt').textContent = '运行中';
+    }catch(e){
+      if(/401|令牌/.test(e.message)){
+        clearInterval(timer);
+        localStorage.removeItem('ens_admin');
+        location.reload();
+      }
+      $('#liveTxt').textContent = '连接异常';
+    }
+  }
+
+  if(token) enter();
+})();
+</script>
+</body>
+</html>
