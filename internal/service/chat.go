@@ -40,6 +40,16 @@ func (c *Chat) Create(userID, title, studio, model string, members []string) (*d
 	if err := c.store.CreateConv(conv); err != nil {
 		return nil, err
 	}
+	// 场景有开场白时，由第一个角色先开口，新群不会一片空白
+	if sc, ok := FindScenario(studio); ok && sc.Opening != "" && len(sc.Agents) > 0 {
+		first := sc.Agents[0]
+		_ = c.store.AppendMessage(&domain.Message{
+			ConversationID: conv.ID,
+			Role:           domain.RoleAssistant,
+			Agent:          first.Name,
+			Content:        sc.Opening,
+		})
+	}
 	return conv, nil
 }
 
