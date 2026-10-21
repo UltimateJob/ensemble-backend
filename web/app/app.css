@@ -719,15 +719,27 @@ body.no-conv .col-info{display:none}
   transition:all .15s;
 }
 .ft.on{background:#fff;color:var(--tx);box-shadow:0 1px 3px rgba(20,20,40,.08)}
-.char-list{max-height:260px;overflow-y:auto;margin-top:10px}
+.char-list{
+  max-height:260px;overflow-y:auto;margin-top:10px;
+  /* 底部渐隐：列表被 max-height 截断时，最后一行是半截的，
+     看起来像坏了。淡出表示「下面还有」。 */
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 18px),transparent 100%);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 18px),transparent 100%);
+}
 .char-item{
   display:flex;align-items:center;gap:10px;width:100%;
   padding:9px 10px;border-radius:9px;text-align:left;
   transition:background .12s;
 }
 .char-item:hover{background:rgba(120,130,170,.08)}
-.char-item .ci-n{font-size:13px;font-weight:500;color:var(--tx)}
-.char-item .ci-w{font-size:11px;color:var(--tx-4);margin-top:1px}
+.char-item .ci-n{font-size:13px;font-weight:500;color:var(--tx);display:block}
+/* 作品名一行截断。长标题（「我的青春恋爱物语果然有问题」）在 390 下
+   会折成两行，把整行的标签挤成竖排，列表看着就散了。 */
+.char-item .ci-w{
+  display:block;max-width:100%;font-size:11px;color:var(--tx-4);margin-top:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.char-item > span:nth-child(2){min-width:0;flex:1 1 auto}
 .char-item .ci-t{
   margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;max-width:140px;
 }

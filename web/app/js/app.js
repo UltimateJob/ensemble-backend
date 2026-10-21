@@ -130,6 +130,9 @@ async function enterApp() {
   if (qs2.get('forge')) {
     $('#forge').classList.add('on');
     renderForge();
+    // 默认停在「从角色库找」，先把角色铺出来——
+    // 否则用户看到的是一个空框，不知道里面有多少人。
+    if (!$('#charList').dataset.loaded) searchChars('');
     if (qs2.get('name')) {
       $('#fName').value = qs2.get('name');
       $('#fKeys').value = qs2.get('keys') || '';
@@ -476,7 +479,13 @@ const forged = [];
 function renderForge() {
   const box = $('#forgeList');
   if (!forged.length) {
-    box.innerHTML = `<div style="padding:16px;text-align:center;font-size:12px;color:var(--tx-4)">
+    // 这个列表是「已经选进来、准备入群的」。空的时候说什么，
+    // 要看用户在哪一页——在角色库里说「填个名字自己造」是答非所问。
+    const onSearch = document.querySelector('.ft.on')?.dataset.ft === 'search';
+    // 搜索页：不显示。这行字在角色列表正下方，写了会被读成「列表是空的」，
+    // 而实际说的是「已选列表是空的」。底部两个按钮是禁用的，已经说明了状态。
+    // 造人页：这里放引导，因为表单就在上方，读起来是连贯的。
+    box.innerHTML = onSearch ? '' : `<div style="padding:16px;text-align:center;font-size:12px;color:var(--tx-4)">
       还没有角色。填个名字，让它自己长出来。
     </div>`;
   } else {
@@ -499,7 +508,9 @@ function renderForge() {
       });
     });
   }
-  $('#forgeCount').textContent = forged.length ? forged.length + ' 个角色' : '还没有角色';
+  // 一个都没有时计数栏留空——空状态区已经写了「还没有角色。填个名字，
+  // 让它自己长出来」，底部再说一遍是重复。
+  $('#forgeCount').textContent = forged.length ? forged.length + ' 个角色' : '';
   $('#forgeDone').disabled = forged.length < 1;
   const sv = $('#forgeSave');
   if (sv) sv.disabled = forged.length < 1;
@@ -521,6 +532,7 @@ $$('.forge-tabs .ft').forEach(b => {
     const isSearch = b.dataset.ft === 'search';
     $('#paneSearch').style.display = isSearch ? '' : 'none';
     $('#paneMake').style.display = isSearch ? 'none' : '';
+    renderForge();  // 空文案跟着 tab 变
     if (isSearch && !$('#charList').dataset.loaded) searchChars('');
   });
 });
