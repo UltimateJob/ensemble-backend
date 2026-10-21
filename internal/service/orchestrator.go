@@ -172,8 +172,7 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		// 被点名问到，就停下等用户
 		trigger = fmt.Sprintf("刚才 %s 说：%s", agent.Name, res.text)
 
-		user.Used++
-		_ = o.store.UpdateUser(user)
+		_ = o.store.IncrementUsed(user.ID, 1)
 
 		if res.asksUser {
 			break

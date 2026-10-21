@@ -355,6 +355,18 @@ func (fs *FileStore) UpdateUser(u *domain.User) error {
 	return err
 }
 
+func (fs *FileStore) IncrementUsed(userID string, delta int) error {
+	err := fs.Memory.IncrementUsed(userID, delta)
+	fs.mark("users")
+	return err
+}
+
+func (fs *FileStore) TouchLastSeen(userID string) error {
+	err := fs.Memory.TouchLastSeen(userID)
+	fs.mark("users")
+	return err
+}
+
 func (fs *FileStore) CreateConv(c *domain.Conversation) error {
 	err := fs.Memory.CreateConv(c)
 	fs.mark("convs")

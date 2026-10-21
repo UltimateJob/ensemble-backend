@@ -39,14 +39,23 @@ func TestMemoryUserCRUD(t *testing.T) {
 		t.Fatal("空手机号不应匹配到任何用户")
 	}
 
-	// 更新
-	got.Used = 42
+	// 更新资料
+	got.Name = "改名"
 	if err := m.UpdateUser(got); err != nil {
 		t.Fatal(err)
 	}
 	again, _ := m.GetUser("u1")
+	if again.Name != "改名" {
+		t.Fatal("资料更新未生效")
+	}
+
+	// 额度走原子方法（UpdateUser 有意不碰 Used）
+	if err := m.IncrementUsed("u1", 42); err != nil {
+		t.Fatal(err)
+	}
+	again, _ = m.GetUser("u1")
 	if again.Used != 42 {
-		t.Fatal("更新未生效")
+		t.Fatalf("额度递增未生效，得到 %d", again.Used)
 	}
 
 	// 副本隔离：改返回值不应影响存储
@@ -406,4 +415,68 @@ func TestFileStoreLock(t *testing.T) {
 		t.Fatalf("释放锁后应能重新打开：%v", err)
 	}
 	fs2.Close()
+}
+
+func TestIncrementUsedConcurrent(t *testing.T) {
+	m := NewMemory()
+	_ = m.CreateUser(&domain.User{ID: "u1", Used: 0, Quota: 10000})
+
+	const goroutines = 50
+	const perG = 40
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < perG; j++ {
+				_ = m.IncrementUsed("u1", 1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	u, _ := m.GetUser("u1")
+	want := goroutines * perG
+	if u.Used != want {
+		t.Fatalf("并发扣减丢更新：期望 %d，实际 %d", want, u.Used)
+	}
+}
+
+// 用旧副本整体写回，不能把并发扣掉的额度冲回去
+func TestUpdateUserDoesNotClobberUsage(t *testing.T) {
+	m := NewMemory()
+	_ = m.CreateUser(&domain.User{ID: "u1", Name: "原名", Used: 0, Quota: 100})
+
+	// 模拟「拿到副本 → 期间有人扣额度 → 再写回资料」
+	stale, _ := m.GetUser("u1")
+	_ = m.IncrementUsed("u1", 7)
+
+	stale.Name = "新名"
+	_ = m.UpdateUser(stale)
+
+	got, _ := m.GetUser("u1")
+	if got.Name != "新名" {
+		t.Fatalf("名字应更新，得到 %q", got.Name)
+	}
+	if got.Used != 7 {
+		t.Fatalf("额度不应被旧副本冲回，期望 7，实际 %d", got.Used)
+	}
+}
+
+func TestTouchLastSeen(t *testing.T) {
+	m := NewMemory()
+	_ = m.CreateUser(&domain.User{ID: "u1", Name: "x"})
+	before, _ := m.GetUser("u1")
+
+	time.Sleep(2 * time.Millisecond)
+	if err := m.TouchLastSeen("u1"); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := m.GetUser("u1")
+	if !after.LastSeen.After(before.LastSeen) {
+		t.Fatal("LastSeen 应被更新")
+	}
+	if after.Name != before.Name {
+		t.Fatal("TouchLastSeen 不应改动其他字段")
+	}
 }

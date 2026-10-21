@@ -195,8 +195,7 @@ func (c *Chat) Send(ctx context.Context, user *domain.User, convID, content stri
 		Content:        content,
 	})
 
-	user.Used++
-	_ = c.store.UpdateUser(user)
+	_ = c.store.IncrementUsed(user.ID, 1)
 
 	stream, err := c.gw.Stream(ctx, req)
 	if err != nil {

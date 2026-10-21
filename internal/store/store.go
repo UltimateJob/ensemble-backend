@@ -5,6 +5,7 @@ package store
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -21,6 +22,11 @@ type Store interface {
 	GetUserByEmail(email string) (*domain.User, bool)
 	ListUsers() []*domain.User
 	UpdateUser(u *domain.User) error
+	// IncrementUsed 原子增加已用额度。
+	// 「读-改-写」在并发下会丢更新，所以单独开一个方法。
+	IncrementUsed(userID string, delta int) error
+	// TouchLastSeen 只更新最后活跃时间，不碰其他字段。
+	TouchLastSeen(userID string) error
 
 	// 会话
 	CreateConv(c *domain.Conversation) error
@@ -61,6 +67,12 @@ func NewMemory() *Memory {
 		convs: make(map[string]*domain.Conversation),
 	}
 }
+
+// ErrUserNotFound 用户不存在。
+var ErrUserNotFound = errors.New("用户不存在")
+
+// timeNow 单独抽出来方便测试替换。
+var timeNow = time.Now
 
 // NewID 生成短 ID。
 func NewID(prefix string) string {
@@ -130,10 +142,51 @@ func (m *Memory) ListUsers() []*domain.User {
 	return out
 }
 
+// IncrementUsed 在锁内只改 Used，不与整对象覆盖冲突。
+func (m *Memory) IncrementUsed(userID string, delta int) error {
+	if delta == 0 {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return ErrUserNotFound
+	}
+	u.Used += delta
+	if u.Used < 0 {
+		u.Used = 0
+	}
+	return nil
+}
+
+// TouchLastSeen 只动一个字段。
+func (m *Memory) TouchLastSeen(userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return ErrUserNotFound
+	}
+	u.LastSeen = timeNow()
+	return nil
+}
+
+// UpdateUser 保存用户资料。
+// Used 与 LastSeen 不让调用方覆盖——这两个走原子方法，
+// 否则 PATCH /me 这类「拿旧副本整体写回」会把并发扣掉的额度冲回去。
 func (m *Memory) UpdateUser(u *domain.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	cur, ok := m.users[u.ID]
+	if !ok {
+		cp := *u
+		m.users[u.ID] = &cp
+		return nil
+	}
 	cp := *u
+	cp.Used = cur.Used
+	cp.LastSeen = cur.LastSeen
 	m.users[u.ID] = &cp
 	return nil
 }

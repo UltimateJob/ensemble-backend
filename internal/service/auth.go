@@ -115,8 +115,8 @@ func (a *Auth) Login(kind, target, code, name string) (*domain.User, string, err
 		return nil, "", ErrDisabled
 	}
 
+	_ = a.store.TouchLastSeen(u.ID)
 	u.LastSeen = time.Now()
-	_ = a.store.UpdateUser(u)
 
 	token, err := a.sign(u)
 	if err != nil {

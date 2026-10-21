@@ -29,14 +29,20 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "请求格式不正确")
 		return
 	}
+	// 重新读一次最新状态，避免用中间件里的旧副本整体覆盖
+	cur, ok2 := s.store.GetUser(u.ID)
+	if !ok2 {
+		unauthorized(w, "账号不存在")
+		return
+	}
 	if req.Name != "" {
-		u.Name = req.Name
+		cur.Name = req.Name
 	}
 	if req.Avatar != "" {
-		u.Avatar = req.Avatar
+		cur.Avatar = req.Avatar
 	}
-	_ = s.store.UpdateUser(u)
-	ok(w, u)
+	_ = s.store.UpdateUser(cur)
+	ok(w, cur)
 }
 
 // 互动/行为记录：登录、审批、分享、错误上报。
