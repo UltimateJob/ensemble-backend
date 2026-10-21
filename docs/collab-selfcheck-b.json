@@ -1,0 +1,50 @@
+{
+ "case": "selfcheck-b-solo",
+ "task": "给 tinysrv 加 GET /api/health 返回 {\"ok\":true,\"version\":\"1.0\"}，并加 5 秒结果缓存（并发安全），补测试验证缓存行为。跑 go test ./... 确认绿。\n\n完成后请自查一遍：你写的测试是不是真的验证了「缓存跨请求复用」（例如连续两次请求只回源一次、并发只回源一次），而不是每次请求都新建缓存导致测试空转。如果发现测试没测到东西，改掉再跑。",
+ "root": "/tmp/dsh-selfcheck-b",
+ "mode": "solo",
+ "wallSeconds": 20.1,
+ "quotaUsed": 5,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_f370b1d0ae48217e",
+   "status": "done",
+   "steps": 12,
+   "tokensIn": 43472,
+   "tokensOut": 3032,
+   "seconds": 20.1,
+   "toolCalls": 15,
+   "diffFiles": [
+    [
+     "health.go",
+     "added",
+     72,
+     0
+    ],
+    [
+     "health_test.go",
+     "added",
+     139,
+     0
+    ],
+    [
+     "main.go",
+     "modified",
+     27,
+     13
+    ]
+   ],
+   "summary": "完成 12 步，改动 3 个文件",
+   "error": ""
+  }
+ ],
+ "review": null,
+ "at": "2026-10-22 03:07:06"
+}
