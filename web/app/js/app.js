@@ -377,9 +377,17 @@ function renderSceneDetail(key) {
   if (!sc) { box.innerHTML = ''; return; }
   const chips = (TRY[key] || []).map(t =>
     `<button class="sd-chip" data-try="${esc(t)}">${esc(t)}</button>`).join('');
-  box.innerHTML = `
-    <div class="sd-head"><b>${esc(sc.name)}</b>${esc(sc.tagline)}</div>
-    <div class="sd-agents">
+  // 随机场景没有写死的角色，得说清楚「为什么这里是空的」，
+  // 否则用户会以为这个场景坏了
+  const agentBlock = sc.random
+    ? `<div class="sd-agents sd-agents-rand">
+         <div class="sd-rand-ic">${icon('shuffle', 16)}</div>
+         <div>
+           <div class="sd-rand-t">开群时从角色库随机挑 3 个</div>
+           <div class="sd-rand-d">尽量来自不同作品，凑在一起才有话聊。想指定谁，先用下面的「添加角色」挑好再建群。</div>
+         </div>
+       </div>`
+    : `<div class="sd-agents">
       ${(sc.agents || []).map(a => `
         <div class="sd-agent">
           ${makeAv(a.name, a.color)}
@@ -388,7 +396,11 @@ function renderSceneDetail(key) {
             <div class="sd-at">${esc(a.title)}</div>
           </div>
         </div>`).join('')}
-    </div>
+    </div>`;
+
+  box.innerHTML = `
+    <div class="sd-head"><b>${esc(sc.name)}</b>${esc(sc.tagline)}</div>
+    ${agentBlock}
     ${chips ? `<div class="sd-try"><div class="sd-try-h">可以这样开场 · 点一下直接建群后填进输入框</div>
       <div class="sd-chips">${chips}</div></div>` : ''}`;
 

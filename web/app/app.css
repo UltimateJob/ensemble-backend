@@ -615,6 +615,21 @@ a{color:inherit;text-decoration:none}
 }
 .hint-kb:hover kbd{border-color:rgba(120,130,170,.3)}
 
+/* 随机场景的说明 */
+.sd-agents-rand{
+  display:flex;gap:12px;align-items:flex-start;
+  padding:14px 16px;border-radius:10px;
+  background:rgba(120,130,170,.06);
+  border:1px dashed var(--line-2);
+}
+.sd-rand-ic{
+  width:30px;height:30px;flex:0 0 30px;border-radius:8px;
+  display:grid;place-items:center;
+  background:rgba(79,70,229,.09);color:var(--pri);
+}
+.sd-rand-t{font-size:12.5px;font-weight:500;color:var(--tx-2);margin-bottom:3px}
+.sd-rand-d{font-size:11.5px;line-height:1.6;color:var(--tx-4)}
+
 /* 场景分区 */
 .scene-sec{
   grid-column:1/-1;display:flex;align-items:center;gap:8px;

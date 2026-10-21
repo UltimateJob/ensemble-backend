@@ -227,6 +227,14 @@ async function run() {
     ok('包含竞标场景', sceneNames.some(n => n.includes('竞标')));
     ok('包含二次元场景', sceneNames.some(n => n.includes('二次元')));
     // 内置场景和自定义工作室要分两段，混在一起用户分不清哪个是自己做的
+    // 随机场景详情里必须解释「为什么这里是空的」，否则用户以为场景坏了
+    await cdp.eval(`[...document.querySelectorAll('.scene')].find(s => s.dataset.k === 'anime').click()`);
+    await sleep(600);
+    ok('随机场景有说明区', await cdp.eval('!!document.querySelector(".sd-agents-rand")'));
+    ok('「添加角色」按钮文案与实际能力一致', await cdp.eval(
+      'document.querySelector("#openForge").textContent.trim() === "添加角色"'
+    ));
+
     ok('场景页有「官方给的」分区', await cdp.eval(
       '[...document.querySelectorAll(".scene-sec")].some(e => e.textContent.includes("官方"))'
     ));

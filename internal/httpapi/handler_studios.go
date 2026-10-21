@@ -99,6 +99,9 @@ func (s *Server) handleScenariosAll(w http.ResponseWriter, r *http.Request) {
 			"key": sc.Key, "name": sc.Name, "tagline": sc.Tagline,
 			"category": sc.Category, "icon": sc.Icon, "accent": sc.Accent,
 			"agents": sc.Agents, "custom": false,
+			// 随机场景的角色是开群时生成的，前端要靠这个字段
+			// 解释「为什么这里是空的」
+			"random": sc.Random,
 		})
 	}
 	// 用户自己的模板排在后面
