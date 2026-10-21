@@ -10,6 +10,22 @@ export const API = '';
 // icons.js 是普通脚本，挂在 window 上；这里转成模块导出，
 // 让其他模块统一从 core 取，不用记两套。
 export const icon = (...a) => window.icon(...a);
+
+/* ---------------- 网络状态 ---------------- */
+// 断网时界面必须说话。什么都不提示的话，
+// 用户点了发送没反应，会以为是产品坏了。
+let onlineHandlers = [];
+export function onNetChange(fn) { onlineHandlers.push(fn); }
+export function isOnline() { return navigator.onLine !== false; }
+
+function emitNet() {
+  const on = isOnline();
+  onlineHandlers.forEach(fn => {
+    try { fn(on); } catch (e) { /* 单个回调出错不影响其他 */ }
+  });
+}
+window.addEventListener('online', emitNet);
+window.addEventListener('offline', emitNet);
 export const hydrateIcons = (...a) => window.hydrateIcons(...a);
 
 const urlToken = new URLSearchParams(location.search).get('token');

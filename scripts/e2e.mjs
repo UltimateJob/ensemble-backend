@@ -373,6 +373,19 @@ async function run() {
       ok(`点了之后拉回更早的消息（${firstPage} → ${afterMore}）`, afterMore > firstPage);
     }
 
+    // ---- 断网提示 ----
+    // 断网时界面必须说话，否则用户点了发送没反应会以为产品坏了
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await cdp.eval('window.dispatchEvent(new Event("offline"))');
+    await sleep(500);
+    const netBar = await cdp.eval('document.querySelector("#netbar").classList.contains("on")');
+    ok('断网时出现提示条', netBar);
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await cdp.eval('window.dispatchEvent(new Event("online"))');
+    await sleep(700);
+    ok('恢复后提示条消失', !(await cdp.eval('document.querySelector("#netbar").classList.contains("on")')));
+
     // ---- 会话操作：重命名 ----
     const renameTarget = await cdp.eval('document.querySelector(".conv").dataset.id');
     const oldTitle = await cdp.eval('document.querySelector(".conv .conv-name").textContent');

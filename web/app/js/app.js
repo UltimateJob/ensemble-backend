@@ -5,6 +5,7 @@
 
 import {
   $, $$, api, state, toast, esc, icon, makeAv, timeStr, hydrateIcons, shift,
+  isOnline, onNetChange,
 } from './core.js';
 
 import {
@@ -728,6 +729,42 @@ boot();
 
 // 会话列表点击时打开群的入口（避免 convs.js 直接 import chat.js 成环）
 setConvOpener(openConv);
+
+/* ---------------- 断网提示 ---------------- */
+// 桌面端该有的基本礼貌：网络没了要说一声，回来了也要说一声。
+let wasOffline = false;
+function reflectNet(on) {
+  const bar = $('#netbar');
+  const ta = $('#ta');
+  const send = $('#sendBtn');
+  if (bar) {
+    bar.classList.toggle('on', !on);
+    const t = $('#netbarText');
+    if (t) {
+      t.textContent = on
+        ? '连接已恢复'
+        : '网络已断开，恢复后会自己接上';
+    }
+  }
+  if (!on) {
+    if (ta) ta.disabled = true;
+    if (send) send.disabled = true;
+    wasOffline = true;
+  } else {
+    if (ta) {
+      ta.disabled = false;
+      send.disabled = !ta.value.trim() || state.busy;
+    }
+    if (wasOffline) {
+      wasOffline = false;
+      toast('连接已恢复');
+      // 恢复后先稳住状态：重新拉一次列表，可能错过了别的标签页的改动
+      loadConvs().catch(() => {});
+    }
+  }
+}
+onNetChange(reflectNet);
+reflectNet(isOnline());
 
 // 供 chat.js 反向刷新引导清单
 window.__refreshOnboard = renderOnboard;

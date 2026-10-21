@@ -614,6 +614,16 @@ a{color:inherit;text-decoration:none}
 }
 .hint-kb:hover kbd{border-color:rgba(120,130,170,.3)}
 
+/* 断网提示条 */
+.netbar{
+  display:none;align-items:center;gap:8px;
+  height:32px;padding:0 16px;
+  background:#FEF3C7;color:#92400E;
+  font-size:12px;border-bottom:1px solid #FDE68A;
+}
+.netbar.on{display:flex}
+.netbar .ic{flex:0 0 auto}
+
 /* 通用对话弹层 */
 .ui-dlg{
   position:fixed;inset:0;z-index:320;display:grid;place-items:center;
