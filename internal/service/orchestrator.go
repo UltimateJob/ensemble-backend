@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 
@@ -192,6 +193,13 @@ func humanGap(d time.Duration) string {
 	return fmt.Sprintf("%d 天", days)
 }
 
+func worldLine(world string) string {
+	if strings.TrimSpace(world) == "" {
+		return ""
+	}
+	return "[世界设定]\n" + strings.TrimSpace(world)
+}
+
 func memoryCardLine(card, timeLine string) string {
 	parts := make([]string, 0, 2)
 	if strings.TrimSpace(card) != "" {
@@ -269,6 +277,17 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	spoken := map[string]bool{}
 	speakers := 0
 	lastKey := ""
+	// 用户点名谁，谁先答。一句话里出现两个名字时，按出现顺序排，
+	// 比如「布鲁克，你怎么看罗宾？」应该布鲁克先答，而不是罗宾先答。
+	addressedOrder := addressedAgentsOrdered(agents, anchor)
+	// 「你们觉得路飞怎么样」是问大家，不是点名路飞；群问不抢答。
+	if addressAll {
+		addressedOrder = nil
+	}
+	addressed := make(map[string]bool, len(addressedOrder))
+	for _, a := range addressedOrder {
+		addressed[a.Key] = true
+	}
 
 	// 最多尝试 2 倍于发言人数的次数，允许一部分人沉默
 	for attempt := 0; attempt < len(agents)*2 && speakers < maxSpeakers; attempt++ {
@@ -280,11 +299,19 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		}
 
 		agent := pickSpeaker(agents, spoken, lastKey, speakers == 0 && !casual)
+		if len(addressedOrder) > 0 {
+			for _, a := range addressedOrder {
+				if !spoken[a.Key] {
+					agent = a
+					break
+				}
+			}
+		}
 		if agent == nil || agent.Key == "" {
 			break
 		}
 
-		force := forceFirst && speakers == 0
+		force := (forceFirst && speakers == 0) || (len(addressed) > 0 && addressed[agent.Key] && !spoken[agent.Key])
 		memoryCard := ""
 		if o.mem != nil {
 			memoryCard = o.mem.Context(conv.ID, agent.CharacterID, user.ID, anchor)
@@ -340,6 +367,52 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	}
 }
 
+// addressedAgentsOrdered 找出用户在句子里直接点名的角色，按出现位置排序。
+// 只用于决定谁先答、谁必须答，不改变角色自己的人设。
+func addressedAgentsOrdered(agents []Agent, text string) []*Agent {
+	type ref struct {
+		agent *Agent
+		pos   int
+	}
+	refs := make([]ref, 0, len(agents))
+	for i := range agents {
+		a := &agents[i]
+		names := append([]string{a.Name}, a.Aliases...)
+		for _, part := range strings.Split(a.Name, "·") {
+			if len([]rune(part)) >= 2 {
+				names = append(names, part)
+			}
+		}
+		pos := -1
+		for _, n := range names {
+			n = strings.TrimSpace(n)
+			if n == "" {
+				continue
+			}
+			if idx := strings.Index(text, n); idx >= 0 && (pos < 0 || idx < pos) {
+				pos = idx
+			}
+		}
+		if pos >= 0 {
+			refs = append(refs, ref{agent: a, pos: pos})
+		}
+	}
+	sort.SliceStable(refs, func(i, j int) bool { return refs[i].pos < refs[j].pos })
+	out := make([]*Agent, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, r.agent)
+	}
+	return out
+}
+
+func addressedAgents(agents []Agent, text string) map[string]bool {
+	out := map[string]bool{}
+	for _, a := range addressedAgentsOrdered(agents, text) {
+		out[a.Key] = true
+	}
+	return out
+}
+
 // pickSpeaker 选择下一个发言者。
 //
 // 工作场景第一轮固定给负责人（agents[0]）：先由拆解角色接住、定个调子。
@@ -390,6 +463,7 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 
 %s
 %s
+%s
 这是真实群聊，不是客服，也不是评审会。规则：
 1. 先接住对方：如果对方在讲自己的处境或情绪，先用一句回应（理解、关心或追问），再表达看法。不要只评判对错。
 2. 结合前面的聊天和群成员，不要每次从零开始；相关的事可以带一句。
@@ -403,9 +477,10 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 10. 历史行首的「[时间] 角色名：」只是记录格式，不是你要模仿的内容；回复时不要带时间和自己的名字。
 11. 引用记忆时用记忆卡上的日期；不确定就说「之前」，不要自己编「昨天/上周」。
 12. 如果「距离上一条消息」超过一天，先自然承认时间过去了（比如「好久没聊了」），不要假装昨天刚聊过；但不要夸张。
+13. 只用自己的口癖、句长和称呼；不要模仿其他角色的口头禅。不确定的人名、地名、事件不要提，更不要编；听来的事不要说得像亲眼见过。
 %s`,
-		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key), mode,
-		memoryCardLine(memoryCard, timeLine), forceLine(force))
+		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key),
+		worldLine(sc.World), mode, memoryCardLine(memoryCard, timeLine), forceLine(force))
 
 	msgs := []domain.ChatMessage{{Role: "system", Content: sys}}
 	for _, m := range history {
