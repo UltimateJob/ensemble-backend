@@ -58,7 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
         webView = WKWebView(frame: rect, configuration: config)
         webView.navigationDelegate = self
-        webView.setValue(false, forKey: "drawsBackground")
+        // 不设 drawsBackground：WKWebView 没有这个 KVC 属性，
+        // 用 setValue 会抛 NSUnknownKeyException，进程直接 exit 1。
+        webView.underPageBackgroundColor = .windowBackgroundColor
         window.contentView = webView
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -99,9 +101,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     /// 8080 没响应时，尝试拉起同目录的 ensemble 二进制。
     private func ensureBackendThenLoad() {
-        if ping() {
-            loadApp()
-            return
+        // 启动瞬间网络栈可能还没就绪，ping 一次失败不代表服务没在跑。
+        // 重试三次再决定拉起自己的后端，否则会和已经跑着的实例抢 8080。
+        for _ in 0..<3 {
+            if ping() {
+                loadApp()
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.4)
         }
         startBackend()
         // 轮询到起来为止（最多 12 秒），期间显示加载页
@@ -198,6 +205,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         window.title = "合奏 · Ensemble"
     }
+}
+
+// 未捕获的 ObjC 异常会直接让进程消失，日志里什么都不留。
+// 挂一个处理器，至少能看到崩在哪。
+NSSetUncaughtExceptionHandler { exc in
+    let msg = "UNCAUGHT \(exc.name.rawValue): \(exc.reason ?? "?")\n\(exc.callStackSymbols.joined(separator: "\n"))\n"
+    FileHandle.standardError.write(msg.data(using: .utf8) ?? Data())
 }
 
 let app = NSApplication.shared
