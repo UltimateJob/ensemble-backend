@@ -121,7 +121,9 @@ a{color:inherit;text-decoration:none}
   box-shadow:0 6px 16px -6px rgba(79,70,229,.6),inset 0 1px 0 rgba(255,255,255,.35);
 }
 .login-logo b{font-size:16px;font-weight:600;letter-spacing:-.01em}
-.login-logo span{margin-left:auto;font-size:9px;font-weight:600;letter-spacing:.18em;color:var(--tx-4)}
+/* 原来这里有一条 .login-logo span{margin-left:auto}，是给英文小标签用的。
+   但 .mark 本身也是 span，删掉标签后这条规则把 logo 推到了右边，
+   和下面左对齐的标题、表单不在一条轴上。 */
 .login-h1{font-size:22px;font-weight:600;letter-spacing:-.03em;line-height:1.2}
 .login-sub{margin-top:8px;font-size:13px;color:var(--tx-3);line-height:1.6}
 
@@ -151,7 +153,11 @@ a{color:inherit;text-decoration:none}
   margin-top:12px;padding:10px 12px;border-radius:9px;font-size:12.5px;
   background:rgba(220,38,38,.07);border:1px solid rgba(220,38,38,.18);color:#B91C1C;
 }
-.login-foot{margin-top:16px;font-size:11.5px;color:var(--tx-4);text-align:center;line-height:1.6}
+.login-foot{
+  margin-top:16px;font-size:11.5px;color:var(--tx-4);
+  text-align:center;line-height:1.6;
+  display:flex;flex-direction:column;gap:3px;
+}
 
 /* ---------- 应用骨架 ---------- */
 #app{

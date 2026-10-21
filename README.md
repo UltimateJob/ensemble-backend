@@ -322,6 +322,10 @@ make injection     # 需要真实 Key
 
 顺带修了个显示问题：模型偶尔「说了话又带个 `[PASS]`」，正文里的标记现在会被清掉。
 
+## 登录页
+
+![登录页](docs/shot-login.png)
+
 ## 空状态
 
 ![空状态](docs/shot-empty.png)
