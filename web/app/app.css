@@ -1177,3 +1177,8 @@ a{color:inherit;text-decoration:none}
 .collab-say{border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;background:#fff}
 .collab-say .who{font-size:11px;font-weight:600;color:var(--pri);margin-bottom:4px}
 .collab-say .txt{font-size:11.5px;color:var(--tx-2);line-height:1.6;white-space:pre-wrap}
+.studio-warn{
+  margin-top:7px;padding:7px 9px;border-radius:var(--r-sm);
+  background:#FFF8EC;border:1px solid #F3DFC0;
+  font-size:11px;color:#8A5A11;line-height:1.55;
+}

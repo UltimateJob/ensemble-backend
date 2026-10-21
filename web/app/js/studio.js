@@ -62,11 +62,30 @@ function renderWorkspaceList(list) {
     b.addEventListener('click', () => {
       wsId = b.dataset.id;
       $('#wsRoot').value = b.dataset.root;
+      warnIfEmpty(wsId);
       box.querySelectorAll('.ws-item').forEach(x => x.classList.toggle('on', x === b));
       renderRunHistory(wsId);
     });
   });
   hydrateIcons(box);
+}
+
+/** 空目录会让 agent 停工待确认，提前提醒一句。 */
+async function warnIfEmpty(wsId) {
+  const box = $('#wsWarn');
+  if (!box) return;
+  try {
+    const t = await api(`/v1/workspaces/${wsId}/tree`);
+    const n = (t.entries || []).length;
+    if (n === 0) {
+      box.textContent = '这个目录是空的。选错了就换一个；如果确实从零开始，任务里要写清创建哪些文件。';
+      box.style.display = '';
+    } else {
+      box.style.display = 'none';
+    }
+  } catch (e) {
+    box.style.display = 'none';
+  }
 }
 
 async function bindIfNeeded() {
@@ -80,6 +99,7 @@ async function bindIfNeeded() {
   const w = await api('/v1/workspaces', { method: 'POST', body: { root } });
   wsId = w.id;
   refreshWorkspaces();
+  warnIfEmpty(wsId);
   return wsId;
 }
 
@@ -91,6 +111,7 @@ export async function startRun() {
   btn.disabled = true;
   try {
     const id = await bindIfNeeded();
+    await warnIfEmpty(id);
     const permission = $('#runPerm').value;
     const run = await api(`/v1/workspaces/${id}/runs`, {
       method: 'POST',
@@ -346,6 +367,7 @@ async function ensureCollabWorkspace() {
   const w = await api('/v1/workspaces', { method: 'POST', body: { root, conversationId: convId } });
   wsId = w.id;
   refreshWorkspaces();
+  warnIfEmpty(wsId);
   return w.id;
 }
 
