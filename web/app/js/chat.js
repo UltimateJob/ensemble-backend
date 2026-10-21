@@ -410,6 +410,11 @@ export async function runRound(path, body, opts = {}) {
 
   function handleEvent(ev) {
     if (ev.type === 'start') {
+      // 上一个角色如果只留下一个空的思考占位（上游失败或前端没收到内容），
+      // 先清掉——不然连着几个 start 会堆出好几个空气泡
+      if (curEl && !curEl.querySelector('.msg-text').textContent.trim()) {
+        curEl.remove();
+      }
       setChatStatus(ev.name);
       setDocTitle(state.cur && state.cur.title, true);
       curText = '';
@@ -499,7 +504,13 @@ export async function runRound(path, body, opts = {}) {
     }
 
     if (ev.type === 'error') {
-      addSysNote(ev.name + ' 出错了：' + ev.content);
+      // 上游挂了：把还没说完的那个空气泡清掉，别让用户对着
+      // 一个只有思考三点、永远不会有内容的占位发呆
+      if (curEl && !curEl.querySelector('.msg-text').textContent.trim()) {
+        curEl.remove();
+        curEl = null;
+      }
+      addSysNote(ev.name === '系统' ? ev.content : ev.name + ' 出错了：' + ev.content);
       return;
     }
   }

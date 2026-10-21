@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -211,5 +212,40 @@ func TestSilenceRuleIsNotTooPermissive(t *testing.T) {
 	// 不能只有「有权沉默」而没有反面提醒
 	if !strings.Contains(code, "沉默不是安全选项") {
 		t.Fatal("应该提醒模型沉默不是安全选项")
+	}
+}
+
+func TestPickSpeakerReturnsNilWhenAllSpoken(t *testing.T) {
+	agents := []Agent{{Key: "a", Name: "甲"}, {Key: "b", Name: "乙"}}
+	spoken := map[string]bool{"a": true, "b": true}
+
+	// 所有人都说过了：应该返回 nil，而不是越界或 panic。
+	// 调用方必须判空——上游全失败或全员 PASS 时会走到这里。
+	if got := pickSpeaker(agents, spoken, "", false); got != nil {
+		t.Fatalf("全员已发言时应返回 nil，得到 %+v", got)
+	}
+
+	// 还剩一个人时说过的不能被选中
+	spoken = map[string]bool{"a": true}
+	got := pickSpeaker(agents, spoken, "", false)
+	if got == nil || got.Key != "b" {
+		t.Fatalf("应该选到还没说话的乙，得到 %+v", got)
+	}
+}
+
+func TestFriendlyUpstreamErr(t *testing.T) {
+	cases := map[string]string{
+		"deepseek: status 401: Authentication Fails": "上游认证失败",
+		"429 too many requests":                      "限流",
+		"context deadline exceeded":                  "超时",
+		"provider circuit open: deepseek":            "熔断",
+		"dial tcp: connection refused":               "连不上",
+		"something weird":                            "上游返回错误",
+	}
+	for in, want := range cases {
+		got := friendlyUpstreamErr(errors.New(in))
+		if !strings.Contains(got, want) {
+			t.Fatalf("friendlyUpstreamErr(%q) = %q，应包含 %q", in, got, want)
+		}
 	}
 }

@@ -142,6 +142,8 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 
 	spoken := map[string]bool{}
 	speakers := 0
+	failed := 0
+	var lastErr error
 	lastKey := ""
 
 	// 最多尝试 2 倍于发言人数的次数，允许一部分人沉默
@@ -154,7 +156,9 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		}
 
 		agent := pickSpeaker(agents, spoken, lastKey, speakers == 0)
-		if agent.Key == "" {
+		// pickSpeaker 在「所有人都说过了」时返回 nil。
+		// 之前直接取 agent.Key 会 panic——上游全失败或全员 PASS 时会触发。
+		if agent == nil {
 			break
 		}
 
@@ -162,6 +166,8 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		res, err := o.ask(ctx, conv, sc, *agent, history, trigger, emit, force)
 		if err != nil {
 			logx.Req(ctx).Warn("agent speak failed", "agent", agent.Name, "err", err.Error())
+			failed++
+			lastErr = err
 			spoken[agent.Key] = true
 			continue
 		}
@@ -219,8 +225,37 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		}
 	}
 
+	// 一个人都没说成——多半是上游挂了或者 key 错了。
+	// 不说的话用户只看到几个空气泡，不知道发生了什么。
+	if speakers == 0 && failed > 0 {
+		msg := "上游没有响应"
+		if lastErr != nil {
+			msg = friendlyUpstreamErr(lastErr)
+		}
+		emit(Event{Type: "error", Name: "系统", Content: msg})
+	}
+
 	_ = o.store.UpdateConv(conv)
 	emit(Event{Type: "done"})
+}
+
+// friendlyUpstreamErr 把上游错误翻成用户能看懂的一句话。
+// 401 和超时是最常见的两种，其余的给个笼统说明。
+func friendlyUpstreamErr(err error) string {
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "401"), strings.Contains(s, "Authentication"), strings.Contains(s, "invalid api key"):
+		return "上游认证失败，检查 API Key 配置"
+	case strings.Contains(s, "429"), strings.Contains(s, "rate limit"):
+		return "上游限流了，等一会儿再试"
+	case strings.Contains(s, "timeout"), strings.Contains(s, "deadline"):
+		return "上游超时，可能是网络或服务端繁忙"
+	case strings.Contains(s, "circuit open"):
+		return "上游连续失败，已暂时熔断。稍后再试"
+	case strings.Contains(s, "connection"), strings.Contains(s, "dial"):
+		return "连不上上游服务"
+	}
+	return "上游返回错误，稍后再试"
 }
 
 // pickSpeaker 选择下一个发言者。
