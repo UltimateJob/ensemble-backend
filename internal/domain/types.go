@@ -28,6 +28,28 @@ type User struct {
 	LastSeen  time.Time `json:"lastSeen"`
 }
 
+// CanAccess 判断某个用户能否进入这个会话。
+// 创建者与受邀协作者都可以；其他人一律不可见。
+func (c *Conversation) CanAccess(userID string) bool {
+	if userID == "" {
+		return false
+	}
+	if c.UserID == userID {
+		return true
+	}
+	for _, id := range c.Collaborators {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// IsOwner 是否是创建者。只有创建者能改协作者。
+func (c *Conversation) IsOwner(userID string) bool {
+	return c.UserID == userID
+}
+
 // Remaining 返回剩余额度。
 func (u *User) Remaining() int {
 	if u.Quota <= u.Used {
@@ -48,6 +70,10 @@ type Conversation struct {
 	// Agents 自定义角色。为空时用场景预设，非空时覆盖。
 	// 这是「自己造角色拉进群」的落地方式。
 	Agents []ConvAgent `json:"agents,omitempty"`
+
+	// Collaborators 可以一起看和发言的用户 ID。
+	// 创建者（UserID）永远有权限，这里存的是被邀请的人。
+	Collaborators []string `json:"collaborators,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

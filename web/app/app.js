@@ -914,6 +914,19 @@
         return;
       }
 
+      if (act === 'invite') {
+        const target = prompt('对方的手机号或邮箱（需要先注册过）', '');
+        if (!target) return;
+        try {
+          const r = await api('/v1/conversations/' + id + '/collaborators', {
+            method: 'POST', body: { target: target.trim() },
+          });
+          toast('已邀请 ' + (r.invitee ? r.invitee.name : target));
+          await loadConvs();
+        } catch (e) { toast(e.message); }
+        return;
+      }
+
       if (act === 'delete') {
         UI_confirm_delete(conv);
       }

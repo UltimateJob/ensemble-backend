@@ -193,6 +193,10 @@ type Provider interface {
 | GET | `/v1/conversations/{id}/messages` | 历史消息（`?page=1&before=<id>&limit=30` 走游标分页） |
 | POST | `/v1/conversations/{id}/orchestrate` | **用户发言**，角色自主决定接不接 |
 | POST | `/v1/conversations/{id}/kickoff` | **无人触发**，让群里自己聊 |
+| GET | `/v1/conversations/{id}/collaborators` | 协作者列表 |
+| POST | `/v1/conversations/{id}/collaborators` | 邀请协作者（仅创建者） |
+| DELETE | `/v1/conversations/{id}/collaborators/{uid}` | 移出协作者（仅创建者） |
+| POST | `/v1/conversations/{id}/leave` | 主动退出（协作者） |
 | POST | `/v1/agents/draft` | 生成角色人设 |
 | POST | `/v1/chat/completions` | 网关直连 |
 
@@ -332,6 +336,22 @@ node scripts/e2e-mobile.mjs   # 移动 390
 CI 在 `.github/workflows/ci.yml`：格式检查 → vet → 竞态测试 → 覆盖率 → 构建 → 冒烟 → 桌面 E2E → 移动 E2E。
 
 写测试时抓到两个真 bug：带解释的 `[PASS] 这个话题我不懂` 被当成发言推给了用户；缓冲阶段 `[PA` 没被识别，用户会看到半截标记。都已修。
+
+## 谁能看到哪个群
+
+权限只有三层，刻意做得简单：
+
+| 角色 | 能做什么 |
+|---|---|
+| 创建者 | 改群名、换模型、邀请/移出协作者、删除群 |
+| 协作者 | 看历史、发言、让群里继续聊、主动退出 |
+| 其他人 | 完全看不到——列表里不出现，直接访问返回 404 |
+
+邀请只能邀请**已经注册过**的人（按手机号/邮箱查）。避免往库里塞不存在的账号，也避免变成垃圾邀请的入口。
+
+上限 20 人。
+
+权限判断集中在 `domain.Conversation.CanAccess()` / `IsOwner()` 两个方法里，不散落在各个 handler。写测试时发现过一个漏洞：协作者原本能改群名——因为 `handleUpdateConv` 只检查了「能不能访问」，没检查「是不是创建者」。已经收紧。
 
 ## 验证码
 

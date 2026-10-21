@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	ErrQuotaExceeded = errors.New("本月额度已用完")
-	ErrConvNotFound  = errors.New("会话不存在")
-	ErrForbidden     = errors.New("无权访问该会话")
+	ErrTooManyCollaborators = errors.New("协作者数量已达上限（20 人）")
+	ErrQuotaExceeded        = errors.New("本月额度已用完")
+	ErrConvNotFound         = errors.New("会话不存在")
+	ErrForbidden            = errors.New("无权访问该会话")
 )
 
 // Chat 会话与对话用例。
@@ -63,10 +64,81 @@ func (c *Chat) Get(userID, convID string) (*domain.Conversation, error) {
 	if !ok {
 		return nil, ErrConvNotFound
 	}
-	if conv.UserID != userID {
+	if !conv.CanAccess(userID) {
 		return nil, ErrForbidden
 	}
 	return conv, nil
+}
+
+// AddCollaborator 邀请一个用户加入会话。只有创建者能邀请。
+func (c *Chat) AddCollaborator(ownerID, convID string, user *domain.User) (*domain.Conversation, error) {
+	conv, ok := c.store.GetConv(convID)
+	if !ok {
+		return nil, ErrConvNotFound
+	}
+	if !conv.IsOwner(ownerID) {
+		return nil, ErrForbidden
+	}
+	if user.ID == conv.UserID {
+		return conv, nil // 创建者本来就有权限
+	}
+	for _, id := range conv.Collaborators {
+		if id == user.ID {
+			return conv, nil
+		}
+	}
+	if len(conv.Collaborators) >= 20 {
+		return nil, ErrTooManyCollaborators
+	}
+	conv.Collaborators = append(conv.Collaborators, user.ID)
+	if err := c.store.UpdateConv(conv); err != nil {
+		return nil, err
+	}
+	return conv, nil
+}
+
+// RemoveCollaborator 移出协作者。创建者不能移除自己。
+func (c *Chat) RemoveCollaborator(ownerID, convID, userID string) (*domain.Conversation, error) {
+	conv, ok := c.store.GetConv(convID)
+	if !ok {
+		return nil, ErrConvNotFound
+	}
+	if !conv.IsOwner(ownerID) {
+		return nil, ErrForbidden
+	}
+	if userID == conv.UserID {
+		return nil, errors.New("不能移除创建者")
+	}
+	next := conv.Collaborators[:0]
+	for _, id := range conv.Collaborators {
+		if id != userID {
+			next = append(next, id)
+		}
+	}
+	conv.Collaborators = next
+	if err := c.store.UpdateConv(conv); err != nil {
+		return nil, err
+	}
+	return conv, nil
+}
+
+// Leave 主动退出（协作者用）。
+func (c *Chat) Leave(userID, convID string) error {
+	conv, ok := c.store.GetConv(convID)
+	if !ok {
+		return ErrConvNotFound
+	}
+	if conv.IsOwner(userID) {
+		return errors.New("创建者不能退出，只能删除群聊")
+	}
+	next := conv.Collaborators[:0]
+	for _, id := range conv.Collaborators {
+		if id != userID {
+			next = append(next, id)
+		}
+	}
+	conv.Collaborators = next
+	return c.store.UpdateConv(conv)
 }
 
 // Update 保存会话改动（改名、换模型）。

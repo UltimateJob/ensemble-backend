@@ -54,6 +54,11 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "会话不存在")
 		return
 	}
+	// 改名和换模型属于管理动作，只有创建者能改
+	if !conv.IsOwner(u.ID) {
+		forbidden(w)
+		return
+	}
 	var req struct {
 		Title string `json:"title"`
 		Model string `json:"model"`

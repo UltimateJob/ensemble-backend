@@ -169,7 +169,7 @@ func (m *Memory) ListConvs(userID string) []*domain.Conversation {
 	defer m.mu.RUnlock()
 	out := make([]*domain.Conversation, 0)
 	for _, c := range m.convs {
-		if userID == "" || c.UserID == userID {
+		if userID == "" || c.CanAccess(userID) {
 			cp := *c
 			out = append(out, &cp)
 		}

@@ -325,3 +325,109 @@ func TestRenameConversation(t *testing.T) {
 		t.Fatalf("未登录改名应 401，得到 %d", rec.Code)
 	}
 }
+
+// 协作者体系：这是权限核心，测试要覆盖边界。
+func TestCollaboratorAccess(t *testing.T) {
+	_, h := newTestServer(t)
+
+	owner := login(t, h, "13800000000")
+
+	// 第二个用户走验证码流程注册
+	_, out := doJSON(t, h, "POST", "/v1/auth/send-code", "", map[string]string{
+		"kind": "phone", "target": "13600000001",
+	})
+	code := out["data"].(map[string]interface{})["devCode"].(string)
+	_, out = doJSON(t, h, "POST", "/v1/auth/login", "", map[string]string{
+		"kind": "phone", "target": "13600000001", "code": code,
+	})
+	guest := out["data"].(map[string]interface{})["token"].(string)
+
+	// owner 建群
+	_, out = doJSON(t, h, "POST", "/v1/conversations", owner, map[string]interface{}{
+		"title": "协作测试", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	// 邀请前：外人看不到
+	rec, _ := doJSON(t, h, "GET", "/v1/conversations/"+convID, guest, nil)
+	if rec.Code != 404 {
+		t.Fatalf("邀请前外人应 404，得到 %d", rec.Code)
+	}
+	_, out = doJSON(t, h, "GET", "/v1/conversations", guest, nil)
+	if len(out["data"].([]interface{})) != 0 {
+		t.Fatal("邀请前不应出现在对方的列表里")
+	}
+
+	// 邀请
+	rec, out = doJSON(t, h, "POST", "/v1/conversations/"+convID+"/collaborators", owner, map[string]interface{}{
+		"target": "13600000001",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("邀请失败：%d %s", rec.Code, rec.Body.String())
+	}
+
+	// 邀请后：能看到、能发消息
+	rec, _ = doJSON(t, h, "GET", "/v1/conversations/"+convID, guest, nil)
+	if rec.Code != 200 {
+		t.Fatalf("受邀后应能访问，得到 %d", rec.Code)
+	}
+	_, out = doJSON(t, h, "GET", "/v1/conversations", guest, nil)
+	if len(out["data"].([]interface{})) != 1 {
+		t.Fatal("受邀后应出现在对方的列表里")
+	}
+
+	rec, _ = doJSON(t, h, "POST", "/v1/conversations/"+convID+"/orchestrate", guest, map[string]interface{}{
+		"content": "我也说一句",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("协作者应能发言，得到 %d", rec.Code)
+	}
+
+	// 协作者不能改群名（管理动作只归创建者）
+	rec, _ = doJSON(t, h, "PATCH", "/v1/conversations/"+convID, guest, map[string]interface{}{
+		"title": "我要改名",
+	})
+	if rec.Code != 403 {
+		t.Fatalf("协作者改名应被拒绝，得到 %d", rec.Code)
+	}
+
+	// 协作者不能邀请别人
+	rec, _ = doJSON(t, h, "POST", "/v1/conversations/"+convID+"/collaborators", guest, map[string]interface{}{
+		"target": "13800000000",
+	})
+	if rec.Code == 200 {
+		t.Fatal("协作者不应有权邀请别人")
+	}
+
+	// 协作者主动退出
+	rec, _ = doJSON(t, h, "POST", "/v1/conversations/"+convID+"/leave", guest, nil)
+	if rec.Code != 200 {
+		t.Fatalf("退出失败：%d", rec.Code)
+	}
+	rec, _ = doJSON(t, h, "GET", "/v1/conversations/"+convID, guest, nil)
+	if rec.Code != 404 {
+		t.Fatalf("退出后应重新变成 404，得到 %d", rec.Code)
+	}
+
+	// 创建者不能退出
+	rec, _ = doJSON(t, h, "POST", "/v1/conversations/"+convID+"/leave", owner, nil)
+	if rec.Code == 200 {
+		t.Fatal("创建者不能退出群聊")
+	}
+}
+
+func TestInviteNonExistentUser(t *testing.T) {
+	_, h := newTestServer(t)
+	owner := login(t, h, "13800000000")
+	_, out := doJSON(t, h, "POST", "/v1/conversations", owner, map[string]interface{}{
+		"title": "空邀请", "studio": "companion",
+	})
+	id := out["data"].(map[string]interface{})["id"].(string)
+
+	rec, _ := doJSON(t, h, "POST", "/v1/conversations/"+id+"/collaborators", owner, map[string]interface{}{
+		"target": "13999999999",
+	})
+	if rec.Code != 404 {
+		t.Fatalf("邀请未注册用户应 404，得到 %d", rec.Code)
+	}
+}
