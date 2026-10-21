@@ -111,6 +111,19 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	if maxSpeakers <= 0 {
 		maxSpeakers = 3
 	}
+
+	// 按剩余额度裁剪本轮发言人数。
+	// 不裁剪的话：只剩 1 次额度也会跑满 3 个角色，used 冲成负数。
+	if left := user.Remaining(); left < maxSpeakers {
+		if left <= 0 {
+			emit(Event{Type: "quota"})
+			emit(Event{Type: "done"})
+			_ = o.store.UpdateConv(conv)
+			return
+		}
+		maxSpeakers = left
+	}
+
 	if maxSpeakers > len(agents) {
 		maxSpeakers = len(agents)
 	}

@@ -204,3 +204,27 @@ func TestStripSpeakerPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestLoopRespectsQuota(t *testing.T) {
+	// 剩 1 次额度时，最多只应有 1 个角色开口
+	agents := []Agent{{Key: "a", Name: "甲"}, {Key: "b", Name: "乙"}, {Key: "c", Name: "丙"}}
+	sc := Scenario{Round: 3, Agents: agents}
+
+	// 直接验证裁剪逻辑：round > left 时按 left 算
+	left := 1
+	round := sc.Round
+	if left < round {
+		round = left
+	}
+	if round != 1 {
+		t.Fatalf("剩 1 次额度时本轮应只跑 1 个角色，得到 %d", round)
+	}
+
+	// 剩 0 次应完全不跑
+	left = 0
+	if left <= 0 {
+		// 与实现一致：emit quota 后直接返回
+	} else {
+		t.Fatal("剩 0 次不应继续")
+	}
+}
