@@ -81,6 +81,8 @@ async function doLogin() {
     state.token = d.token;
     state.user = d.user;
     localStorage.setItem('ens_token', d.token);
+    // 拉一次 /me 拿 demo / upstream——顶栏的「演示」徽章靠它
+    try { state.me = await api('/v1/me'); } catch (e) { state.me = null; }
     enterApp();
   } catch (e) {
     showLoginErr(e.message);
@@ -179,7 +181,13 @@ $('#clearBtn').addEventListener('click', () => {
 function renderDemoBadge() {
   const el = $('#demoBadge');
   if (!el) return;
-  const demo = state.me && state.me.demo;
+  // state.me 没拿到就补拉一次——徽章不显示的话，
+  // 用户会以为演示台词是真模型输出
+  if (!state.me) {
+    api('/v1/me').then(d => { state.me = d; renderDemoBadge(); }).catch(() => {});
+    return;
+  }
+  const demo = state.me.demo;
   el.style.display = demo ? 'inline-flex' : 'none';
   if (!demo) return;
   el.onclick = () => {
