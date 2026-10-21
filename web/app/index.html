@@ -91,6 +91,9 @@
         <kbd>⌘K</kbd>
       </button>
       <div class="av-stack" id="topAvatars"></div>
+      <button class="icon-btn" id="studioBtn" title="代码工作室">
+        <i data-ic="code" data-size="17"></i>
+      </button>
       <button class="icon-btn" id="newConvBtn" title="新建群聊">
         <i data-ic="plus" data-size="18"></i>
       </button>
@@ -204,6 +207,57 @@
       <button class="btn btn-line" id="sceneCancel">取消</button>
       <button class="btn btn-line" id="openForge">添加角色</button>
       <button class="btn btn-grad" id="sceneCreate" disabled>创建群聊</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ 代码工作室 ============ -->
+<div class="studio" id="studio">
+  <div class="studio-in">
+    <div class="studio-head">
+      <div>
+        <div class="k">Code studio</div>
+        <h2>让角色真的动手</h2>
+        <p>选一个本机目录，派一个任务。它会读文件、改代码、跑测试；每一步都在时间线上，改动可以回滚。</p>
+      </div>
+      <button class="icon-btn" id="studioClose"><i data-ic="x" data-size="16"></i></button>
+    </div>
+    <div class="studio-body">
+      <div class="studio-side">
+        <div class="field">
+          <label>工作区（本机绝对路径）</label>
+          <div class="field-row">
+            <input id="wsRoot" placeholder="/Users/you/project" spellcheck="false">
+            <button class="btn btn-line" id="wsPick">选择…</button>
+          </div>
+          <div class="studio-hint">桌面端可用 ⌘O 调原生目录选择器；浏览器里请直接填路径。</div>
+        </div>
+        <div class="field">
+          <label>权限</label>
+          <select id="runPerm">
+            <option value="readonly">只读（不能改文件、不能跑命令）</option>
+            <option value="approval" selected>命令需批准（写文件自动，跑命令要你点）</option>
+            <option value="full">完全访问（命令等同当前系统用户）</option>
+          </select>
+          <div class="studio-hint">本地运行时不是沙箱。full 下命令能做的事和你本人一样多。</div>
+        </div>
+        <div class="field">
+          <label>任务</label>
+          <textarea id="runTask" rows="5" placeholder="比如：修一下 calc.go 里 Add 的 bug，跑 go test 确认通过"></textarea>
+        </div>
+        <button class="btn btn-grad" id="runStart" style="width:100%">开始执行</button>
+        <div class="ws-wrap">
+          <div class="info-h">已绑定工作区</div>
+          <div id="wsList"></div>
+        </div>
+      </div>
+      <div class="studio-tl">
+        <div class="info-h">执行时间线</div>
+        <div class="timeline" id="runTimeline">
+          <div class="tl-empty">还没有任务。填好任务点「开始执行」，这里会出现每一步的工具调用。</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>

@@ -236,7 +236,9 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 
 	// 闲聊场景（二次元 / 日常陪聊 / 自定义群）允许寒暄和关心；
 	// 工作场景保持先定目标、再给结论。
-	casual := sc.Category == "fun" || sc.Key == "custom"
+	// 自定义群默认按闲聊处理；但如果里面配了执行权限（代码工作室那类群），
+	// 它就是工作群——否则架构师会把「加个接口」当成寒暄直接 PASS。
+	casual := sc.Category == "fun" || (sc.Key == "custom" && !hasWorkAgents(agents))
 	// ask 需要知道完整成员列表，否则自定义群会把「群里还有」拼成空字符串，
 	// 角色不知道自己在跟谁聊。
 	promptSc := sc
@@ -316,7 +318,11 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 			break
 		}
 
-		force := (forceFirst && speakers == 0) || (len(addressed) > 0 && addressed[agent.Key] && !spoken[agent.Key])
+		// 还没人开口时，从第二次尝试起强制发言：
+		// 四个人都客气地 PASS 掉，群聊就变成"问一句没人理"。
+		// 强制不等于让所有人说话——只保证至少有一个角色接住。
+		force := (forceFirst && speakers == 0) || (attempt > 0 && speakers == 0) ||
+			(len(addressed) > 0 && addressed[agent.Key] && !spoken[agent.Key])
 		memoryCard := ""
 		if o.mem != nil {
 			memoryCard = o.mem.Context(conv.ID, agent.CharacterID, user.ID, anchor)
@@ -358,7 +364,10 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 
 		_ = o.store.IncrementUsed(user.ID, 1)
 
-		if res.asksUser {
+		// 有人向用户提问并不代表这一轮结束。
+		// 只有一个人开口问一句就冷场，是最像"死物"的群聊；
+		// 至少再让一个角色接一句（表态/认领/补充），问到的人也能被同事接住。
+		if res.asksUser && speakers >= 2 {
 			break
 		}
 
@@ -753,4 +762,14 @@ func summarize(text string) string {
 		return string(r[:28]) + "…"
 	}
 	return string(r)
+}
+
+// hasWorkAgents 群里有带执行权限的角色，说明这是工作群而不是闲聊群。
+func hasWorkAgents(agents []Agent) bool {
+	for _, a := range agents {
+		if a.Permission != "" {
+			return true
+		}
+	}
+	return false
 }

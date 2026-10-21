@@ -16,6 +16,7 @@ import {
 import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
 import { uiPrompt } from './dialog.js';
 import { initMemory } from './memory.js';
+import { initStudio, openStudio } from './studio.js';
 
 /* ---------------- 登录 ---------------- */
 let segKind = 'phone';
@@ -1100,9 +1101,11 @@ window.addEventListener('beforeunload', e => {
 
 // 供 chat.js 反向刷新引导清单
 initMemory();
+initStudio();
+$('#studioBtn')?.addEventListener('click', openStudio);
 
 window.__refreshOnboard = renderOnboard;
 window.__openScenes = openScenes;
 
 // 调试出口：出问题时可以在控制台直接调
-window.__ens = { kickoff, send, openConv, loadConvs, state, renderOnboard };
+window.__ens = { kickoff, send, openConv, loadConvs, state, renderOnboard, openStudio };

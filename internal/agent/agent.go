@@ -131,9 +131,11 @@ type Run struct {
 	Diffs          []workspace.FileDiff `json:"diffs,omitempty"`
 	DiffTotal      int                  `json:"diffTotal"`
 	ToolCalls      []*ToolCall          `json:"toolCalls,omitempty"`
-	Summary        string               `json:"summary,omitempty"`
-	Error          string               `json:"error,omitempty"`
-	Events         []Event              `json:"-"`
+	// approved 本次 Run 内已批准的同类命令（scope=run），避免每条命令都打扰用户
+	approved map[string]bool
+	Summary  string  `json:"summary,omitempty"`
+	Error    string  `json:"error,omitempty"`
+	Events   []Event `json:"-"`
 
 	cancel context.CancelFunc
 }
@@ -170,6 +172,12 @@ type Workspace struct {
 	ws             *workspace.Workspace
 }
 
+// UsageRecorder 在 Run 结束时上报用量。
+//
+// 执行器的 token 是真金白银，之前完全没进账——报告里发现的问题。
+// 用回调而不是直接依赖 store，避免工作层反向依赖存储层。
+type UsageRecorder func(userID string, tokensIn, tokensOut int)
+
 // Manager 持有工作区、运行中的 Run 与审批队列。
 type Manager struct {
 	mu         sync.Mutex
@@ -181,6 +189,8 @@ type Manager struct {
 	// 同一工作区同时只允许一个 active Run（写入冲突的根因）
 	active map[string]string
 	seq    int
+	// usage 可选的用量上报
+	usage UsageRecorder
 }
 
 // NewManager 创建管理器。
@@ -201,6 +211,13 @@ func newID(prefix string) string {
 		return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 	}
 	return prefix + "_" + hex.EncodeToString(b)
+}
+
+// SetUsageRecorder 注入用量上报。
+func (m *Manager) SetUsageRecorder(fn UsageRecorder) {
+	m.mu.Lock()
+	m.usage = fn
+	m.mu.Unlock()
 }
 
 // BindWorkspace 绑定一个本机目录。
@@ -362,6 +379,12 @@ func (m *Manager) Decide(approvalID, userID string, approve bool, scope string) 
 			scope = "once"
 		}
 		a.Scope = scope
+		if scope == "run" {
+			if r.approved == nil {
+				r.approved = map[string]bool{}
+			}
+			r.approved[a.Risk] = true
+		}
 	} else {
 		a.Status = "rejected"
 	}

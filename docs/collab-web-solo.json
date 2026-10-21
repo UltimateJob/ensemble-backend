@@ -1,0 +1,49 @@
+{
+ "case": "web-solo",
+ "task": "给 tinysrv 加 GET /api/health，返回 {\"ok\":true,\"version\":\"1.0\"}；页面顶部加状态条（health 正常绿点「服务正常」，失败红点「服务异常」）；现在 go test 是红的（/api/time 404），把路由抽成 newMux() 让测试复用，跑 go test ./... 确认全绿。",
+ "root": "/tmp/dsh-web-solo",
+ "mode": "solo",
+ "wallSeconds": 18.1,
+ "quotaUsed": 0,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_a751b0a8d447f4a1",
+   "status": "done",
+   "steps": 12,
+   "tokensIn": 40827,
+   "tokensOut": 2325,
+   "seconds": 18.1,
+   "toolCalls": 20,
+   "diffFiles": [
+    [
+     "main.go",
+     "modified",
+     14,
+     18
+    ],
+    [
+     "main_test.go",
+     "modified",
+     14,
+     28
+    ],
+    [
+     "web/index.html",
+     "modified",
+     12,
+     46
+    ]
+   ],
+   "summary": "完成 12 步，改动 3 个文件",
+   "error": ""
+  }
+ ],
+ "at": "2026-10-22 02:24:26"
+}

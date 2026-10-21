@@ -1,5 +1,34 @@
 # 本机执行器与工作区设计
 
+## 落地状态（2026-10-22）
+
+P0 已实现并跑通真实链路：
+
+| 能力 | 代码 | 状态 |
+|---|---|---|
+| 工作区路径守卫（拒绝 `..`、绝对路径、symlink 逃逸） | `internal/workspace/workspace.go` | 已实现，11 项单测 |
+| 文件工具 `read/list/glob/grep/write/edit` | `internal/workspace/tools.go` | 已实现 |
+| 本地命令（argv 优先、最小 env、超时杀进程组、输出截断、风险分级） | `internal/workspace/exec.go` | 已实现 |
+| 快照 / diff / revert | `internal/workspace/snapshot.go` | 已实现 |
+| Run 生命周期 + tool-call 循环 | `internal/agent/{agent,runner}.go` | 已实现 |
+| 三档权限服务端强制 | `internal/agent/agent.go` `permissionFor` | 已实现 |
+| 审批挂起 + `scope=run` 自动放行 | `internal/agent/runner.go` | 已实现 |
+| 事件重放（刷新不丢） | `internal/agent/agent.go` `Subscribe` | 已实现 |
+| HTTP 路由 | `internal/httpapi/handler_workspace.go` | 已实现 |
+| 前端工作室面板 | `web/app/js/studio.js` + `#studio` | 已实现 |
+| 桌面壳（原生 WKWebView + 原生目录选择） | `desktop/EnsembleDesktop.swift` | 已实现 |
+
+真实上游验证：`calc` 修 bug（5 步 6 次工具）、`divide` 双 agent 协作（22s，后端核对后不重复改）、`tinysrv` 跨栈（34.7s）。数据在 `docs/collab-benchmark.md`。
+
+已知缺口（下一轮）：
+
+1. **职责边界只在提示词里**：前端 agent 会改后端文件。需要 `scope` 路径前缀，在执行器里强制。
+2. **并行执行需要 worktree 隔离**：同工作区当前串行。
+3. 审批 `scope=session` 未落地（`run` 已生效）。
+4. Docker / OS sandbox 执行器未做——`full` 权限如实等同当前用户。
+
+---
+
 > 产品决策（2026-10-21）：
 >
 > 1. **工作区来源**：桌面端直接选本机目录；未来做大后支持云端操控 Git 仓库。

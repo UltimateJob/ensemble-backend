@@ -123,6 +123,16 @@ func main() {
 	// ---- HTTP ----
 	// 工作层：本地工作区、Run、审批、回滚。
 	agentMgr := agent.NewManager()
+	// 执行器的 token 按「每 10k token 折 1 次额度」计入用量，最少 1 次。
+	agentMgr.SetUsageRecorder(func(userID string, in, out int) {
+		credits := (in + out + 9999) / 10000
+		if credits < 1 {
+			credits = 1
+		}
+		if err := st.IncrementUsed(userID, credits); err != nil {
+			log.Warn("记录执行用量失败", "err", err.Error())
+		}
+	})
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc)
 	srv.SetAgentManager(agentMgr)
 	httpServer := &http.Server{

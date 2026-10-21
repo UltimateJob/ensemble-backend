@@ -174,6 +174,13 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		if r.cancel != nil {
 			r.cancel()
 		}
+		m.mu.Lock()
+		rec := m.usage
+		in, out := r.TokensIn, r.TokensOut
+		m.mu.Unlock()
+		if rec != nil && (in+out) > 0 {
+			rec(r.UserID, in, out)
+		}
 		m.emit(r, EventRunEnd, map[string]any{
 			"status":  status,
 			"error":   errMsg,
@@ -396,6 +403,14 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 		return deny(reason)
 	}
 
+	if needApproval {
+		m.mu.Lock()
+		auto := r.approved != nil && r.approved[risk]
+		m.mu.Unlock()
+		if auto {
+			needApproval = false
+		}
+	}
 	if needApproval {
 		ap := &Approval{
 			ID:         newID("apv"),
