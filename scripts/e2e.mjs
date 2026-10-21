@@ -219,8 +219,16 @@ async function run() {
     );
 
     // ---- 建群 ----
-    // 拦截 prompt，直接给个名字
-    await cdp.eval('window.prompt = () => "E2E 测试群"');
+    // 群名走自绘弹层：等它出现再填
+    const fillDialog = async (text) => {
+      await cdp.waitFor('!!document.querySelector(".ui-dlg .ui-dlg-input")', 8000, '弹层出现');
+      await cdp.eval(`(() => {
+        const i = document.querySelector('.ui-dlg-input');
+        i.value = ${JSON.stringify(text)};
+        i.dispatchEvent(new Event('input', { bubbles: true }));
+        document.querySelector('.ui-dlg-btn[data-x=ok]').click();
+      })()`);
+    };
     await cdp.eval(`
       (() => {
         const el = [...document.querySelectorAll('.scene')].find(s => s.dataset.k === 'companion');
@@ -228,6 +236,8 @@ async function run() {
         document.querySelector('#sceneCreate').click();
       })()
     `);
+    // 建群现在会先问群名
+    await fillDialog('E2E 测试群');
     await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 15000, '会话出现在左栏');
     ok('建群后出现在会话列表', true);
 
@@ -372,8 +382,8 @@ async function run() {
     await cdp.waitFor('document.querySelector("#ctxMenu").classList.contains("on")', 5000, '菜单打开');
     ok('⋯ 能打开操作菜单', true);
 
-    await cdp.eval('window.prompt = () => "改名后的群"');
     await cdp.eval('document.querySelector("#ctxMenu button[data-act=rename]").click()');
+    await fillDialog('改名后的群');
     await sleep(1200);
 
     const newTitle = await cdp.eval('document.querySelector(".conv .conv-name").textContent');

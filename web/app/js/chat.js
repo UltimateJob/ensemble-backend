@@ -6,6 +6,7 @@
 import {
   $, $$, API, api, state, toast, esc, timeStr, agoStr, makeAv, icon,
 } from './core.js';
+import { uiPrompt, uiConfirm } from './dialog.js';
 
 /* ---------------- 会话 ---------------- */
 export async function loadConvs() {
@@ -383,7 +384,7 @@ $$('#ctxMenu button').forEach(btn => {
     if (!conv) return;
 
     if (act === 'rename') {
-      const name = prompt('新的群名', conv.title);
+      const name = await uiPrompt('改个名字', conv.title, { okText: '改名' });
       if (!name || name === conv.title) return;
       try {
         await api('/v1/conversations/' + id, { method: 'PATCH', body: { title: name } });
@@ -398,8 +399,33 @@ $$('#ctxMenu button').forEach(btn => {
       return;
     }
 
+    if (act === 'saveStudio') {
+      const name = await uiPrompt('存为工作室', conv.title, {
+        okText: '保存',
+        hint: '之后它会像内置场景一样出现在场景页里，点一下就能开同样的群。',
+      });
+      if (!name) return;
+      try {
+        const st = await api('/v1/studios', {
+          method: 'POST',
+          body: { fromConvId: conv.id, name: name.trim() },
+        });
+        toast('已存为工作室「' + st.name + '」');
+        // 场景列表要重新拉，不然场景页里看不到新的
+        try {
+          state.scenarios = await api('/v1/scenarios');
+        } catch (e) { /* 忽略 */ }
+        if (window.__refreshOnboard) window.__refreshOnboard();
+      } catch (e) { toast(e.message); }
+      return;
+    }
+
     if (act === 'invite') {
-      const target = prompt('对方的手机号或邮箱（需要先注册过）', '');
+      const target = await uiPrompt('邀请协作者', '', {
+        placeholder: '手机号或邮箱',
+        okText: '邀请',
+        hint: '对方需要先注册过。邀请后可以一起看这个群、一起说话。',
+      });
       if (!target) return;
       try {
         const r = await api('/v1/conversations/' + id + '/collaborators', {
@@ -417,9 +443,10 @@ $$('#ctxMenu button').forEach(btn => {
   });
 });
 
-function UI_confirm_delete(conv) {
-  // 复用一个简易确认弹层
-  if (!confirm(`删除「${conv.title}」？群里的消息会一并清掉，不可恢复。`)) return;
+async function UI_confirm_delete(conv) {
+  const yes = await uiConfirm(`删除「${conv.title}」？`,
+    '群里的消息会一并清掉，不能恢复。', { okText: '删除', danger: true });
+  if (!yes) return;
   api('/v1/conversations/' + conv.id, { method: 'DELETE' })
     .then(async () => {
       if (state.cur && state.cur.id === conv.id) {

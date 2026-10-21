@@ -1,0 +1,78 @@
+/* ============================================================
+   合奏 Ensemble · 对话弹层
+   替代原生 prompt / confirm。
+   原生弹窗是浏览器灰色的方块，和产品视觉完全断层。
+   ============================================================ */
+
+function shell(html) {
+  const mask = document.createElement('div');
+  mask.className = 'ui-dlg';
+  mask.innerHTML = `<div class="ui-dlg-card">${html}</div>`;
+  document.body.appendChild(mask);
+  requestAnimationFrame(() => mask.classList.add('on'));
+  return mask;
+}
+
+function close(mask) {
+  mask.classList.remove('on');
+  setTimeout(() => mask.remove(), 180);
+}
+
+/** 单行输入。返回 Promise<string|null> */
+export function uiPrompt(title, value = '', opts = {}) {
+  return new Promise(resolve => {
+    const { placeholder = '', okText = '确定', hint = '' } = opts;
+    const mask = shell(`
+      <h3>${title}</h3>
+      ${hint ? `<p class="ui-dlg-hint">${hint}</p>` : ''}
+      <input class="ui-dlg-input" id="dlgInput" value="${String(value).replace(/"/g, '&quot;')}"
+             placeholder="${placeholder}" maxlength="80">
+      <div class="ui-dlg-act">
+        <button class="ui-dlg-btn" data-x="cancel">取消</button>
+        <button class="ui-dlg-btn primary" data-x="ok">${okText}</button>
+      </div>`);
+    const input = mask.querySelector('#dlgInput');
+    input.focus();
+    input.select();
+
+    const done = v => { close(mask); document.removeEventListener('keydown', onKey); resolve(v); };
+    const ok = () => done(input.value.trim() || null);
+
+    mask.querySelector('[data-x=ok]').onclick = ok;
+    mask.querySelector('[data-x=cancel]').onclick = () => done(null);
+    mask.addEventListener('click', e => { if (e.target === mask) done(null); });
+
+    function onKey(e) {
+      if (e.key === 'Enter') { e.preventDefault(); ok(); }
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+    }
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+/** 确认。返回 Promise<boolean> */
+export function uiConfirm(title, desc = '', opts = {}) {
+  return new Promise(resolve => {
+    const { okText = '确定', danger = false } = opts;
+    const mask = shell(`
+      <h3>${title}</h3>
+      ${desc ? `<p class="ui-dlg-hint">${desc}</p>` : ''}
+      <div class="ui-dlg-act">
+        <button class="ui-dlg-btn" data-x="cancel">取消</button>
+        <button class="ui-dlg-btn ${danger ? 'danger' : 'primary'}" data-x="ok">${okText}</button>
+      </div>`);
+
+    const done = v => { close(mask); document.removeEventListener('keydown', onKey); resolve(v); };
+    mask.querySelector('[data-x=ok]').onclick = () => done(true);
+    mask.querySelector('[data-x=cancel]').onclick = () => done(false);
+    mask.addEventListener('click', e => { if (e.target === mask) done(false); });
+    const btn = mask.querySelector('[data-x=ok]');
+    btn.focus();
+
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    }
+    document.addEventListener('keydown', onKey);
+  });
+}

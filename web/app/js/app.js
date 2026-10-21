@@ -12,6 +12,7 @@ import {
   addSysNote, scrollBottom, renderMembers, renderPipeline,
   addArtifact, appendArtifactCard, send, kickoff,
 } from './chat.js';
+import { uiPrompt } from './dialog.js';
 
 /* ---------------- 登录 ---------------- */
 let segKind = 'phone';
@@ -391,7 +392,9 @@ $('#sceneCancel').addEventListener('click', () => $('#scenes').classList.remove(
 $('#sceneCreate').addEventListener('click', async () => {
   const sc = state.scenarios.find(s => s.key === state.pick);
   if (!sc) return;
-  const title = prompt('给这个群起个名字', sc.name);
+  const title = await uiPrompt('给这个群起个名字', sc.name, {
+    okText: '创建', placeholder: '群名',
+  });
   if (title === null) return;
   try {
     // 把勾选的库角色复制进这个群（快照，之后改库不影响）
@@ -508,7 +511,9 @@ $('#fMake').addEventListener('click', async () => {
 
 $('#forgeDone').addEventListener('click', async () => {
   if (!forged.length) return;
-  const title = prompt('给这个群起个名字', forged.map(a => a.name).join('、'));
+  const title = await uiPrompt('给这个群起个名字', forged.map(a => a.name).join('、'), {
+    okText: '创建', placeholder: '群名',
+  });
   if (title === null) return;
   try {
     const conv = await api('/v1/conversations', {
