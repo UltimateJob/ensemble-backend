@@ -233,6 +233,20 @@ async function run() {
     const members = await cdp.eval('document.querySelectorAll("#memberList .member").length');
     ok(`成员面板有角色（${members} 个）`, members >= 2);
 
+    // 建群后会自动开场。注意顺序：kickoff 是 setTimeout(400) 触发的，
+    // 如果直接等 busy===false 会立刻通过（那时还没开始）。
+    // 先等它真的动起来，再等它结束。
+    await cdp.waitFor(
+      'document.querySelectorAll(".msg.speaking").length > 0 || window.__ens.state.busy === true',
+      15000, '开场启动'
+    );
+    await cdp.waitFor(
+      'document.querySelectorAll(".msg.speaking").length === 0 && window.__ens.state.busy === false',
+      90000, '开场结束'
+    );
+    await sleep(500);
+    ok('自动开场已完成', true);
+
     // ---- 发消息，验证流式 ----
     await cdp.eval(`
       (() => {
