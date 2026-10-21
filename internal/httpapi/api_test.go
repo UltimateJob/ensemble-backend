@@ -431,3 +431,93 @@ func TestInviteNonExistentUser(t *testing.T) {
 		t.Fatalf("邀请未注册用户应 404，得到 %d", rec.Code)
 	}
 }
+
+// 角色库：存下来能复用，且改库不影响已建的群（快照语义）
+func TestAgentLibrary(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	// 存一个角色
+	rec, out := doJSON(t, h, "POST", "/v1/agents", token, map[string]interface{}{
+		"name":   "夜岚",
+		"title":  "冷面剑客",
+		"prompt": "你说话极简，一句不超过五个字，绝不主动闲聊。",
+		"color":  "#B45309",
+	})
+	if rec.Code != 201 {
+		t.Fatalf("存角色失败：%d %s", rec.Code, rec.Body.String())
+	}
+	agent := out["data"].(map[string]interface{})
+	agentID := agent["id"].(string)
+
+	// 人设太短应被拒
+	rec, _ = doJSON(t, h, "POST", "/v1/agents", token, map[string]interface{}{
+		"name": "太短", "prompt": "话少",
+	})
+	if rec.Code != 400 {
+		t.Fatalf("人设过短应 400，得到 %d", rec.Code)
+	}
+
+	// 列表
+	_, out = doJSON(t, h, "GET", "/v1/agents", token, nil)
+	if len(out["data"].([]interface{})) != 1 {
+		t.Fatal("角色库应有 1 个角色")
+	}
+
+	// 拉进群
+	_, out = doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "带角色的群", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	rec, out = doJSON(t, h, "POST", "/v1/agents/"+agentID+"/to/"+convID, token, nil)
+	if rec.Code != 200 {
+		t.Fatalf("拉进群失败：%d %s", rec.Code, rec.Body.String())
+	}
+	conv := out["data"].(map[string]interface{})
+	custom := conv["agents"].([]interface{})
+	if len(custom) != 1 {
+		t.Fatalf("群里应有 1 个自定义角色，得到 %d", len(custom))
+	}
+	if custom[0].(map[string]interface{})["name"] != "夜岚" {
+		t.Fatal("角色名不对")
+	}
+
+	// 重复拉同一个角色应拒绝
+	rec, _ = doJSON(t, h, "POST", "/v1/agents/"+agentID+"/to/"+convID, token, nil)
+	if rec.Code != 409 {
+		t.Fatalf("重复拉入应 409，得到 %d", rec.Code)
+	}
+
+	// 改库里的人设，群里那份不应跟着变（快照）
+	rec, _ = doJSON(t, h, "PATCH", "/v1/agents/"+agentID, token, map[string]interface{}{
+		"prompt": "改成完全不同的设定，话很多很热情，见谁都打招呼聊半天那种。",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("改角色失败：%d", rec.Code)
+	}
+	_, out = doJSON(t, h, "GET", "/v1/conversations/"+convID, token, nil)
+	conv2 := out["data"].(map[string]interface{})
+	p := conv2["agents"].([]interface{})[0].(map[string]interface{})["prompt"].(string)
+	if p != "你说话极简，一句不超过五个字，绝不主动闲聊。" {
+		t.Fatalf("已有群里的角色不应被库的改动影响，得到 %q", p)
+	}
+
+	// 别人看不到我的角色
+	tokenB := login(t, h, "13800000000")
+	_ = tokenB
+	_, out = doJSON(t, h, "GET", "/v1/agents", "", nil)
+	if out["ok"] == true {
+		t.Fatal("未登录不应能读角色库")
+	}
+
+	// 删除
+	rec, _ = doJSON(t, h, "DELETE", "/v1/agents/"+agentID, token, nil)
+	if rec.Code != 200 {
+		t.Fatalf("删除失败：%d", rec.Code)
+	}
+	_, out = doJSON(t, h, "GET", "/v1/agents", token, nil)
+	if len(out["data"].([]interface{})) != 0 {
+		t.Fatal("删除后角色库应为空")
+	}
+}

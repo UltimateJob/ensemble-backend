@@ -27,6 +27,8 @@ export const state = {
   oldestID: null,
   hasMore: false,
   loadingMore: false,
+  library: [],        // 角色库
+  picked: [],         // 建群时勾选的角色库 ID
 };
 
 /* ---------------- 工具 ---------------- */

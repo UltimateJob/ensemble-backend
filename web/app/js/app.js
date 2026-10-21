@@ -112,6 +112,7 @@ async function enterApp() {
   } catch (e) {
     state.scenarios = [];
   }
+  await loadLibrary();
   await loadConvs();
   const qs2 = new URLSearchParams(location.search);
   if (qs2.get('scenes') || qs2.get('forge')) openScenes();
@@ -168,6 +169,43 @@ $('#clearBtn').addEventListener('click', () => {
   addSysNote('显示已清空（服务端记录保留）');
 });
 
+/* ---------------- 角色库 ---------------- */
+async function loadLibrary() {
+  try {
+    state.library = await api('/v1/agents');
+  } catch (e) {
+    state.library = [];
+  }
+}
+
+function renderLibPick() {
+  const box = $('#libPick');
+  if (!box) return;
+  if (!state.library.length) {
+    box.innerHTML = `<div class="lib-box"><div class="lib-head"><b>我的角色</b></div>
+      <div class="lib-empty">还没有存过角色。点下面「自己造角色」，生成后存入角色库，这里就能勾选。</div></div>`;
+    return;
+  }
+  box.innerHTML = `<div class="lib-box">
+    <div class="lib-head"><b>我的角色</b>勾选后一起拉进群 <span>${state.picked.length}/${state.library.length}</span></div>
+    <div class="lib-row">
+      ${state.library.map(a => `
+        <button class="lib-chip ${state.picked.includes(a.id) ? 'on' : ''}" data-lib="${a.id}">
+          ${makeAv(a.name, a.color)}
+          <span>${esc(a.name)}</span>
+        </button>`).join('')}
+    </div>
+  </div>`;
+  box.querySelectorAll('[data-lib]').forEach(b => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.lib;
+      const i = state.picked.indexOf(id);
+      if (i >= 0) state.picked.splice(i, 1); else state.picked.push(id);
+      renderLibPick();
+    });
+  });
+}
+
 /* ---------------- 场景 ---------------- */
 const ICONS = {
   briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect x="2" y="6" width="20" height="14" rx="2"/>',
@@ -175,6 +213,8 @@ const ICONS = {
 
 function openScenes() {
   state.pick = null;
+  state.picked = [];
+  renderLibPick();
   $('#sceneCreate').disabled = true;
   $('#sceneGrid').innerHTML = state.scenarios.map((s, i) => `
     <button class="scene" data-k="${s.key}" style="--i:${i}">
@@ -262,9 +302,20 @@ $('#sceneCreate').addEventListener('click', async () => {
   const title = prompt('给这个群起个名字', sc.name);
   if (title === null) return;
   try {
+    // 把勾选的库角色复制进这个群（快照，之后改库不影响）
+    const fromLib = state.picked
+      .map(id => state.library.find(a => a.id === id))
+      .filter(Boolean)
+      .map(a => ({ key: 'lib_' + a.id, name: a.name, title: a.title, emoji: a.emoji, color: a.color, prompt: a.prompt }));
+
     const conv = await api('/v1/conversations', {
       method: 'POST',
-      body: { title: title || sc.name, studio: sc.key, members: (sc.agents || []).map(a => a.key) },
+      body: {
+        title: title || sc.name,
+        studio: fromLib.length && !(sc.agents || []).length ? 'custom' : sc.key,
+        members: (sc.agents || []).map(a => a.key),
+        agents: fromLib.length ? fromLib : undefined,
+      },
     });
     $('#scenes').classList.remove('on');
     await loadConvs();

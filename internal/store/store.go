@@ -42,6 +42,13 @@ type Store interface {
 	// beforeID 为空表示取最新的一页。返回结果按时间正序，以及是否还有更早的。
 	ListMessagesPage(convID, beforeID string, limit int) (msgs []*domain.Message, hasMore bool)
 
+	// 角色库
+	CreateAgent(a *domain.SavedAgent) error
+	ListAgents(userID string) []*domain.SavedAgent
+	GetAgent(id string) (*domain.SavedAgent, bool)
+	UpdateAgent(a *domain.SavedAgent) error
+	DeleteAgent(userID, id string) error
+
 	// 审计
 	AppendAudit(a *domain.AuditLog) error
 	ListAudit(limit int) []*domain.AuditLog
@@ -56,6 +63,7 @@ type Memory struct {
 	mu     sync.RWMutex
 	users  map[string]*domain.User
 	convs  map[string]*domain.Conversation
+	agents map[string]*domain.SavedAgent
 	msgs   []*domain.Message
 	audits []*domain.AuditLog
 	events []*domain.Event
@@ -63,8 +71,9 @@ type Memory struct {
 
 func NewMemory() *Memory {
 	return &Memory{
-		users: make(map[string]*domain.User),
-		convs: make(map[string]*domain.Conversation),
+		users:  make(map[string]*domain.User),
+		convs:  make(map[string]*domain.Conversation),
+		agents: make(map[string]*domain.SavedAgent),
 	}
 }
 
@@ -324,6 +333,66 @@ func (m *Memory) ListMessages(convID string, limit int) []*domain.Message {
 		out = out[len(out)-limit:]
 	}
 	return out
+}
+
+/* ---------------- 角色库 ---------------- */
+
+func (m *Memory) CreateAgent(a *domain.SavedAgent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if a.ID == "" {
+		a.ID = NewID("ag")
+	}
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now()
+	}
+	cp := *a
+	m.agents[a.ID] = &cp
+	return nil
+}
+
+func (m *Memory) ListAgents(userID string) []*domain.SavedAgent {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*domain.SavedAgent, 0)
+	for _, a := range m.agents {
+		if userID == "" || a.UserID == userID {
+			cp := *a
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+func (m *Memory) GetAgent(id string) (*domain.SavedAgent, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	a, ok := m.agents[id]
+	if !ok {
+		return nil, false
+	}
+	cp := *a
+	return &cp, true
+}
+
+func (m *Memory) UpdateAgent(a *domain.SavedAgent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *a
+	m.agents[a.ID] = &cp
+	return nil
+}
+
+func (m *Memory) DeleteAgent(userID, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	a, ok := m.agents[id]
+	if !ok || a.UserID != userID {
+		return ErrUserNotFound
+	}
+	delete(m.agents, id)
+	return nil
 }
 
 func (m *Memory) AppendAudit(a *domain.AuditLog) error {

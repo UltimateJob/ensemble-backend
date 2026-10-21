@@ -79,6 +79,20 @@ type Conversation struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// SavedAgent 用户角色库里的角色。可以反复拉进不同的群。
+// 创建群时会被复制成 ConvAgent（快照），之后改库不影响已有群。
+type SavedAgent struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"userId"`
+	Name      string    `json:"name"`
+	Title     string    `json:"title"`
+	Emoji     string    `json:"emoji,omitempty"`
+	Color     string    `json:"color,omitempty"`
+	Prompt    string    `json:"prompt"`
+	Source    string    `json:"source,omitempty"` // draft（AI 生成）| manual（手写）
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 // ConvAgent 会话内的自定义角色，带完整设定。
 type ConvAgent struct {
 	Key    string `json:"key"`

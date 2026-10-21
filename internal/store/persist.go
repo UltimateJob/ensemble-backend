@@ -34,6 +34,7 @@ type FileStore struct {
 
 	mu          sync.Mutex
 	dirtyUsers  bool
+	dirtyAgents bool
 	dirtyConvs  bool
 	dirtyAudits bool
 	dirtyEvents bool
@@ -48,6 +49,7 @@ type FileStore struct {
 
 const (
 	fileUsers  = "users.json"
+	fileAgents = "agents.json"
 	fileConvs  = "conversations.json"
 	fileAudits = "audits.json"
 	fileEvents = "events.json"
@@ -115,6 +117,10 @@ func (fs *FileStore) load() error {
 	if err := readJSON(filepath.Join(fs.dir, fileConvs), &convs); err != nil {
 		return err
 	}
+	var agents []*domain.SavedAgent
+	if err := readJSON(filepath.Join(fs.dir, fileAgents), &agents); err != nil {
+		return err
+	}
 	var audits []*domain.AuditLog
 	if err := readJSON(filepath.Join(fs.dir, fileAudits), &audits); err != nil {
 		return err
@@ -130,6 +136,9 @@ func (fs *FileStore) load() error {
 	}
 	for _, c := range convs {
 		fs.Memory.convs[c.ID] = c
+	}
+	for _, a := range agents {
+		fs.Memory.agents[a.ID] = a
 	}
 	fs.Memory.audits = audits
 	fs.Memory.events = events
@@ -195,6 +204,8 @@ func (fs *FileStore) mark(what string) {
 	switch what {
 	case "users":
 		fs.dirtyUsers = true
+	case "agents":
+		fs.dirtyAgents = true
 	case "convs":
 		fs.dirtyConvs = true
 	case "audits":
@@ -235,16 +246,29 @@ func (fs *FileStore) loop() {
 func (fs *FileStore) Flush() error {
 	fs.mu.Lock()
 	dUsers, dConvs, dAudits, dEvents := fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents
+	dAgents := fs.dirtyAgents
 	msgs := make([]string, 0, len(fs.dirtyMsgs))
 	for id := range fs.dirtyMsgs {
 		msgs = append(msgs, id)
 	}
 	fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents = false, false, false, false
+	fs.dirtyAgents = false
 	fs.dirtyMsgs = make(map[string]bool)
 	fs.mu.Unlock()
 
 	sort.Strings(msgs)
 
+	if dAgents {
+		fs.Memory.mu.RLock()
+		list := make([]*domain.SavedAgent, 0, len(fs.Memory.agents))
+		for _, a := range fs.Memory.agents {
+			list = append(list, a)
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileAgents), list); err != nil {
+			return err
+		}
+	}
 	if dUsers {
 		fs.Memory.mu.RLock()
 		list := make([]*domain.User, 0, len(fs.Memory.users))
@@ -389,6 +413,24 @@ func (fs *FileStore) DeleteConv(id string) error {
 func (fs *FileStore) AppendMessage(m *domain.Message) error {
 	err := fs.Memory.AppendMessage(m)
 	fs.mark(m.ConversationID)
+	return err
+}
+
+func (fs *FileStore) CreateAgent(a *domain.SavedAgent) error {
+	err := fs.Memory.CreateAgent(a)
+	fs.mark("agents")
+	return err
+}
+
+func (fs *FileStore) UpdateAgent(a *domain.SavedAgent) error {
+	err := fs.Memory.UpdateAgent(a)
+	fs.mark("agents")
+	return err
+}
+
+func (fs *FileStore) DeleteAgent(userID, id string) error {
+	err := fs.Memory.DeleteAgent(userID, id)
+	fs.mark("agents")
 	return err
 }
 

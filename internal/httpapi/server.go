@@ -60,6 +60,11 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
 	userMux.HandleFunc("POST /v1/events", s.handleTrack)
 	userMux.HandleFunc("POST /v1/agents/draft", s.handleDraftAgent)
+	userMux.HandleFunc("GET /v1/agents", s.handleListAgents)
+	userMux.HandleFunc("POST /v1/agents", s.handleCreateAgent)
+	userMux.HandleFunc("PATCH /v1/agents/{id}", s.handleUpdateAgent)
+	userMux.HandleFunc("DELETE /v1/agents/{id}", s.handleDeleteAgent)
+	userMux.HandleFunc("POST /v1/agents/{id}/to/{convId}", s.handleAgentToConversation)
 
 	userMux.HandleFunc("GET /v1/conversations", s.handleListConvs)
 	userMux.HandleFunc("POST /v1/conversations", s.handleCreateConv)
@@ -77,7 +82,7 @@ func (s *Server) Handler() http.Handler {
 
 	authMW := Auth(s.auth.Verify)
 	for _, p := range []string{
-		"/v1/me", "/v1/me/", "/v1/events", "/v1/agents/draft",
+		"/v1/me", "/v1/me/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/",
 		"/v1/conversations", "/v1/conversations/",
 	} {
 		mux.Handle(p, authMW(userMux))
