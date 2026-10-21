@@ -134,9 +134,9 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 	}
 
 	m.mu.Lock()
-	if busy, ok := m.active[w.ID]; ok {
+	if busy := conflictLocked(m.active[w.ID], req.Scope); busy != nil {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("%w: %s", ErrRunBusy, busy)
+		return nil, fmt.Errorf("%w: scope 与运行中的 %s 重叠", ErrRunBusy, busy.ID)
 	}
 	// Run 的生命周期不能绑定在 HTTP 请求上：请求一返回 ctx 就取消，
 	// 任务会被瞬间 abort。这里用独立的超时 context，Abort 走 cancel。
@@ -157,7 +157,7 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		cancel:         cancel,
 	}
 	m.runs[r.ID] = r
-	m.active[w.ID] = r.ID
+	m.active[w.ID] = append(m.active[w.ID], r)
 	m.mu.Unlock()
 
 	go m.loop(runCtx, r, w, model, req)
@@ -170,7 +170,14 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		r.Status = status
 		r.EndedAt = time.Now()
 		r.Error = errMsg
-		if m.active[w.ID] == r.ID {
+		list := m.active[w.ID]
+		for i, x := range list {
+			if x.ID == r.ID {
+				m.active[w.ID] = append(list[:i], list[i+1:]...)
+				break
+			}
+		}
+		if len(m.active[w.ID]) == 0 {
 			delete(m.active, w.ID)
 		}
 		m.mu.Unlock()
@@ -294,6 +301,18 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 	}
 
 	diffs, total, derr := w.fs().Diff(snap, 200)
+	if derr == nil && len(r.Scope) > 0 {
+		// 并行时快照是全工作区的：只报自己边界内的改动，
+		// 否则两个 agent 会把对方的 diff 也算成自己的。
+		kept := diffs[:0]
+		for _, d := range diffs {
+			if r.Scope.Allows(d.Path) {
+				kept = append(kept, d)
+			}
+		}
+		diffs = kept
+		total = len(kept)
+	}
 	if derr == nil {
 		m.mu.Lock()
 		r.Diffs = diffs

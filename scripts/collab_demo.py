@@ -101,10 +101,13 @@ def talk(token, conv_id, task):
     return {"seconds": round(time.time() - t0, 1), "tokens": tokens, "utterances": utterances}
 
 
-def run_agent(token, ws_id, task, permission, name, max_steps=12):
-    d = api(f"/v1/workspaces/{ws_id}/runs", {
-        "task": task, "permission": permission, "maxSteps": max_steps,
-    }, token)
+def run_agent(token, ws_id, task, permission, name, max_steps=12, scope=None, operator=""):
+    body = {"task": task, "permission": permission, "maxSteps": max_steps}
+    if scope:
+        body["scope"] = scope
+    if operator:
+        body["operatorKey"] = operator
+    d = api(f"/v1/workspaces/{ws_id}/runs", body, token)
     rid = d["data"]["id"]
     t0 = time.time()
     approvals = 0
@@ -115,9 +118,14 @@ def run_agent(token, ws_id, task, permission, name, max_steps=12):
         if r["status"] == "waiting_approval":
             for tc in r.get("toolCalls") or []:
                 if tc.get("status") == "pending_approval" and tc.get("approvalId"):
-                    api(f"/v1/runs/{rid}/approve",
-                        {"approvalId": tc["approvalId"], "approve": True, "scope": "run"}, token)
-                    approvals += 1
+                    try:
+                        api(f"/v1/runs/{rid}/approve",
+                            {"approvalId": tc["approvalId"], "approve": True, "scope": "run"}, token)
+                        approvals += 1
+                    except RuntimeError as e:
+                        # 并行时可能已经批过；不是错误
+                        if "already" not in str(e):
+                            raise
             continue
         if r["status"] in ("done", "failed", "aborted", "cancelled"):
             break
@@ -144,6 +152,7 @@ def main():
     ap.add_argument("--skip-exec", action="store_true", help="只跑群聊，不动手")
     ap.add_argument("--solo", action="store_true", help="跳过群聊，单个 agent 直接做（基线对照）")
     ap.add_argument("--review", action="store_true", help="执行后让 QA 做一轮只读审查（闭环）")
+    ap.add_argument("--serial", action="store_true", help="强制串行执行（默认并行，scope 不相交时）")
     args = ap.parse_args()
 
     task = args.task or "给这个项目补一个小功能，具体看 README。"
@@ -171,12 +180,27 @@ def main():
                 ("前端", "fe", f"需求：{task}\n架构师的方案：{plan}\n你是前端，负责页面/样式部分，改完说明改了什么。"),
                 ("后端", "be", f"需求：{task}\n架构师的方案：{plan}\n你是后端，负责 Go 代码与测试，改完跑 go test 确认。"),
             ]
-            for name, key, rt in workers:
-                meta = next(a for a in DEFAULT_AGENTS if a[0] == key)
-                rr = run_agent(token, ws, rt, meta[5], name)
-                runs.append(rr)
-                print(f"\n=== {name} {rr['seconds']}s / {rr['toolCalls']} 次工具 / {rr['status']} ===")
-                print((rr["summary"] or "")[:300])
+            if args.serial:
+                for name, key, rt in workers:
+                    meta = next(a for a in DEFAULT_AGENTS if a[0] == key)
+                    rr = run_agent(token, ws, rt, meta[5], name, scope=meta[6], operator=key)
+                    runs.append(rr)
+                    print(f"\n=== {name} {rr['seconds']}s / {rr['toolCalls']} 次工具 / {rr['status']} ===")
+                    print((rr["summary"] or "")[:300])
+            else:
+                # 并行：两个 agent 的 scope 不相交（web/ 与 *.go），执行器允许
+                from concurrent.futures import ThreadPoolExecutor
+                t_par = time.time()
+                def _go(item):
+                    name, key, rt = item
+                    meta = next(a for a in DEFAULT_AGENTS if a[0] == key)
+                    return run_agent(token, ws, rt, meta[5], name, scope=meta[6], operator=key)
+                with ThreadPoolExecutor(max_workers=2) as ex:
+                    for rr in ex.map(_go, workers):
+                        runs.append(rr)
+                        print(f"\n=== {rr['agent']} {rr['seconds']}s / {rr['toolCalls']} 次工具 / {rr['status']} ===")
+                        print((rr["summary"] or "")[:300])
+                print(f"\n并行墙钟：{round(time.time()-t_par,1)}s（串行的话是各自之和）")
 
     review = None
     if args.review and runs:

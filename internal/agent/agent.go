@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,8 +189,8 @@ type Manager struct {
 	approvals  map[string]*Approval
 	snapshots  map[string]*workspace.Snapshot
 	subs       map[string][]chan Event
-	// 同一工作区同时只允许一个 active Run（写入冲突的根因）
-	active map[string]string
+	// 同一工作区允许并行 Run，但 scope 不能重叠（写入冲突的根因）
+	active map[string][]*Run
 	seq    int
 	// usage 可选的用量上报
 	usage UsageRecorder
@@ -203,7 +204,7 @@ func NewManager() *Manager {
 		approvals:  make(map[string]*Approval),
 		snapshots:  make(map[string]*workspace.Snapshot),
 		subs:       make(map[string][]chan Event),
-		active:     make(map[string]string),
+		active:     make(map[string][]*Run),
 	}
 }
 
@@ -275,7 +276,7 @@ func (m *Manager) UnbindWorkspace(id, userID string) bool {
 	if !ok || w.UserID != userID {
 		return false
 	}
-	if _, busy := m.active[id]; busy {
+	if len(m.active[id]) > 0 {
 		return false
 	}
 	delete(m.workspaces, id)
@@ -457,7 +458,12 @@ func (m *Manager) Revert(runID, userID string) (int, error) {
 	}
 	snap := m.snapshots[runID]
 	w := m.workspaces[r.WorkspaceID]
+	busy := len(m.active[r.WorkspaceID]) > 0
 	m.mu.Unlock()
+	if busy {
+		// 并行运行期间回滚会连带回滚别人的改动，宁可不做。
+		return 0, fmt.Errorf("agent: 工作区还有任务在跑，等它们结束再回滚")
+	}
 	if snap == nil || w == nil {
 		return 0, fmt.Errorf("agent: snapshot unavailable for run %s", runID)
 	}
@@ -486,4 +492,83 @@ func (m *Manager) pruneSnapshots(keep int) {
 		snap.Cleanup()
 		delete(m.snapshots, id)
 	}
+}
+
+// conflictLocked 判断新 Run 与工作区内已活动的 Run 是否冲突。
+//
+// 规则：两个 Run 的 scope 必须完全可以区分（不相交），才允许并行。
+// 空 scope 表示「整个工作区」，与任何 Run 都冲突。
+// 调用方必须持有 m.mu。
+func conflictLocked(active []*Run, scope []string) *Run {
+	for _, r := range active {
+		if scopesOverlap(r.Scope, scope) {
+			return r
+		}
+	}
+	return nil
+}
+
+// scopesOverlap 判断两组写入边界是否有交集。
+func scopesOverlap(a, b []string) bool {
+	// 任一方为空（不限）都视为全覆盖
+	if len(a) == 0 || len(b) == 0 {
+		return true
+	}
+	for _, x := range a {
+		x = strings.TrimSpace(x)
+		if x == "" {
+			return true
+		}
+		for _, y := range b {
+			y = strings.TrimSpace(y)
+			if y == "" {
+				return true
+			}
+			if scopeTokensOverlap(x, y) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// scopeTokensOverlap 粗略判断两个 scope 词是否有路径交集。
+//
+// 只做「保守」判断：拿不准就当作重叠（拒绝并行），
+// 宁可串行慢一点，也不要让两个 agent 同时改同一个文件。
+func scopeTokensOverlap(x, y string) bool {
+	px, dirX := strings.TrimSuffix(x, "/"), strings.HasSuffix(x, "/")
+	py, dirY := strings.TrimSuffix(y, "/"), strings.HasSuffix(y, "/")
+
+	// 两边都是目录前缀：看是否互为前缀
+	if dirX && dirY {
+		return px == py || strings.HasPrefix(px, py+"/") || strings.HasPrefix(py, px+"/")
+	}
+	// 目录对 glob / 文件名：用目录做前缀判断
+	if dirX != dirY {
+		dir, other := px, py
+		if dirY {
+			dir, other = py, px
+		}
+		if other == "*" || other == "**" {
+			return true
+		}
+		// 目录下的文件可能被 glob 命中
+		if strings.HasSuffix(other, "/*") || strings.HasSuffix(other, "/**") {
+			return strings.HasPrefix(other, dir+"/") || strings.HasPrefix(dir, other)
+		}
+		// 纯文件名（*.go）：与目录不相交，除非目录本身就在该文件名模式内（无法判断）
+		if !strings.Contains(other, "/") {
+			return false
+		}
+		return strings.HasPrefix(other, dir+"/") || strings.HasPrefix(dir, other)
+	}
+	// 两个都是文件名/glob：完全相同或都含 * 时当作重叠
+	if px == py {
+		return true
+	}
+	if strings.Contains(px, "*") || strings.Contains(py, "*") {
+		return true
+	}
+	return false
 }
