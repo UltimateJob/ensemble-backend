@@ -539,12 +539,149 @@ $('#logoutBtn').addEventListener('click', () => {
   location.reload();
 });
 $('#searchBtn').addEventListener('click', () => toast('全局搜索待接入'));
+
+/* ---------------- 键盘导航 ---------------- */
+// 专业用户默认用键盘。这里补齐列表导航和常用动作，
+// 但任何时候都不抢输入框里的按键。
+
+const inField = el => {
+  if (!el) return false;
+  const t = el.tagName;
+  return t === 'INPUT' || t === 'TEXTAREA' || el.isContentEditable;
+};
+
+let kbIndex = -1;   // 会话列表里的当前选中项
+
+function convEls() {
+  return [...document.querySelectorAll('#convList .conv')];
+}
+
+function focusConv(i) {
+  const els = convEls();
+  if (!els.length) return;
+  kbIndex = Math.max(0, Math.min(els.length - 1, i));
+  els.forEach((el, k) => el.classList.toggle('kb-on', k === kbIndex));
+  els[kbIndex].scrollIntoView({ block: 'nearest' });
+}
+
+function clearKbFocus() {
+  kbIndex = -1;
+  convEls().forEach(el => el.classList.remove('kb-on'));
+}
+
+// 有没有浮层开着（场景页 / 角色编辑器 / 抽屉 / 弹层）
+function overlayOpen() {
+  return ['#scenes', '#forge', '#drawer', '#ctxMenu', '.ui-mask-demo']
+    .some(sel => {
+      const el = $(sel);
+      if (!el) return false;
+      return el.classList.contains('on') || el.classList.contains('show');
+    });
+}
+
+function closeTopOverlay() {
+  const order = ['.ui-mask-demo', '#ctxMenu', '#forge', '#drawer', '#scenes'];
+  for (const sel of order) {
+    const el = $(sel);
+    if (!el) continue;
+    const on = el.classList.contains('on') || el.classList.contains('show');
+    if (!on) continue;
+    if (sel === '#scenes') { $('#scenes').classList.remove('on'); return true; }
+    if (sel === '#forge') { $('#forge').classList.remove('on'); return true; }
+    if (sel === '#drawer') { closeDrawer(); return true; }
+    if (sel === '#ctxMenu') { closeCtxMenu(); return true; }
+    if (sel === '.ui-mask-demo') { el.remove(); return true; }
+  }
+  return false;
+}
+
 document.addEventListener('keydown', e => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+  const mod = e.metaKey || e.ctrlKey;
+  const typing = inField(document.activeElement);
+
+  // ⌘K 搜索
+  if (mod && (e.key === 'k' || e.key === 'K')) {
     e.preventDefault();
     $('#searchBtn').click();
+    return;
+  }
+
+  // ⌘N 新建群
+  if (mod && (e.key === 'n' || e.key === 'N')) {
+    e.preventDefault();
+    openScenes();
+    return;
+  }
+
+  // Esc：逐层关闭。什么都不开时把焦点还给输入框
+  if (e.key === 'Escape') {
+    if (closeTopOverlay()) return;
+    clearKbFocus();
+    if (state.cur) { $('#ta').focus(); }
+    return;
+  }
+
+  // 以下只在没有浮层、且不在输入框里时生效
+  if (overlayOpen() || typing) return;
+
+  // ? 打开快捷键说明
+  if (e.key === '?') {
+    e.preventDefault();
+    showShortcuts();
+    return;
+  }
+
+  // ↑↓ 在会话列表里移动
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const els = convEls();
+    if (!els.length) return;
+    if (kbIndex < 0) {
+      focusConv(e.key === 'ArrowDown' ? 0 : els.length - 1);
+    } else {
+      focusConv(kbIndex + (e.key === 'ArrowDown' ? 1 : -1));
+    }
+    return;
+  }
+
+  // Enter 打开选中项
+  if (e.key === 'Enter' && kbIndex >= 0) {
+    const els = convEls();
+    if (els[kbIndex]) {
+      e.preventDefault();
+      els[kbIndex].click();
+      clearKbFocus();
+    }
   }
 });
+
+function showShortcuts() {
+  if ($('.ui-mask-demo')) return;
+  const rows = [
+    ['⌘ K', '搜索'],
+    ['⌘ N', '新建群'],
+    ['↑ ↓', '在会话列表里移动'],
+    ['Enter', '打开选中的群'],
+    ['Esc', '关闭浮层 / 回到输入框'],
+    ['⌘ Enter', '发送'],
+    ['?', '打开这个列表'],
+  ];
+  const mask = document.createElement('div');
+  mask.className = 'ui-mask-demo';
+  mask.innerHTML = `
+    <div class="ui-card-demo">
+      <h3>键盘快捷键</h3>
+      <div class="kb-list">
+        ${rows.map(([k, d]) => `<div class="kb-row"><kbd>${k}</kbd><span>${d}</span></div>`).join('')}
+      </div>
+      <div class="ui-act"><button id="kbOk">知道了</button></div>
+    </div>`;
+  document.body.appendChild(mask);
+  requestAnimationFrame(() => mask.classList.add('on'));
+  const close = () => { mask.classList.remove('on'); setTimeout(() => mask.remove(), 200); };
+  mask.addEventListener('click', ev => { if (ev.target === mask) close(); });
+  mask.querySelector('#kbOk').addEventListener('click', close);
+}
 
 hydrateIcons();
 boot();

@@ -41,6 +41,7 @@ e2e:
 	@node scripts/e2e.mjs
 	@node scripts/e2e-mobile.mjs
 	@node scripts/multi-tab.mjs
+	@node scripts/keyboard.mjs
 
 clean:
 	rm -rf bin data

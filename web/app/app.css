@@ -568,6 +568,28 @@ a{color:inherit;text-decoration:none}
 }
 .sd-chip:hover{ border-color:var(--pri); color:var(--pri); background:rgba(79,70,229,.04) }
 
+/* 键盘选中态 */
+.conv.kb-on{
+  background:var(--card);
+  box-shadow:inset 0 0 0 1.5px rgba(79,70,229,.42);
+}
+.conv.kb-on .conv-name{color:var(--pri)}
+
+/* 快捷键说明 */
+.kb-list{display:grid;gap:2px;margin:-4px 0 2px}
+.kb-row{
+  display:flex;align-items:center;gap:12px;padding:6px 0;
+  border-bottom:1px solid var(--line-2);font-size:12.5px;
+}
+.kb-row:last-child{border-bottom:0}
+.kb-row kbd{
+  min-width:78px;font-family:var(--mono);font-size:11px;
+  padding:3px 7px;border-radius:6px;text-align:center;
+  background:rgba(120,130,170,.1);color:var(--tx-2);
+  border:1px solid var(--line-2);border-bottom-width:1.5px;
+}
+.kb-row span{color:var(--tx-2)}
+
 /* 演示模式标记 */
 .demo-badge{
   display:inline-flex;align-items:center;gap:5px;
