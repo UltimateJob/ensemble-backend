@@ -236,6 +236,17 @@ type Provider interface {
 
 ---
 
+## 文档
+
+| 文档 | 回答什么 |
+|---|---|
+| `README.md` | 这是什么、怎么用 |
+| [docs/acceptance.md](docs/acceptance.md) | 需求做到没有、证据在哪 |
+| [docs/decisions.md](docs/decisions.md) | 为什么这么设计 |
+| [docs/walkthrough.md](docs/walkthrough.md) | 怎么发现「用起来卡」 |
+| [docs/hacking.md](docs/hacking.md) | 想改点什么，改哪 |
+| [docs/handoff.md](docs/handoff.md) | 接手的人需要知道什么：验证过什么、没验证什么、下一步做什么 |
+
 ## 想改点什么
 
 改造指南记在 [docs/hacking.md](docs/hacking.md)：加场景、加角色、换主题色、加图标、改演示台词、加配置项。每条都实测过，写的是实际需要的最小改动。
