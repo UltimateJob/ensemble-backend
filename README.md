@@ -2,7 +2,7 @@
 
 > 五个声部，一个成品。
 
-**1.0.0-rc.1** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
+**1.0.0-rc.2** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
 
 一个多角色群聊的 Agent 工作台。每个群是一组角色，它们自己判断要不要说话、可以互相接话、缺信息时直接问你。真跑了 DeepSeek。
 

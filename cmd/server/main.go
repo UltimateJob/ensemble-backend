@@ -27,7 +27,7 @@ import (
 // 1.0.0 意味着「可以承诺 API 稳定、可以对外」。
 // 现在的功能是完整的，但运营基础设施还缺（计费、账号找回、短信通道、
 // 多实例）。所以标 RC——候选版本，功能冻结，等基础设施补齐。
-const version = "1.0.0-rc.1"
+const version = "1.0.0-rc.2"
 
 func main() {
 	cfg := config.Load()
