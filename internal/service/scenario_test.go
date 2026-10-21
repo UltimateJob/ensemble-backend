@@ -249,3 +249,23 @@ func TestFriendlyUpstreamErr(t *testing.T) {
 		}
 	}
 }
+
+// 角色库无关键词时必须全量返回。
+// 之前只给前 24 个——用户看不出还有 37 个，不搜就永远发现不了。
+func TestSearchCharactersReturnsAllWhenEmpty(t *testing.T) {
+	all := SearchCharacters("")
+	if len(all) < 40 {
+		t.Fatalf("无关键词时应返回全部角色，只拿到 %d 个", len(all))
+	}
+	if len(all) != len(AllCharacters()) {
+		t.Fatalf("无关键词返回 %d 个，但角色库有 %d 个", len(all), len(AllCharacters()))
+	}
+	// 有关键词时照常过滤
+	hit := SearchCharacters("毒舌")
+	if len(hit) == 0 {
+		t.Fatal("搜「毒舌」应该有结果")
+	}
+	if len(hit) >= len(all) {
+		t.Fatalf("搜索结果 %d 不该等于全量 %d", len(hit), len(all))
+	}
+}

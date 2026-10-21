@@ -1122,3 +1122,4 @@ body.no-conv .col-info{display:none}
   content:' · 没发出去';
   color:var(--bad);
 }
+.char-count{font-size:11px;color:var(--tx-4);margin:8px 2px 0}

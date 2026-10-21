@@ -596,6 +596,8 @@ async function searchChars(q) {
   try {
     const list = await api('/v1/characters?q=' + encodeURIComponent(q));
     box.dataset.loaded = '1';
+    const cnt = document.querySelector('#charCount');
+    if (cnt) cnt.textContent = q ? `找到 ${list.length} 个` : `共 ${list.length} 个`;
     if (!list.length) {
       box.innerHTML = '<div class="char-empty">没找到。换个名字或性格试试，比如「毒舌」「傲娇」。</div>';
       return;

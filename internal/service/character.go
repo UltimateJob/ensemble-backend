@@ -192,10 +192,8 @@ var characters = []Character{
 func SearchCharacters(q string) []Character {
 	q = strings.TrimSpace(strings.ToLower(q))
 	if q == "" {
-		// 没关键词时给一批，让用户先看见有什么
-		if len(characters) > 24 {
-			return characters[:24]
-		}
+		// 没关键词时全给。之前是只给前 24 个——用户看不出还有 37 个，
+		// 不搜就永远发现不了。61 条共 12KB，列表本身可滚动，没必要截。
 		return characters
 	}
 	out := make([]Character, 0, 8)
