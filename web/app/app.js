@@ -477,14 +477,12 @@
     const card = document.createElement('div');
     card.className = 'artifact';
     card.innerHTML = `
-      <span class="fi">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-      </span>
+      <span class="fi">${icon('file-text', 16)}</span>
       <div>
         <div class="an">${esc(title)}</div>
         <div class="ad">${esc(detail || '')}</div>
       </div>
-      <span class="go"><svg class="ic" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>`;
+      <span class="go">${icon('chevron-right', 16)}</span>`;
     card.addEventListener('click', () => toast('打开 ' + title));
     return card;
   }
@@ -499,9 +497,7 @@
     const box = $('#artifactList');
     box.innerHTML = artifacts.map(a => `
       <div style="display:flex;align-items:center;gap:8px;padding:5px 0;color:var(--tx-2)">
-        <svg class="ic" style="width:13px;height:13px;color:var(--pri)" viewBox="0 0 24 24">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>
-        </svg>
+        <span style="color:var(--pri);display:inline-flex">${icon('file-text', 13)}</span>
         <span style="font-size:12px">${esc(a.title)}</span>
       </div>`).join('');
   }
@@ -754,10 +750,6 @@
   /* ---------------- 场景 ---------------- */
   const ICONS = {
     briefcase: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect x="2" y="6" width="20" height="14" rx="2"/>',
-    code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
-    chart: '<path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/>',
-    sparkles: '<path d="m12 3 1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/><path d="M19 15l.7 2.1 2.1.7-2.1.7L19 21l-.7-2.5-2.1-.7 2.1-.7z"/>',
-    heart: '<path d="M19 14c1.5-1.5 3-3.3 3-5.5A4.5 4.5 0 0 0 12 5 4.5 4.5 0 0 0 2 8.5c0 2.2 1.5 4 3 5.5l7 7z"/>',
   };
 
   function openScenes() {
@@ -766,7 +758,7 @@
     $('#sceneGrid').innerHTML = state.scenarios.map((s, i) => `
       <button class="scene" data-k="${s.key}" style="--i:${i}">
         <span class="scene-ic" style="background:linear-gradient(140deg,${s.accent},${shift(s.accent, -26)})">
-          <svg class="ic-20" viewBox="0 0 24 24">${ICONS[s.icon] || ICONS.briefcase}</svg>
+          ${icon(s.icon || 'briefcase', 20)}
         </span>
         <span style="min-width:0;flex:1">
           <span class="scene-n">${esc(s.name)}</span>
@@ -939,5 +931,6 @@
     }
   });
 
+  hydrateIcons();
   boot();
 })();

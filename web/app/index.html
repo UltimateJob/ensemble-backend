@@ -69,7 +69,7 @@
 
   <div class="topbar">
     <button class="icon-btn only-mobile" id="drawerBtn" title="群聊列表">
-      <svg class="ic-18" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      <i data-ic="menu" data-size="18"></i>
     </button>
     <div class="brand"><span class="mark">合</span><b>合奏</b></div>
     <div class="sep"></div>
@@ -79,16 +79,16 @@
     </div>
     <div class="top-r">
       <button class="search" id="searchBtn">
-        <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <i data-ic="search" data-size="15"></i>
         搜索
         <kbd>⌘K</kbd>
       </button>
       <div class="av-stack" id="topAvatars"></div>
       <button class="icon-btn" id="newConvBtn" title="新建群聊">
-        <svg class="ic-18" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        <i data-ic="plus" data-size="18"></i>
       </button>
       <button class="icon-btn" id="logoutBtn" title="退出">
-        <svg class="ic-18" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+        <i data-ic="log-out" data-size="18"></i>
       </button>
     </div>
   </div>
@@ -114,13 +114,13 @@
           </div>
         </div>
         <button class="icon-btn" id="clearBtn" title="清空对话">
-          <svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+          <i data-ic="trash" data-size="16"></i>
         </button>
       </div>
 
       <div class="empty" id="chatEmpty">
         <div class="ic-wrap">
-          <svg class="ic-20" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l2-3.2A8.5 8.5 0 1 1 21 11.5z"/></svg>
+          <i data-ic="message-circle" data-size="20"></i>
         </div>
         <h3>选一个群，或者开一个新的</h3>
         <p>每个群都是一组角色。你说一句话，他们会接着聊下去。</p>
@@ -136,18 +136,18 @@
           <textarea id="ta" rows="1" placeholder="说点什么，或者直接派活…"></textarea>
           <div class="composer-bar">
             <button class="icon-btn" id="attachBtn" title="附件">
-              <svg class="ic" viewBox="0 0 24 24"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.2-9.19a3.67 3.67 0 1 1 5.18 5.19l-9.2 9.19a1.83 1.83 0 1 1-2.59-2.6l8.49-8.48"/></svg>
+              <i data-ic="paperclip" data-size="16"></i>
             </button>
             <button class="icon-btn" id="mentionBtn" title="@ 角色">
-              <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
+              <i data-ic="at-sign" data-size="16"></i>
             </button>
             <button class="send" id="sendBtn" disabled title="发送">
-              <svg class="ic" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              <i data-ic="arrow-up" data-size="16"></i>
             </button>
           </div>
         </div>
         <div class="composer-hint">
-          <svg class="ic" style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+          <i data-ic="info" data-size="12"></i>
           回车发送，Shift + 回车换行
         </div>
       </div>
@@ -205,7 +205,7 @@
     <div class="forge-head">
       <h3>造一个角色</h3>
       <button class="icon-btn" id="forgeClose">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        <i data-ic="x" data-size="16"></i>
       </button>
     </div>
     <p class="forge-sub">给个名字和几个关键词，平台会写出完整人设——语气、句子长短、口头习惯。</p>
@@ -233,6 +233,7 @@
 
 <div id="toast"></div>
 
-<script src="app.js?v=15"></script>
+<script src="icons.js"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
