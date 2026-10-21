@@ -683,6 +683,10 @@ function showShortcuts() {
   mask.querySelector('#kbOk').addEventListener('click', close);
 }
 
+// 快捷键入口：新用户不会自己去试 ?，得给个看得见的门
+const kbBtn = $('#hintKb');
+if (kbBtn) kbBtn.addEventListener('click', showShortcuts);
+
 hydrateIcons();
 boot();
 

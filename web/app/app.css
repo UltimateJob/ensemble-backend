@@ -568,6 +568,25 @@ a{color:inherit;text-decoration:none}
 }
 .sd-chip:hover{ border-color:var(--pri); color:var(--pri); background:rgba(79,70,229,.04) }
 
+/* 输入框下方的快捷键入口 */
+.composer-hint{
+  display:flex;align-items:center;gap:8px;
+}
+.hint-kb{
+  display:inline-flex;align-items:center;gap:5px;
+  margin-left:auto;padding:2px 7px 2px 4px;border-radius:6px;
+  font-size:10.5px;color:var(--tx-4);
+  transition:all .15s;
+}
+.hint-kb:hover{background:rgba(120,130,170,.1);color:var(--tx-2)}
+.hint-kb kbd{
+  font-family:var(--mono);font-size:9.5px;line-height:1;
+  padding:2px 4px;border-radius:4px;
+  background:rgba(120,130,170,.12);color:var(--tx-3);
+  border:1px solid var(--line-2);
+}
+.hint-kb:hover kbd{border-color:rgba(120,130,170,.3)}
+
 /* 键盘选中态 */
 .conv.kb-on{
   background:var(--card);
