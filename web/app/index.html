@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>合奏 Ensemble</title>
-<link rel="stylesheet" href="app.css?v=8">
+<link rel="stylesheet" href="app.css?v=11">
 </head>
 <body>
 
@@ -68,6 +68,9 @@
 <div id="app">
 
   <div class="topbar">
+    <button class="icon-btn only-mobile" id="drawerBtn" title="群聊列表">
+      <svg class="ic-18" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
     <div class="brand"><span class="mark">合</span><b>合奏</b></div>
     <div class="sep"></div>
     <div class="crumb" id="crumb">
@@ -185,8 +188,18 @@
   </div>
 </div>
 
+<!-- 移动端会话抽屉 -->
+<div class="drawer-mask" id="drawerMask"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h4>群聊</h4>
+    <button class="btn btn-line" id="drawerNew">新建</button>
+  </div>
+  <div class="conv-list" id="drawerList"></div>
+</div>
+
 <div id="toast"></div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

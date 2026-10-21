@@ -125,7 +125,7 @@
       font-family="-apple-system,BlinkMacSystemFont,PingFang SC,sans-serif"
       font-size="17" font-weight="600" fill="rgba(255,255,255,.96)">${ch.replace(/[<>&]/g, '')}</text>`;
 
-    return `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+    return `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" stroke="none" style="display:block;width:100%;height:100%">
       <defs><linearGradient id="g${seed}" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stop-color="${bg}"/>
         <stop offset="100%" stop-color="${shift(hexOf(bg), -26) || bg}"/>
@@ -159,7 +159,16 @@
   }
 
   function makeAv(name, color, cls) {
-    return `<span class="av ${cls || ''}">${geoAvatar(name, color)}</span>`;
+    const c = color || autoColor(name || '');
+    const base = hexOf(c);
+    return `<span class="av ${cls || ''}" style="background:linear-gradient(140deg,${base},${shift(base, -30)})"><b>${esc((name || '?').trim().slice(0, 1))}</b></span>`;
+  }
+
+  // 没有角色色时，由名字推导一个稳定色
+  function autoColor(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    return `hsl(${h % 360} 56% 52%)`;
   }
 
   /* ---------------- API ---------------- */
@@ -302,10 +311,15 @@
   }
 
   function renderConvs() {
-    const box = $('#convList');
+    renderInto($('#convList'));
+    renderInto($('#drawerList'));
+  }
+
+  function renderInto(box) {
+    if (!box) return;
     if (!state.convs.length) {
       box.innerHTML = `<div style="padding:24px 12px;text-align:center;font-size:12px;color:var(--tx-4)">
-        还没有群聊<br><span style="color:var(--tx-4)">点右上角「新建」开一个</span>
+        还没有群聊<br><span style="color:var(--tx-4)">点「新建」开一个</span>
       </div>`;
       return;
     }
@@ -337,6 +351,7 @@
     state.agents = sc.agents || [];
 
     renderConvs();
+    if (drawer.classList.contains('on')) closeDrawer();
     $('#chatEmpty').style.display = 'none';
     $('#chatHead').style.display = 'flex';
     $('#msgs').style.display = 'block';
@@ -661,6 +676,14 @@
     });
     $('#scenes').classList.add('on');
   }
+
+  /* 移动端抽屉 */
+  const drawer = $('#drawer'), drawerMask = $('#drawerMask');
+  function openDrawer(){ drawer.classList.add('on'); drawerMask.classList.add('on'); }
+  function closeDrawer(){ drawer.classList.remove('on'); drawerMask.classList.remove('on'); }
+  $('#drawerBtn').addEventListener('click', openDrawer);
+  drawerMask.addEventListener('click', closeDrawer);
+  $('#drawerNew').addEventListener('click', () => { closeDrawer(); openScenes(); });
 
   $('#newConvBtn').addEventListener('click', openScenes);
   $('#newConvBtn2').addEventListener('click', openScenes);
