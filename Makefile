@@ -24,6 +24,15 @@ test:
 test-live:
 	DEEPSEEK_API_KEY=$(DEEPSEEK_API_KEY) go test ./internal/gateway/ -run Live -v -timeout 180s
 
+# 五个场景的对话质量检查：改完编排逻辑后跑一次
+quality:
+	@node scripts/quality.mjs
+
+# 浏览器端到端
+e2e:
+	@node scripts/e2e.mjs
+	@node scripts/e2e-mobile.mjs
+
 clean:
 	rm -rf bin data
 

@@ -184,3 +184,23 @@ func TestPickSpeakerFirstRoundGoesToLead(t *testing.T) {
 		t.Fatal("负责人说过话后不应再被优先选中")
 	}
 }
+
+func TestStripSpeakerPrefix(t *testing.T) {
+	sc := Scenario{Agents: []Agent{
+		{Key: "a", Name: "雪见"}, {Key: "b", Name: "桃桃"}, {Key: "c", Name: "凛"},
+	}}
+	self := Agent{Key: "c", Name: "凛"}
+
+	cases := map[string]string{
+		"桃桃：凛酱又在说电脑话了":  "凛酱又在说电脑话了",
+		"凛：CPU 占用太高该降频": "CPU 占用太高该降频",
+		"雪见: 懒得理你":      "懒得理你",
+		"降频这个说法很准":      "降频这个说法很准",
+		"注意：这里有个坑":      "注意：这里有个坑", // 不是角色名，不动
+	}
+	for in, want := range cases {
+		if got := stripSpeakerPrefix(in, sc, self); got != want {
+			t.Fatalf("stripSpeakerPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

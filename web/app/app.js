@@ -721,7 +721,11 @@
       }
 
       if (ev.type === 'pass') {
-        // 有人选择不说话：留一条极轻的痕迹，不占气泡
+        // 有人选择不说话：把之前建的思考占位清掉，只留一条极轻的痕迹
+        if (curEl && !curEl.querySelector('.msg-text').textContent.trim()) {
+          curEl.remove();
+          curEl = null;
+        }
         const n = document.createElement('div');
         n.className = 'pass-note';
         n.textContent = ev.name + ' 没接话';

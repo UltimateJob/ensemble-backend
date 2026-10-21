@@ -298,9 +298,9 @@ func (o *Orchestrator) ask(ctx context.Context, sc Scenario, agent Agent, histor
 		return speakResult{pass: true, latency: latency}, nil
 	}
 
-	// 清理模型偶尔带出的前缀
-	text = strings.TrimPrefix(text, agent.Name+"：")
-	text = strings.TrimPrefix(text, agent.Name+":")
+	// 清理模型带出的说话人前缀。
+	// 它有时会替别人说话（"桃桃：凛酱又…"），或者在开头补自己的名字。
+	text = stripSpeakerPrefix(text, sc, agent)
 
 	asksUser := strings.Contains(text, "@用户") || strings.Contains(text, "@你")
 	if asksUser {
@@ -360,6 +360,24 @@ func forceLine(force bool) string {
 		return "\n6. 现在群里冷场了，你必须开口起个头——问一句、抛个话题、或者对刚才的事表态。"
 	}
 	return ""
+}
+
+// stripSpeakerPrefix 去掉行首的「某某：」。
+// 只认群里真实存在的角色名，避免误伤正文里的冒号。
+func stripSpeakerPrefix(text string, sc Scenario, self Agent) string {
+	names := []string{self.Name}
+	for _, a := range sc.Agents {
+		names = append(names, a.Name)
+	}
+	for _, n := range names {
+		for _, sep := range []string{"：", ":"} {
+			p := n + sep
+			if strings.HasPrefix(text, p) {
+				return strings.TrimSpace(strings.TrimPrefix(text, p))
+			}
+		}
+	}
+	return text
 }
 
 func otherAgents(sc Scenario, self string) string {
