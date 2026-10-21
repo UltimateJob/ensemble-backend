@@ -457,6 +457,33 @@ async function run() {
     await cdp.eval('document.querySelector("#sceneCancel").click()');
     await sleep(400);
 
+    // ---- 中间宽度 ----
+    // 只测 1440 和 390 会漏掉分屏笔记本（900-1100）这一段
+    for (const [w, expectCols] of [[900, 2], [1024, 2], [1280, 3]]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: w, height: 900, deviceScaleFactor: 1, mobile: false,
+      });
+      await sleep(400);
+      const info = await cdp.eval(`(() => {
+        const vis = sel => {
+          const el = document.querySelector(sel);
+          if (!el) return false;
+          const st = getComputedStyle(el);
+          return st.display !== 'none' && el.getBoundingClientRect().width > 0;
+        };
+        return JSON.stringify({
+          overflow: document.documentElement.scrollWidth - window.innerWidth,
+          cols: [vis('.col-list'), vis('.chat'), vis('.col-info')].filter(Boolean).length,
+        });
+      })()`);
+      const d = JSON.parse(info);
+      ok(`${w}px 无横向溢出且 ${d.cols} 栏`, d.overflow <= 1 && d.cols === expectCols, info);
+    }
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
+    });
+    await sleep(400);
+
     // ---- 搜索 ----
     // 之前顶栏搜索框点开是 toast('全局搜索待接入')，界面上明晃晃一句没做完
     await cdp.eval('document.querySelector("#searchBtn").click()');
