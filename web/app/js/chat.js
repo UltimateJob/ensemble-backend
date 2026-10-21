@@ -198,6 +198,48 @@ export async function loadEarlier() {
 }
 
 /* ---------------- 渲染 ---------------- */
+// 上一条消息的时间，用来决定要不要插时间分隔
+let lastMsgTime = 0;
+
+function timeLabel(d) {
+  const x = new Date(d);
+  const now = new Date();
+  const sameDay = x.toDateString() === now.toDateString();
+  const hm = x.getHours().toString().padStart(2, '0') + ':' + x.getMinutes().toString().padStart(2, '0');
+  if (sameDay) return '今天 ' + hm;
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  if (x.toDateString() === y.toDateString()) return '昨天 ' + hm;
+  return (x.getMonth() + 1) + '月' + x.getDate() + '日 ' + hm;
+}
+
+/**
+ * 时间分隔：间隔超过 10 分钟就插一条。
+ * 长对话滚动时，没有这个会分不清「刚才」和「两小时前」。
+ */
+export function maybeTimeDivider(wrap, when) {
+  const t = new Date(when || Date.now()).getTime();
+  if (!isNaN(t) && (lastMsgTime === 0 || t - lastMsgTime > 10 * 60 * 1000)) {
+    const d = document.createElement('div');
+    d.className = 'time-divider';
+    d.textContent = timeLabel(t);
+    wrap.appendChild(d);
+  }
+  if (!isNaN(t)) lastMsgTime = t;
+}
+
+/**
+ * 轮次边界：一轮对话跑完插一条极淡的线。
+ * 不加的话，三轮对话连在一起，看不出「这段话是一组的」。
+ */
+export function markRoundEnd(wrap) {
+  const last = wrap.lastElementChild;
+  if (!last || last.classList.contains('round-end')) return;
+  const d = document.createElement('div');
+  d.className = 'round-end';
+  wrap.appendChild(d);
+}
+
 export function buildMsgEl(o) {
   const el = document.createElement('div');
   el.className = 'msg' + (o.me ? ' me' : '');
@@ -216,8 +258,10 @@ export function buildMsgEl(o) {
 }
 
 export function addMsg(o) {
+  const wrap = $('#msgWrap');
+  maybeTimeDivider(wrap, o.time);
   const { el } = buildMsgEl(o);
-  $('#msgWrap').appendChild(el);
+  wrap.appendChild(el);
   return el;
 }
 
@@ -627,6 +671,7 @@ export async function kickoff(convId) {
     $('#sendBtn').disabled = !box || !box.value.trim();
     const nb = $('#nudgeBtn');
     if (nb) nb.disabled = false;
+    markRoundEnd($('#msgWrap'));
     scrollBottom();
     loadConvs();
   }
