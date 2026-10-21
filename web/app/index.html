@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>合奏 Ensemble</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<div id="login">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="mark">合</span>
+      <b>合奏</b>
+      <span>ENSEMBLE</span>
+    </div>
+    <h1 class="login-h1">把一件真事，<br>交给一场合奏。</h1>
+    <p class="login-sub">五个角色分工协作，每一步都落成一个文件，最后由你按下确认。</p>
+
+    <div class="seg" id="seg">
+      <button class="on" data-k="phone">手机号</button>
+      <button data-k="email">邮箱</button>
+    </div>
+
+    <div id="form-phone">
+      <div class="field">
+        <label>手机号</label>
+        <input id="phone" type="tel" placeholder="138 0000 0000" autocomplete="tel">
+      </div>
+      <div class="field">
+        <label>验证码</label>
+        <div class="field-row">
+          <input id="code" type="text" placeholder="6 位数字" inputmode="numeric" maxlength="6">
+          <button class="code-btn" id="sendCode">获取验证码</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="form-email" style="display:none">
+      <div class="field">
+        <label>邮箱</label>
+        <input id="email" type="email" placeholder="you@company.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>验证码</label>
+        <div class="field-row">
+          <input id="code2" type="text" placeholder="6 位数字" inputmode="numeric" maxlength="6">
+          <button class="code-btn" id="sendCode2">获取验证码</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="loginErr" class="login-err" style="display:none"></div>
+
+    <button class="btn btn-grad" id="doLogin" style="width:100%;height:44px;margin-top:6px">
+      登录 / 注册
+    </button>
+
+    <p class="login-foot">
+      未注册的账号会自动创建 · 演示账号 13800000000 可直接登录
+    </p>
+  </div>
+</div>
+
+<!-- ============ 应用 ============ -->
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand"><span class="mark">合</span><b>合奏</b></div>
+    <div class="sep"></div>
+    <div class="crumb" id="crumb">
+      <span class="k">群聊</span>
+      <span id="crumbName">—</span>
+    </div>
+    <div class="top-r">
+      <button class="search" id="searchBtn">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        搜索
+        <kbd>⌘K</kbd>
+      </button>
+      <div class="av-stack" id="topAvatars"></div>
+      <button class="icon-btn" id="newConvBtn" title="新建群聊">
+        <svg class="ic-18" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="icon-btn" id="logoutBtn" title="退出">
+        <svg class="ic-18" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- 左：会话 -->
+    <aside class="col col-list">
+      <div class="col-head">
+        <h4>群聊</h4>
+        <button class="btn btn-line" id="newConvBtn2">新建</button>
+      </div>
+      <div class="conv-list" id="convList"></div>
+    </aside>
+
+    <!-- 中：聊天 -->
+    <section class="chat">
+      <div class="chat-head" id="chatHead" style="display:none">
+        <div style="min-width:0;flex:1">
+          <div class="chat-title" id="chatTitle">—</div>
+          <div class="chat-sub" id="chatSub">
+            <span class="dot-live"></span><span>在线</span>
+          </div>
+        </div>
+        <button class="icon-btn" id="clearBtn" title="清空对话">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+        </button>
+      </div>
+
+      <div class="empty" id="chatEmpty">
+        <div class="ic-wrap">
+          <svg class="ic-20" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l2-3.2A8.5 8.5 0 1 1 21 11.5z"/></svg>
+        </div>
+        <h3>选一个群，或者开一个新的</h3>
+        <p>每个群都是一组角色。你说一句话，他们会接着聊下去。</p>
+        <button class="btn btn-grad" id="startBtn" style="margin-top:20px">开一个新群</button>
+      </div>
+
+      <div class="msgs" id="msgs" style="display:none">
+        <div class="msg-wrap" id="msgWrap"></div>
+      </div>
+
+      <div class="composer" id="composer" style="display:none">
+        <div class="composer-in">
+          <textarea id="ta" rows="1" placeholder="说点什么，或者直接派活…"></textarea>
+          <div class="composer-bar">
+            <button class="icon-btn" id="attachBtn" title="附件">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.2-9.19a3.67 3.67 0 1 1 5.18 5.19l-9.2 9.19a1.83 1.83 0 1 1-2.59-2.6l8.49-8.48"/></svg>
+            </button>
+            <button class="icon-btn" id="mentionBtn" title="@ 角色">
+              <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
+            </button>
+            <button class="send" id="sendBtn" disabled title="发送">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="composer-hint">
+          <svg class="ic" style="width:12px;height:12px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
+          回车发送，Shift + 回车换行
+        </div>
+      </div>
+    </section>
+
+    <!-- 右：信息 -->
+    <aside class="col col-info">
+      <div class="info-sec">
+        <div class="info-h">成员 <span id="memberCount">0</span></div>
+        <div id="memberList"></div>
+      </div>
+      <div class="info-sec">
+        <div class="info-h">这一轮 <span id="pipeCount">0/0</span></div>
+        <div id="pipeline"></div>
+      </div>
+      <div class="info-sec">
+        <div class="info-h">产物 <span id="artifactCount">0</span></div>
+        <div id="artifactList" style="font-size:12px;color:var(--tx-4)">还没有</div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<!-- ============ 场景选择 ============ -->
+<div id="scenes">
+  <div class="scenes-in">
+    <div class="scenes-head">
+      <div class="k">Choose a studio</div>
+      <h2>从哪个场景开始？</h2>
+      <p>每个场景是一组预设角色。创建后可以随时换人、改设定。</p>
+    </div>
+    <div class="scene-grid" id="sceneGrid"></div>
+    <div class="scenes-foot">
+      <button class="btn btn-line" id="sceneCancel">取消</button>
+      <button class="btn btn-grad" id="sceneCreate" disabled>创建群聊</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

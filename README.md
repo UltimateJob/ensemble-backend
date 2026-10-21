@@ -10,6 +10,30 @@ go run ./cmd/server
 - 管理台：http://localhost:8080/admin/ （令牌 `admin-dev-token`，或 `?token=` 直接进）
 - 未配置 `DEEPSEEK_API_KEY` 时自动启用 mock 上游，整条链路可离线跑通
 
+## 现在能跑什么
+
+```bash
+export DEEPSEEK_API_KEY=sk-...
+go run ./cmd/server
+```
+
+- 客户端：http://localhost:8080/app/
+- 运维台：http://localhost:8080/admin/
+
+真实打通：登录 → 选场景 → 建群 → 发一句话 → 群里多个角色依次用 DeepSeek 回复（SSE 流式），后一个角色能看到前一个说了什么。
+
+五个内置场景：
+
+| 场景 | 角色 | 说明 |
+|---|---|---|
+| 竞标工作室 | 工头·查证·撰写·审校·交付 | 读招标、出点对表、挑废标风险 |
+| 代码工作室 | 架构·后端·前端·测试 | 定边界、并行实现、找边界条件 |
+| 研报工作室 | 主笔·检索·交叉验证·成文 | 每个数字可溯源 |
+| 二次元茶话会 | 雪见·桃桃·凛·葵 | 毒舌学姐 / 元气学妹 / 技术宅 / 温柔调和者 |
+| 日常陪聊 | 林·周·陈 | 话少靠谱 / 热闹 / 稳重倾听 |
+
+每个角色有独立的性格提示词，编排器让它们依次发言并把前文带进上下文——所以会出现「凛：甜品不算正餐，缓存命中率低」这种符合人设的接话。
+
 ## 架构
 
 ```
@@ -97,6 +121,13 @@ type Provider interface {
 | GET | `/v1/conversations/{id}/messages` | 历史消息 |
 | POST | `/v1/conversations/{id}/messages` | 发消息，**SSE 流式返回** |
 | POST | `/v1/chat/completions` | 网关直连，可流式或整包 |
+| POST | `/v1/conversations/{id}/orchestrate` | **多角色群聊**，SSE 推送 start/delta/end/artifact |
+
+### 场景
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/v1/scenarios` | 内置场景与角色定义 |
 
 ### 管理（`X-Admin-Token`）
 

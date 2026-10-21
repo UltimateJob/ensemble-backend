@@ -11,12 +11,13 @@ import (
 
 // Server 聚合依赖并注册路由。
 type Server struct {
-	cfg   config.Config
-	store store.Store
-	auth  *service.Auth
-	chat  *service.Chat
-	admin *service.Admin
-	gw    *gateway.Gateway
+	cfg          config.Config
+	store        store.Store
+	auth         *service.Auth
+	chat         *service.Chat
+	admin        *service.Admin
+	gw           *gateway.Gateway
+	orchestrator *service.Orchestrator
 }
 
 func NewServer(
@@ -26,8 +27,9 @@ func NewServer(
 	chat *service.Chat,
 	admin *service.Admin,
 	gw *gateway.Gateway,
+	orch *service.Orchestrator,
 ) *Server {
-	return &Server{cfg: cfg, store: st, auth: auth, chat: chat, admin: admin, gw: gw}
+	return &Server{cfg: cfg, store: st, auth: auth, chat: chat, admin: admin, gw: gw, orchestrator: orch}
 }
 
 // Handler 构建完整路由。
@@ -47,6 +49,7 @@ func (s *Server) Handler() http.Handler {
 	// ---- 鉴权 ----
 	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCode)
 	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	mux.HandleFunc("GET /v1/scenarios", s.handleScenarios)
 
 	// ---- 需要登录 ----
 	userMux := http.NewServeMux()
@@ -61,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("DELETE /v1/conversations/{id}", s.handleDeleteConv)
 	userMux.HandleFunc("GET /v1/conversations/{id}/messages", s.handleListMessages)
 	userMux.HandleFunc("POST /v1/conversations/{id}/messages", s.handleSendMessage)
+	userMux.HandleFunc("POST /v1/conversations/{id}/orchestrate", s.handleOrchestrate)
 
 	authMW := Auth(s.auth.Verify)
 	for _, p := range []string{
@@ -93,8 +97,12 @@ func (s *Server) Handler() http.Handler {
 
 	// ---- 管理页面静态资源 ----
 	mux.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.Dir("web/admin"))))
+
+	// ---- 客户端 ----
+	app := http.FileServer(http.Dir("web/app"))
+	mux.Handle("GET /app/", http.StripPrefix("/app/", app))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/admin/", http.StatusFound)
+		http.Redirect(w, r, "/app/", http.StatusFound)
 	})
 
 	return Chain(mux,
