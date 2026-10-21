@@ -248,6 +248,32 @@ a{color:inherit;text-decoration:none}
 }
 .msg.me .msg-name{display:none}
 
+/* 正在说话的头像：呼吸环 */
+.msg.speaking .av{position:relative}
+.msg.speaking .av::before{
+  content:"";position:absolute;inset:-4px;border-radius:50%;
+  border:2px solid rgba(79,70,229,.5);
+  animation:ring 1.5s cubic-bezier(.2,.8,.2,1) infinite;
+  pointer-events:none;
+}
+@keyframes ring{
+  0%{transform:scale(.9);opacity:.7}
+  70%{transform:scale(1.25);opacity:0}
+  100%{transform:scale(1.25);opacity:0}
+}
+
+/* 正在输出的文本：右侧渐隐光 */
+.msg.speaking .msg-text{
+  position:relative;
+}
+.msg.speaking .msg-text::after{
+  content:"";position:absolute;right:-2px;top:0;bottom:0;width:24px;
+  background:linear-gradient(to right,rgba(255,255,255,0),rgba(255,255,255,.9));
+  animation:glowFade 1.6s ease-in-out infinite;
+  pointer-events:none;
+}
+@keyframes glowFade{0%,100%{opacity:.2}50%{opacity:.8}}
+
 /* 打字光标 */
 .caret::after{
   content:"";display:inline-block;width:2px;height:15px;margin-left:1px;
@@ -373,6 +399,8 @@ a{color:inherit;text-decoration:none}
 .scene-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .scene{
   display:flex;gap:13px;padding:16px;text-align:left;
+  animation:sceneIn .44s cubic-bezier(.2,.8,.2,1) both;
+  animation-delay:calc(var(--i,0) * 55ms);
   background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);
   box-shadow:var(--sh-1);transition:all .18s cubic-bezier(.2,.8,.2,1);
 }
@@ -412,6 +440,32 @@ a{color:inherit;text-decoration:none}
 }
 .drawer-head h4{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-4)}
 .drawer-head .btn{margin-left:auto;height:28px;padding:0 10px;font-size:12px;border-radius:7px}
+
+@keyframes sceneIn{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+
+/* 流水线当前步：脉冲 */
+.pipe-step.live .n{
+  position:relative;
+  animation:stepPulse 1.6s ease-in-out infinite;
+}
+@keyframes stepPulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(79,70,229,.4)}
+  50%{box-shadow:0 0 0 5px rgba(79,70,229,0)}
+}
+
+/* 发送按钮按下 */
+.composer-bar .send:active{transform:scale(.92)}
+
+/* 会话项入场 */
+.conv{animation:convIn .3s cubic-bezier(.2,.8,.2,1) both}
+@keyframes convIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:none}}
+
+/* 产物卡入场 */
+.artifact{animation:artifactIn .38s cubic-bezier(.2,.8,.2,1) both}
+@keyframes artifactIn{
+  from{opacity:0;transform:translateY(10px) scale(.98)}
+  to{opacity:1;transform:none}
+}
 
 /* ---------- 角色编辑器 ---------- */
 .forge{

@@ -577,6 +577,7 @@
       if (ev.type === 'start') {
         curAgent = ev;
         curText = '';
+        container.querySelectorAll('.msg.speaking').forEach(m => m.classList.remove('speaking'));
         // 思考占位
         curEl = document.createElement('div');
         curEl.className = 'msg';
@@ -591,6 +592,7 @@
             <div class="msg-text" style="display:none"></div>
           </div>`;
         container.appendChild(curEl);
+        curEl.classList.add('speaking');
         scrollBottom();
         return;
       }
@@ -607,6 +609,7 @@
       }
 
       if (ev.type === 'end' && curEl) {
+        curEl.classList.remove('speaking');
         const tx = curEl.querySelector('.msg-text');
         tx.classList.remove('caret');
         curEl.querySelector('.msg-time').textContent = timeStr(new Date());
@@ -689,6 +692,7 @@
                 <div class="msg-text" style="display:none"></div>
               </div>`;
             container.appendChild(curEl);
+            curEl.classList.add('speaking');
             scrollBottom();
           } else if (ev.type === 'delta' && curEl) {
             curEl.querySelector('.thinking').style.display = 'none';
@@ -699,6 +703,7 @@
             tx.classList.add('caret');
             scrollBottom();
           } else if (ev.type === 'end' && curEl) {
+            curEl.classList.remove('speaking');
             curEl.querySelector('.msg-text').classList.remove('caret');
             curEl.querySelector('.msg-time').textContent = timeStr(new Date());
           } else if (ev.type === 'pass') {
@@ -758,8 +763,8 @@
   function openScenes() {
     state.pick = null;
     $('#sceneCreate').disabled = true;
-    $('#sceneGrid').innerHTML = state.scenarios.map(s => `
-      <button class="scene" data-k="${s.key}">
+    $('#sceneGrid').innerHTML = state.scenarios.map((s, i) => `
+      <button class="scene" data-k="${s.key}" style="--i:${i}">
         <span class="scene-ic" style="background:linear-gradient(140deg,${s.accent},${shift(s.accent, -26)})">
           <svg class="ic-20" viewBox="0 0 24 24">${ICONS[s.icon] || ICONS.briefcase}</svg>
         </span>
