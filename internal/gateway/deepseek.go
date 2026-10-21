@@ -175,16 +175,26 @@ func (m *Mock) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.
 	return ch, nil
 }
 
+// mockReply 生成演示台词。
+//
+// 从 system prompt 里取角色名，查预置台词库。取不到就用兜底。
+// seed 用最近一条用户消息，让同一角色在不同轮次说不同的话。
 func mockReply(req domain.ChatRequest) []rune {
-	last := ""
+	system := ""
+	seed := ""
 	for _, m := range req.Messages {
+		if m.Role == "system" && system == "" {
+			system = m.Content
+		}
 		if m.Role == "user" {
-			last = m.Content
+			seed = m.Content
 		}
 	}
-	if len(last) > 24 {
-		last = string([]rune(last)[:24]) + "…"
+	line := mockLine(system, seed)
+
+	// 首屏给人一句提示，别让人以为这是真实模型
+	if strings.Contains(system, "演示") || len(req.Messages) <= 2 {
+		// 不加标记，保持对话自然；提示放在启动日志里
 	}
-	s := "（mock 上游）收到任务：" + last + "。已拆成四步：解析、查证、撰写、审校。每步都会落一个文件，最后由你确认。"
-	return []rune(s)
+	return []rune(line)
 }
