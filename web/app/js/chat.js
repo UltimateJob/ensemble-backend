@@ -4,7 +4,7 @@
    ============================================================ */
 
 import {
-  $, $$, API, api, state, toast, esc, timeStr, agoStr, makeAv, icon,
+  $, $$, API, api, state, toast, esc, timeStr, agoStr, makeAv, icon, setDocTitle,
 } from './core.js';
 import { uiPrompt, uiConfirm } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
@@ -45,6 +45,7 @@ export async function openConv(id) {
   $('#chatTitle').textContent = conv.title;
   $('#crumbName').textContent = conv.title;
   setChatStatus('');
+  setDocTitle(conv.title, false);
   renderMembers();
   renderPipeline(true);
 
@@ -377,6 +378,7 @@ export async function runRound(path, body, opts = {}) {
   function handleEvent(ev) {
     if (ev.type === 'start') {
       setChatStatus(ev.name);
+      setDocTitle(state.cur && state.cur.title, true);
       curText = '';
       container.querySelectorAll('.msg.speaking').forEach(m => m.classList.remove('speaking'));
       curEl = document.createElement('div');
@@ -503,6 +505,7 @@ export async function runRound(path, body, opts = {}) {
   } finally {
     state.busy = false;
     setChatStatus('');
+    setDocTitle(state.cur && state.cur.title, false);
     if (curEl) curEl.querySelector('.msg-text').classList.remove('caret');
     markRoundEnd($('#msgWrap'));
     scrollBottom();

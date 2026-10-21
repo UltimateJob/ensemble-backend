@@ -5,7 +5,7 @@
    ============================================================ */
 
 import {
-  $, $$, api, state, toast, esc, makeAv, agoStr,
+  $, $$, api, state, toast, esc, makeAv, agoStr, setDocTitle,
 } from './core.js';
 import { uiPrompt, uiConfirm } from './dialog.js';
 
@@ -196,6 +196,7 @@ async function UI_confirm_delete(conv) {
         $('#chatEmpty').style.display = 'flex';
         $('#crumbName').textContent = '—';
         state.agents = [];
+        setDocTitle('', false);
         renderMembers();
       }
       await loadConvs();

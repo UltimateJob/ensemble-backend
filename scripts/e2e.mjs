@@ -251,6 +251,10 @@ async function run() {
     const sub = await cdp.eval('document.querySelector("#chatSub").textContent.trim()');
     ok(`顶栏状态是真实信息（${sub}）`, sub.includes('个角色'));
 
+    // 窗口标题要跟着当前群走，不然开多个标签页分不清
+    const docTitle = await cdp.eval('document.title');
+    ok(`窗口标题带群名（${docTitle}）`, docTitle.includes('E2E 测试群'));
+
     // 建群后会自动开场。注意顺序：kickoff 是 setTimeout(400) 触发的，
     // 如果直接等 busy===false 会立刻通过（那时还没开始）。
     // 先等它真的动起来，再等它结束。
