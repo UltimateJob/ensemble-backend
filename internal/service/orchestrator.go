@@ -128,7 +128,7 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		default:
 		}
 
-		agent := pickSpeaker(agents, spoken, lastKey)
+		agent := pickSpeaker(agents, spoken, lastKey, speakers == 0)
 		if agent.Key == "" {
 			break
 		}
@@ -183,8 +183,18 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	emit(Event{Type: "done"})
 }
 
-// pickSpeaker 选择下一个发言者：优先没说过话的，避免同一个人连着说。
-func pickSpeaker(agents []Agent, spoken map[string]bool, lastKey string) *Agent {
+// pickSpeaker 选择下一个发言者。
+//
+// 第一轮固定给负责人（agents[0]）：用户说了一句话，应该先由拆解角色接住、
+// 定个调子，而不是随机抽到某个专业角色直接反问用户——那样整轮就只有一个
+// 问句，群里显得没人。
+//
+// 之后按「没说过话 + 不是上一个」随机，保持自主。
+func pickSpeaker(agents []Agent, spoken map[string]bool, lastKey string, first bool) *Agent {
+	if first && len(agents) > 0 && !spoken[agents[0].Key] {
+		return &agents[0]
+	}
+
 	var pool []Agent
 	for _, a := range agents {
 		if spoken[a.Key] || a.Key == lastKey {

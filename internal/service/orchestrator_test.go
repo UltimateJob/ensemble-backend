@@ -52,7 +52,7 @@ func TestPickSpeaker(t *testing.T) {
 	// 说过话的人不能再被选中
 	spoken := map[string]bool{"a": true}
 	for i := 0; i < 50; i++ {
-		got := pickSpeaker(agents, spoken, "")
+		got := pickSpeaker(agents, spoken, "", false)
 		if got == nil {
 			t.Fatal("还有可选角色时不应返回 nil")
 		}
@@ -63,7 +63,7 @@ func TestPickSpeaker(t *testing.T) {
 
 	// 连续同一个人要说两次的情况应该被避免
 	for i := 0; i < 50; i++ {
-		got := pickSpeaker(agents, map[string]bool{}, "b")
+		got := pickSpeaker(agents, map[string]bool{}, "b", false)
 		if got != nil && got.Key == "b" {
 			t.Fatal("上一轮的发言者不应立刻被选为下一个")
 		}
@@ -71,14 +71,14 @@ func TestPickSpeaker(t *testing.T) {
 
 	// 全部说过 → nil
 	allSpoken := map[string]bool{"a": true, "b": true, "c": true}
-	if got := pickSpeaker(agents, allSpoken, ""); got != nil {
+	if got := pickSpeaker(agents, allSpoken, "", false); got != nil {
 		t.Fatalf("所有人都说过时不应再选人，得到 %v", got.Key)
 	}
 
 	// 只剩一个没说过 → 必然选中它
 	last := map[string]bool{"a": true, "b": true}
 	for i := 0; i < 20; i++ {
-		got := pickSpeaker(agents, last, "")
+		got := pickSpeaker(agents, last, "", false)
 		if got == nil || got.Key != "c" {
 			t.Fatalf("只剩一个候选时应固定返回它")
 		}
@@ -167,5 +167,20 @@ func TestTruncate(t *testing.T) {
 	r := []rune(got)
 	if len(r) != 6 { // 5 个字 + 省略号
 		t.Fatalf("应按 rune 截断到 5 字 + 省略号，得到 %q (%d)", got, len(r))
+	}
+}
+
+func TestPickSpeakerFirstRoundGoesToLead(t *testing.T) {
+	agents := []Agent{{Key: "lead", Name: "工头"}, {Key: "b", Name: "乙"}, {Key: "c", Name: "丙"}}
+	for i := 0; i < 30; i++ {
+		got := pickSpeaker(agents, map[string]bool{}, "", true)
+		if got == nil || got.Key != "lead" {
+			t.Fatalf("第一轮应固定由负责人开口，得到 %v", got)
+		}
+	}
+	// 负责人已经说过时，不再特殊对待
+	got := pickSpeaker(agents, map[string]bool{"lead": true}, "", true)
+	if got == nil || got.Key == "lead" {
+		t.Fatal("负责人说过话后不应再被优先选中")
 	}
 }
