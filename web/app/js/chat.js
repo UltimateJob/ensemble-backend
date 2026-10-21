@@ -263,6 +263,18 @@ export function setChatStatus(agentName) {
     const label = sc ? sc.name : '自定义群';
     el.innerHTML = `<span class="dot-live"></span><span>${esc(label)} · ${n} 个角色</span>`;
   }
+  // 右栏成员列表同步高亮——只在消息里标名字的话，
+  // 五个人你一句我一句时，「现在是谁」要靠眼睛在两边对
+  markSpeakingMember(agentName);
+}
+
+function markSpeakingMember(agentName) {
+  const box = $('#memberList');
+  if (!box) return;
+  box.querySelectorAll('.member').forEach(m => {
+    const isMe = agentName && m.dataset.agent === agentName;
+    m.classList.toggle('talking', !!isMe);
+  });
 }
 
 export function renderMembers() {
@@ -271,7 +283,7 @@ export function renderMembers() {
   const iAmOwner = !!(conv && state.user && conv.userId === state.user.id);
 
   const agentRows = state.agents.map(a => `
-    <div class="member">
+    <div class="member" data-agent="${esc(a.name)}">
       ${makeAv(a.name, a.color, 'av-sm')}
       <div>
         <div class="mn">${esc(a.name)}</div>
