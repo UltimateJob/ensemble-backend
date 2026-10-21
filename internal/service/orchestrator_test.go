@@ -228,3 +228,54 @@ func TestLoopRespectsQuota(t *testing.T) {
 		t.Fatal("剩 0 次不应继续")
 	}
 }
+
+func TestSlowLog(t *testing.T) {
+	l := NewSlowLog(3, 100) // 容量 3，阈值 100ms
+
+	// 未达阈值不记
+	if l.MaybeRecord(SlowEntry{Agent: "快", LatencyMS: 50}) {
+		t.Fatal("未达阈值不应记录")
+	}
+	// 达阈值记录
+	if !l.MaybeRecord(SlowEntry{Agent: "慢", LatencyMS: 500}) {
+		t.Fatal("超过阈值应记录")
+	}
+	// 出错也记，哪怕很快
+	if !l.MaybeRecord(SlowEntry{Agent: "错", LatencyMS: 1, Err: "boom"}) {
+		t.Fatal("出错应记录")
+	}
+
+	items := l.List(10)
+	if len(items) != 2 {
+		t.Fatalf("应有 2 条记录，得到 %d", len(items))
+	}
+	// 倒序：最新的在前
+	if items[0].Agent != "错" {
+		t.Fatalf("应按时间倒序，首条应是「错」，得到 %s", items[0].Agent)
+	}
+
+	// 环形覆盖：再塞 3 条，只保留最后 3 条
+	for i := 0; i < 3; i++ {
+		l.MaybeRecord(SlowEntry{Agent: string(rune('A' + i)), LatencyMS: 500})
+	}
+	items = l.List(10)
+	if len(items) != 3 {
+		t.Fatalf("容量 3 应只保留 3 条，得到 %d", len(items))
+	}
+	total, threshold := l.Stats()
+	if total != 5 {
+		t.Fatalf("累计记录数应为 5，得到 %d", total)
+	}
+	if threshold != 100 {
+		t.Fatalf("阈值应为 100，得到 %d", threshold)
+	}
+
+	// 空日志不 panic
+	var empty *SlowLog
+	if empty.MaybeRecord(SlowEntry{}) {
+		t.Fatal("nil 日志不应记录")
+	}
+	if got := empty.List(5); got != nil {
+		t.Fatal("nil 日志应返回 nil")
+	}
+}

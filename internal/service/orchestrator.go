@@ -36,11 +36,15 @@ type Orchestrator struct {
 	store store.Store
 	gw    *gateway.Gateway
 	locks *convLocks
+	slow  *SlowLog
 }
 
-func NewOrchestrator(s store.Store, gw *gateway.Gateway) *Orchestrator {
-	return &Orchestrator{store: s, gw: gw, locks: newConvLocks()}
+func NewOrchestrator(s store.Store, gw *gateway.Gateway, slow *SlowLog) *Orchestrator {
+	return &Orchestrator{store: s, gw: gw, locks: newConvLocks(), slow: slow}
 }
+
+// Slow 暴露给运维台。
+func (o *Orchestrator) Slow() *SlowLog { return o.slow }
 
 // ErrConversationBusy 同一会话上一轮还没跑完。
 var ErrConversationBusy = fmt.Errorf("这个群正在说话，稍等一下")
@@ -147,7 +151,7 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		}
 
 		force := forceFirst && speakers == 0
-		res, err := o.ask(ctx, sc, *agent, history, trigger, emit, force)
+		res, err := o.ask(ctx, conv, sc, *agent, history, trigger, emit, force)
 		if err != nil {
 			logx.Req(ctx).Warn("agent speak failed", "agent", agent.Name, "err", err.Error())
 			spoken[agent.Key] = true
@@ -232,7 +236,7 @@ type speakResult struct {
 }
 
 // ask 让一个角色自己决定要不要说话、说什么。
-func (o *Orchestrator) ask(ctx context.Context, sc Scenario, agent Agent, history []*domain.Message, trigger string, emit func(Event), force bool) (speakResult, error) {
+func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Scenario, agent Agent, history []*domain.Message, trigger string, emit func(Event), force bool) (speakResult, error) {
 	emit(Event{Type: "start", Agent: agent.Key, Name: agent.Name, Color: agent.Color})
 
 	sys := fmt.Sprintf(`%s
@@ -266,6 +270,12 @@ func (o *Orchestrator) ask(ctx context.Context, sc Scenario, agent Agent, histor
 	start := time.Now()
 	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: "", Messages: msgs, Stream: true})
 	if err != nil {
+		if o.slow != nil {
+			o.slow.MaybeRecord(SlowEntry{
+				ConvID: conv.ID, ConvTitle: conv.Title, Agent: agent.Name,
+				Err: err.Error(),
+			})
+		}
 		return speakResult{}, err
 	}
 
@@ -324,6 +334,15 @@ func (o *Orchestrator) ask(ctx context.Context, sc Scenario, agent Agent, histor
 		Type: "end", Agent: agent.Key, Name: agent.Name, Color: agent.Color,
 		Tokens: tokens, Latency: latency,
 	})
+
+	// 慢的话记一笔：平均和 P95 只说明整体，定位问题需要知道是谁慢
+	if o.slow != nil {
+		o.slow.MaybeRecord(SlowEntry{
+			ConvID: conv.ID, ConvTitle: conv.Title,
+			Agent: agent.Name, LatencyMS: int64(latency),
+			Tokens: tokens, Model: conv.Model,
+		})
+	}
 
 	if agent.Artifact != "" {
 		emit(Event{

@@ -40,7 +40,7 @@ func newTestServer(t *testing.T) (*Server, http.Handler) {
 
 	auth := service.NewAuth(st, cfg.JWTSecret, service.LogSender{}, true)
 	chat := service.NewChat(st, gw)
-	orch := service.NewOrchestrator(st, gw)
+	orch := service.NewOrchestrator(st, gw, service.NewSlowLog(50, 1000))
 	drafter := service.NewDrafter(gw)
 	shared := &service.Shared{
 		Limiter: gateway.NewLimiter(1000, 100),

@@ -79,7 +79,8 @@ func main() {
 	}
 	auth := service.NewAuth(st, cfg.JWTSecret, sender, cfg.DevBypass)
 	chat := service.NewChat(st, gw)
-	orch := service.NewOrchestrator(st, gw)
+	slow := service.NewSlowLog(200, int64(cfg.SlowThresholdMS))
+	orch := service.NewOrchestrator(st, gw, slow)
 	drafter := service.NewDrafter(gw)
 	shared := &service.Shared{
 		Limiter: gateway.NewLimiter(cfg.RatePerMinute, cfg.Burst),

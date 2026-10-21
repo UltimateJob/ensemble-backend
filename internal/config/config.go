@@ -38,6 +38,9 @@ type Config struct {
 	// 数据目录（分片存储）
 	DataDir string
 
+	// 单次发言超过这个毫秒数就记一条慢日志
+	SlowThresholdMS int
+
 	// 验证码通道：log（默认，写日志并回显） / aliyun / tencent …
 	SmsProvider string
 	SmsSign     string
@@ -73,6 +76,8 @@ func Load() Config {
 
 		AllowMock: boolEnv("ALLOW_MOCK", true),
 		DataDir:   env("DATA_DIR", "data"),
+
+		SlowThresholdMS: intEnv("SLOW_THRESHOLD_MS", 10000),
 
 		SmsProvider: env("SMS_PROVIDER", "log"),
 		SmsSign:     env("SMS_SIGN", ""),

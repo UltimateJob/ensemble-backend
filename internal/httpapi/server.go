@@ -106,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	adminMux.HandleFunc("POST /admin/api/users/{id}/quota", s.handleAdminUserQuota)
 	adminMux.HandleFunc("POST /admin/api/providers/{name}/reset", s.handleAdminResetProvider)
 	adminMux.HandleFunc("GET /admin/api/logs", s.handleAdminLogs)
+	adminMux.HandleFunc("GET /admin/api/slow", s.handleAdminSlow)
 	adminMux.HandleFunc("GET /admin/api/events", s.handleAdminEvents)
 
 	// 登录接口免 token，其余需要

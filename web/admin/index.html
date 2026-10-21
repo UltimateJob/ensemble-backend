@@ -183,6 +183,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
       <button class="tab" data-p="models">模型</button>
       <button class="tab" data-p="users">用户</button>
       <button class="tab" data-p="logs">日志</button>
+      <button class="tab" data-p="slow">慢请求</button>
     </div>
     <div class="nav-r">
       <div class="live"><i></i><span id="liveTxt">运行中</span></div>
@@ -279,6 +280,37 @@ input.inline:focus{outline:0;border-color:var(--pri)}
           <tbody id="userBody"></tbody>
         </table>
         <div class="empty" id="userEmpty" style="display:none">还没有用户。让前端走一次登录就会出现。</div>
+      </div>
+    </div>
+
+    <!-- 慢请求 -->
+    <div class="page" id="p-slow">
+      <div class="card">
+        <div class="card-h">
+          <h3>慢请求</h3>
+          <span class="r" id="slowMeta">—</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>时间</th><th>群</th><th>角色</th>
+            <th style="text-align:right">耗时</th>
+            <th style="text-align:right">Token</th>
+            <th>状态</th>
+          </tr></thead>
+          <tbody id="slowBody"></tbody>
+        </table>
+        <div class="empty" id="slowEmpty" style="display:none">
+          还没有慢记录。单次发言超过阈值才会出现在这里。
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-h"><h3>说明</h3></div>
+        <p style="font-size:12.5px;line-height:1.8;color:var(--tx3)">
+          平均延迟和 P95 只说明「整体快不快」。这里记录的是「谁慢、慢在哪」——
+          出问题时能直接定位到具体群和具体角色。<br>
+          失败的上游调用无论多快都会记一条。<br>
+          阈值通过 <span class="mono">SLOW_THRESHOLD_MS</span> 配置，默认 10000。
+        </p>
       </div>
     </div>
 
@@ -573,6 +605,25 @@ input.inline:focus{outline:0;border-color:var(--pri)}
       </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无行为记录</td></tr>';
   }
 
+  /* ---- 慢请求 ---- */
+  async function loadSlow(){
+    const d = await api('/slow?limit=50');
+    const items = d.items || [];
+    $('#slowMeta').textContent = `${items.length} 条 · 阈值 ${d.thresholdMs}ms · 累计 ${d.total}`;
+    $('#slowEmpty').style.display = items.length ? 'none' : 'block';
+    $('#slowBody').innerHTML = items.map(it => `
+      <tr>
+        <td class="mono">${it.time ? new Date(it.time).toLocaleString('zh-CN', {hour12:false}) : '—'}</td>
+        <td>${it.convTitle || it.convId || '—'}</td>
+        <td>${it.agent || '—'}</td>
+        <td class="num" style="color:${it.latencyMs > 20000 ? 'var(--bad)' : 'inherit'}">${ms(it.latencyMs || 0)}</td>
+        <td class="num">${nf(it.tokens || 0)}</td>
+        <td>${it.err
+          ? `<span class="b b-bad" title="${(it.err||'').replace(/"/g,'')}">失败</span>`
+          : '<span class="b b-warn">慢</span>'}</td>
+      </tr>`).join('');
+  }
+
   /* ---- 轮询 ---- */
   async function refresh(){
     const active = document.querySelector('.page.on').id;
@@ -581,6 +632,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
       if(active === 'p-models') await loadModels();
       if(active === 'p-users') await loadUsers();
       if(active === 'p-logs') await loadLogs();
+      if(active === 'p-slow') await loadSlow();
       $('#liveTxt').textContent = '运行中';
     }catch(e){
       if(/401|令牌/.test(e.message)){
