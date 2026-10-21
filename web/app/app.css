@@ -433,6 +433,9 @@ a{color:inherit;text-decoration:none}
 .member{display:flex;align-items:center;gap:9px;padding:6px 0}
 .member .mn{font-size:12.5px;font-weight:500}
 .member .mt{font-size:10.5px;color:var(--tx-4)}
+.dot-live.busy{background:var(--warn);animation:livePulse 1.1s ease-in-out infinite}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.82)}}
+
 .member .st{margin-left:auto;width:6px;height:6px;border-radius:99px;background:var(--ok);flex:0 0 6px}
 .member .st.off{background:var(--line-2)}
 .pipe-step{display:flex;align-items:center;gap:9px;padding:7px 0;font-size:12.5px;color:var(--tx-2)}

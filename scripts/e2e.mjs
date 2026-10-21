@@ -247,6 +247,10 @@ async function run() {
     const members = await cdp.eval('document.querySelectorAll("#memberList .member").length');
     ok(`成员面板有角色（${members} 个）`, members >= 2);
 
+    // 顶栏状态必须是真实信息，不能是写死的「在线」
+    const sub = await cdp.eval('document.querySelector("#chatSub").textContent.trim()');
+    ok(`顶栏状态是真实信息（${sub}）`, sub.includes('个角色'));
+
     // 建群后会自动开场。注意顺序：kickoff 是 setTimeout(400) 触发的，
     // 如果直接等 busy===false 会立刻通过（那时还没开始）。
     // 先等它真的动起来，再等它结束。

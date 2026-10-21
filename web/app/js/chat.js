@@ -100,6 +100,7 @@ export async function openConv(id) {
   $('#composer').style.display = 'block';
   $('#chatTitle').textContent = conv.title;
   $('#crumbName').textContent = conv.title;
+  setChatStatus('');
   renderMembers();
   renderPipeline(true);
 
@@ -289,6 +290,24 @@ export function addSysNote(text) {
 export function scrollBottom() {
   const box = $('#msgs');
   if (box) box.scrollTop = box.scrollHeight;
+}
+
+/**
+ * 顶栏那行小字。
+ * 原来写死「在线」+ 绿点——角色是程序，永远「在线」，这话没有信息量。
+ * 现在：空闲时说明这个群有几个角色，编排中说谁正在说话。
+ */
+export function setChatStatus(agentName) {
+  const el = $('#chatSub');
+  if (!el) return;
+  const n = state.agents.length;
+  if (agentName) {
+    el.innerHTML = `<span class="dot-live busy"></span><span>${esc(agentName)} 正在说…</span>`;
+  } else {
+    const sc = state.scenarios.find(s => s.key === (state.cur && state.cur.studio));
+    const label = sc ? sc.name : '自定义群';
+    el.innerHTML = `<span class="dot-live"></span><span>${esc(label)} · ${n} 个角色</span>`;
+  }
 }
 
 export function renderMembers() {
@@ -588,7 +607,9 @@ export async function send() {
     addSysNote('出错了：' + e.message);
   } finally {
     state.busy = false;
+    setChatStatus('');        // 一轮结束，顶栏回到「N 个角色」
     if (curEl) curEl.querySelector('.msg-text').classList.remove('caret');
+    markRoundEnd($('#msgWrap'));
     scrollBottom();
     loadConvs();
   }
@@ -596,6 +617,7 @@ export async function send() {
   function handleEvent(ev) {
     if (ev.type === 'start') {
       curAgent = ev;
+      setChatStatus(ev.name);
       curText = '';
       container.querySelectorAll('.msg.speaking').forEach(m => m.classList.remove('speaking'));
       // 思考占位
@@ -707,6 +729,7 @@ export async function kickoff(convId) {
         if (!line.startsWith('data:')) continue;
         let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
         if (ev.type === 'start') {
+          setChatStatus(ev.name);
           curText = '';
           curEl = document.createElement('div');
           curEl.className = 'msg';
@@ -756,6 +779,7 @@ export async function kickoff(convId) {
     console.warn('开场失败：' + (e && e.message));
   } finally {
     state.busy = false;
+    setChatStatus('');
     const box = $('#ta');
     $('#sendBtn').disabled = !box || !box.value.trim();
     const nb = $('#nudgeBtn');
