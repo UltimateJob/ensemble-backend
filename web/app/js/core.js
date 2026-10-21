@@ -27,6 +27,7 @@ export const state = {
   oldestID: null,
   hasMore: false,
   loadingMore: false,
+  me: null,           // /v1/me 的完整响应（含 demo / upstream）
   library: [],        // 角色库
   picked: [],         // 建群时勾选的角色库 ID
 };

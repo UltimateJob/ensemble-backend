@@ -568,6 +568,50 @@ a{color:inherit;text-decoration:none}
 }
 .sd-chip:hover{ border-color:var(--pri); color:var(--pri); background:rgba(79,70,229,.04) }
 
+/* 演示模式标记 */
+.demo-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  height:22px;padding:0 9px;border-radius:99px;
+  font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  background:rgba(217,119,6,.1);color:#B45309;
+  border:1px solid rgba(217,119,6,.22);
+  transition:all .16s;flex:0 0 auto;
+}
+.demo-badge:hover{background:rgba(217,119,6,.16)}
+.demo-badge .d{
+  width:5px;height:5px;border-radius:99px;background:#D97706;
+  animation:demoBlink 2.4s ease-in-out infinite;
+}
+@keyframes demoBlink{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* 演示模式说明弹层 */
+.ui-mask-demo{
+  position:fixed;inset:0;z-index:300;display:grid;place-items:center;
+  background:rgba(22,22,34,.24);backdrop-filter:blur(4px);
+  opacity:0;visibility:hidden;transition:all .2s;
+}
+.ui-mask-demo.on{opacity:1;visibility:visible}
+.ui-card-demo{
+  width:min(400px,calc(100vw - 40px));padding:24px 24px 18px;
+  background:var(--card);border:1px solid var(--glass-line);border-radius:16px;
+  box-shadow:var(--sh-3),inset 0 1px 0 #fff;
+  transform:translateY(8px);transition:transform .22s cubic-bezier(.2,.8,.2,1);
+}
+.ui-mask-demo.on .ui-card-demo{transform:none}
+.ui-card-demo h3{font-size:16px;font-weight:600;letter-spacing:-.01em;margin-bottom:12px}
+.ui-card-demo p{font-size:13px;line-height:1.7;color:var(--tx-2);margin-bottom:10px}
+.ui-card-demo b{color:var(--tx);font-weight:600}
+.ui-card-demo code{
+  font-family:var(--mono);font-size:11.5px;padding:1px 5px;border-radius:4px;
+  background:rgba(120,130,170,.12);color:var(--tx-2);
+}
+.ui-act{display:flex;justify-content:flex-end;margin-top:16px}
+.ui-act button{
+  height:34px;padding:0 16px;border-radius:9px;
+  background:var(--grad);color:#fff;font-size:13px;font-weight:500;
+  box-shadow:0 6px 16px -8px rgba(79,70,229,.5);
+}
+
 /* 上手引导 */
 .onboard{padding:0 8px 10px;flex:0 0 auto}
 .onboard:empty{display:none}

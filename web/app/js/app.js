@@ -97,6 +97,7 @@ async function boot() {
   try {
     const d = await api('/v1/me');
     state.user = d.user;
+    state.me = d;      // 含 demo / upstream
     enterApp();
   } catch (e) {
     localStorage.removeItem('ens_token');
@@ -114,6 +115,7 @@ async function enterApp() {
   }
   await loadLibrary();
   await loadConvs();
+  renderDemoBadge();
   renderOnboard();
   const qs2 = new URLSearchParams(location.search);
   if (qs2.get('scenes') || qs2.get('forge')) openScenes();
@@ -169,6 +171,39 @@ $('#clearBtn').addEventListener('click', () => {
   $('#msgWrap').innerHTML = '';
   addSysNote('显示已清空（服务端记录保留）');
 });
+
+/* ---------------- 演示模式标记 ---------------- */
+function renderDemoBadge() {
+  const el = $('#demoBadge');
+  if (!el) return;
+  const demo = state.me && state.me.demo;
+  el.style.display = demo ? 'inline-flex' : 'none';
+  if (!demo) return;
+  el.onclick = () => {
+    UI_dialog_info();
+  };
+}
+
+// 用轻量的自绘弹层，不引入额外依赖
+function UI_dialog_info() {
+  const mask = document.createElement('div');
+  mask.className = 'ui-mask-demo';
+  mask.innerHTML = `
+    <div class="ui-card-demo">
+      <h3>当前是演示模式</h3>
+      <p>现在群里的回复是<b>预置的演示台词</b>，不是真实模型输出。界面、流程、数据存储都是真的，只有「谁说了什么」是假的。</p>
+      <p>配上 DeepSeek 的 API Key 重启服务就会切换到真实上游，启动日志会打印 <code>mock:false</code>。</p>
+      <div class="ui-act"><button id="uiDemoOk">知道了</button></div>
+    </div>`;
+  document.body.appendChild(mask);
+  requestAnimationFrame(() => mask.classList.add('on'));
+  const close = () => { mask.classList.remove('on'); setTimeout(() => mask.remove(), 200); };
+  mask.addEventListener('click', e => { if (e.target === mask) close(); });
+  mask.querySelector('#uiDemoOk').addEventListener('click', close);
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); }
+  });
+}
 
 /* ---------------- 上手引导 ---------------- */
 // 不弹教程、不遮屏幕。就挂在会话列表下面，

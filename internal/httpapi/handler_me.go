@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"net/http"
+
+	"github.com/UltimateJob/ensemble-backend/internal/config"
 	"strconv"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
@@ -16,7 +18,18 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]interface{}{
 		"user":      u,
 		"remaining": u.Remaining(),
+		// 让前端知道现在是真模型还是演示台词
+		"demo":     !s.cfg.UpstreamConfigured(),
+		"upstream": upstreamName(s.cfg),
 	})
+}
+
+// upstreamName 给前端看的当前上游名。
+func upstreamName(cfg config.Config) string {
+	if cfg.UpstreamConfigured() {
+		return "DeepSeek"
+	}
+	return "演示台词"
 }
 
 func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
