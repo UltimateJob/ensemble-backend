@@ -18,6 +18,7 @@ type Server struct {
 	admin        *service.Admin
 	gw           *gateway.Gateway
 	orchestrator *service.Orchestrator
+	drafter      *service.Drafter
 }
 
 func NewServer(
@@ -28,8 +29,9 @@ func NewServer(
 	admin *service.Admin,
 	gw *gateway.Gateway,
 	orch *service.Orchestrator,
+	drafter *service.Drafter,
 ) *Server {
-	return &Server{cfg: cfg, store: st, auth: auth, chat: chat, admin: admin, gw: gw, orchestrator: orch}
+	return &Server{cfg: cfg, store: st, auth: auth, chat: chat, admin: admin, gw: gw, orchestrator: orch, drafter: drafter}
 }
 
 // Handler 构建完整路由。
@@ -57,6 +59,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("PATCH /v1/me", s.handleUpdateMe)
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
 	userMux.HandleFunc("POST /v1/events", s.handleTrack)
+	userMux.HandleFunc("POST /v1/agents/draft", s.handleDraftAgent)
 
 	userMux.HandleFunc("GET /v1/conversations", s.handleListConvs)
 	userMux.HandleFunc("POST /v1/conversations", s.handleCreateConv)
@@ -68,7 +71,7 @@ func (s *Server) Handler() http.Handler {
 
 	authMW := Auth(s.auth.Verify)
 	for _, p := range []string{
-		"/v1/me", "/v1/me/", "/v1/events",
+		"/v1/me", "/v1/me/", "/v1/events", "/v1/agents/draft",
 		"/v1/conversations", "/v1/conversations/",
 	} {
 		mux.Handle(p, authMW(userMux))

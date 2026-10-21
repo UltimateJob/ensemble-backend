@@ -65,6 +65,24 @@ func (s *Server) handleOrchestrate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDraftAgent 用模型生成一个角色设定。
+func (s *Server) handleDraftAgent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name     string `json:"name"`
+		Keywords string `json:"keywords"`
+	}
+	if err := decode(r, &req); err != nil {
+		badRequest(w, "请求格式不正确")
+		return
+	}
+	agent, err := s.drafter.Draft(r.Context(), req.Name, req.Keywords)
+	if err != nil {
+		serverErr(w, err.Error())
+		return
+	}
+	ok(w, agent)
+}
+
 // handleScenarios 列出所有内置场景。
 func (s *Server) handleScenarios(w http.ResponseWriter, r *http.Request) {
 	ok(w, service.Scenarios)

@@ -67,6 +67,7 @@ func main() {
 	auth := service.NewAuth(st, cfg.JWTSecret)
 	chat := service.NewChat(st, gw)
 	orch := service.NewOrchestrator(st, gw)
+	drafter := service.NewDrafter(gw)
 	shared := &service.Shared{
 		Limiter: gateway.NewLimiter(cfg.RatePerMinute, cfg.Burst),
 		Started: time.Now(),
@@ -75,7 +76,7 @@ func main() {
 	admin := service.NewAdmin(st, gw, shared)
 
 	// ---- HTTP ----
-	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch)
+	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter)
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Handler(),
