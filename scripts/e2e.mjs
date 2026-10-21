@@ -335,6 +335,16 @@ async function run() {
     );
     ok('Agent 开始流式回复', true);
 
+    // 右栏要同步高亮「现在是谁在说」——五个人轮流说话时，
+    // 只在消息区标名字的话，眼睛要在两边来回对
+    let talkingNow = '';
+    for (let i = 0; i < 20; i++) {
+      talkingNow = await cdp.eval(`document.querySelector('.member.talking')?.dataset.agent || ''`);
+      if (talkingNow) break;
+      await sleep(200);
+    }
+    ok(`成员面板高亮正在说话的角色（${talkingNow || '无'}）`, !!talkingNow);
+
     await cdp.waitFor(
       '[...document.querySelectorAll(".msg:not(.me) .msg-text")].some(t => t.textContent.length > 5)',
       30000,
