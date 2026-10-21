@@ -323,6 +323,7 @@ type Provider interface {
 | [docs/hacking.md](docs/hacking.md) | 想改点什么，改哪 |
 | [docs/handoff.md](docs/handoff.md) | 接手的人需要知道什么：验证过什么、没验证什么 |
 | [docs/roadmap.md](docs/roadmap.md) | 已知缺口怎么补：改哪、多久、会碰坏什么 |
+| [docs/agent-executor.md](docs/agent-executor.md) | 代码/文档执行器、工作区、沙箱与权限怎么设计 |
 
 ## 想改点什么
 
