@@ -202,6 +202,21 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		if res.asksUser {
 			break
 		}
+
+		// 两个角色之间留一点空隙。
+		// 后端一轮 4 个人，每人 1 秒，中间没有间隔的话就是连珠炮——
+		// 4 条消息在 4 秒内砸出来，眼睛跟不上，也不像真人群聊。
+		// 取 350-750ms 的随机值，避免每次节奏一模一样。
+		if speakers < maxSpeakers {
+			gap := time.Duration(350+randInt(400)) * time.Millisecond
+			select {
+			case <-ctx.Done():
+				_ = o.store.UpdateConv(conv)
+				emit(Event{Type: "done"})
+				return
+			case <-time.After(gap):
+			}
+		}
 	}
 
 	_ = o.store.UpdateConv(conv)
