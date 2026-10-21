@@ -113,6 +113,9 @@ async function boot() {
 async function enterApp() {
   $('#login').style.display = 'none';
   $('#app').classList.add('on');
+  // 还没有选群：右栏整块收起（三个空壳面板比空着更难看）。
+  // 打开会话时 chat.js 会把它去掉。
+  if (!state.cur) document.body.classList.add('no-conv');
   try {
     state.scenarios = await api('/v1/scenarios');
   } catch (e) {

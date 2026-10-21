@@ -132,6 +132,18 @@ async function launch() {
     await fetch(`${BASE}/admin/api/users/${lr.data.user.id}/reset-usage`, {
       method: 'POST', headers: { 'X-Admin-Token': 'admin-dev-token' },
     });
+
+    // 上次跑挂了会留下「E2E 测试群」。不清的话会话列表越来越脏，
+    // 演示数据也会被污染——真实交付时用户看到一排同名测试群。
+    const stale = await fetch(`${BASE}/v1/conversations`, {
+      headers: { Authorization: 'Bearer ' + lr.data.token },
+    }).then(x => x.json()).then(j => (j.data || []).filter(c => c.title.startsWith('E2E 测试群')));
+    for (const c of stale) {
+      await fetch(`${BASE}/v1/conversations/${c.id}`, {
+        method: 'DELETE', headers: { Authorization: 'Bearer ' + lr.data.token },
+      }).catch(() => {});
+    }
+    if (stale.length) console.log(`  清掉 ${stale.length} 个上次残留的测试群`);
   } catch { /* 重置失败就让后面的断言自己报 */ }
 
   // 等调试端口起来

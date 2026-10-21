@@ -39,6 +39,7 @@ export async function openConv(id) {
   renderConvs();
   if (drawer.classList.contains('on')) closeDrawer();
   $('#chatEmpty').style.display = 'none';
+  document.body.classList.remove('no-conv');
   $('#chatHead').style.display = 'flex';
   $('#msgs').style.display = 'block';
   $('#composer').style.display = 'block';

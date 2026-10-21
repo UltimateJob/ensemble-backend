@@ -194,6 +194,7 @@ async function UI_confirm_delete(conv) {
         $('#composer').style.display = 'none';
         $('#chatHead').style.display = 'none';
         $('#chatEmpty').style.display = 'flex';
+        document.body.classList.add('no-conv');
         $('#crumbName').textContent = '—';
         state.agents = [];
         setDocTitle('', false);
