@@ -158,6 +158,25 @@ for tok, need in MIN.items():
     if worst < need:
         problems.append(f'{tok} {m.group(1)} 对比度 {worst:.2f} < {need}（最差背景）')
 
+
+# 9) 切会话时骨架屏必须铺在第一个 await 之前。
+#    放到 await 后面的话，慢网络下这一两秒屏幕上还是上一个群的消息，
+#    用户会以为点错了群。这个顺序靠肉眼看代码很容易漏。
+chatjs = open('web/app/js/chat.js', encoding='utf-8').read()
+m = re.search(r'export async function openConv\(id\)\s*\{(.*?)\n\}', chatjs, re.S)
+if not m:
+    problems.append('chat.js 里找不到 openConv')
+else:
+    # 先剥掉注释——注释里提到「await」会误报
+    body = re.sub(r'//[^\n]*', '', m.group(1))
+    body = re.sub(r'/\*.*?\*/', '', body, flags=re.S)
+    i_sk = body.find('showMsgSkeleton()')
+    i_aw = body.find('await ')
+    if i_sk < 0:
+        problems.append('openConv 没有铺骨架屏')
+    elif i_aw >= 0 and i_sk > i_aw:
+        problems.append('openConv 的骨架屏在第一个 await 之后——慢网络下会先显示上一个群的消息')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:

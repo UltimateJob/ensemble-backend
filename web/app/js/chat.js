@@ -12,16 +12,25 @@ import { loadConvs, renderConvs, setConvOpener } from './convs.js';
 /* ---------------- 会话 ---------------- */
 // 同一个会话正在打开时忽略重复调用（并发会导致消息渲染两遍）
 let openingConvId = null;
+let openingAt = 0;
 
 export async function openConv(id) {
   if (state.busy) return toast('上一轮还没结束');
-  // 同一个会话正在打开时忽略重复调用（并发会导致消息渲染两遍）
-  if (openingConvId === id) return;
+  // 同一个会话正在打开时忽略重复调用（并发会导致消息渲染两遍）。
+  // 但要给一个时间窗：同步段里万一抛异常，openingConvId 不会被清掉，
+  // 之后这个会话就再也打不开了——界面毫无反应，很难查。
+  if (openingConvId === id && Date.now() - openingAt < 5000) return;
   const conv = state.convs.find(c => c.id === id);
   if (!conv) return;
 
   openingConvId = id;
+  openingAt = Date.now();
   state.cur = conv;
+
+  // 立刻清屏并铺骨架。下面取协作者、取消息都是网络请求，
+  // 慢的时候要多等一两秒——这期间屏幕上还是【上一个群】的消息，
+  // 用户会以为点错了。清空要放在所有 await 之前。
+  showMsgSkeleton();
 
   const sc = state.scenarios.find(s => s.key === conv.studio) || { agents: [] };
   // 自定义角色优先
@@ -95,6 +104,7 @@ export async function openConv(id) {
     }
     renderLoadMore();
   } catch (e) {
+    hideMsgSkeleton();
     toast(e.message);
   } finally {
     if (openingConvId === id) openingConvId = null;
@@ -268,6 +278,29 @@ export function dedupeMsgTimes() {
       lastShown = ms;
     }
   });
+}
+
+// 加载历史时的骨架屏。
+// 之前这段是纯空白：慢网络下打开一个群，要盯着白屏好几秒，
+// 看起来像页面挂了。骨架屏至少告诉用户「在加载」。
+export function showMsgSkeleton() {
+  const wrap = $('#msgWrap');
+  if (!wrap) return;
+  const rows = [88, 62, 74].map(w => `
+    <div class="sk-msg">
+      <div class="sk-av"></div>
+      <div class="sk-body">
+        <div class="sk-line" style="width:${w}px"></div>
+        <div class="sk-line sk-wide"></div>
+        <div class="sk-line" style="width:60%"></div>
+      </div>
+    </div>`).join('');
+  wrap.innerHTML = `<div class="sk-wrap">${rows}</div>`;
+}
+
+export function hideMsgSkeleton() {
+  const box = $('#msgWrap .sk-wrap');
+  if (box) box.remove();
 }
 
 export function addSysNote(text) {
