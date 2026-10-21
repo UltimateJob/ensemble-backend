@@ -109,6 +109,7 @@ func (s *Server) Handler() http.Handler {
 		userMux.HandleFunc("GET /v1/workspaces/{id}/tree", s.handleWorkspaceTree)
 		userMux.HandleFunc("GET /v1/workspaces/{id}/file", s.handleWorkspaceFile)
 		userMux.HandleFunc("POST /v1/workspaces/{id}/runs", s.handleStartRun)
+		userMux.HandleFunc("POST /v1/workspaces/{id}/collab", s.handleCollab)
 		userMux.HandleFunc("GET /v1/runs/{id}", s.handleGetRun)
 		userMux.HandleFunc("GET /v1/runs/{id}/events", s.handleRunEvents)
 		userMux.HandleFunc("POST /v1/runs/{id}/approve", s.handleApprove)

@@ -22,6 +22,7 @@ window.__ensemblePickDirectory = path => {
 export function openStudio() {
   $('#studio').classList.add('on');
   refreshWorkspaces();
+  loadConvOptions();
   hydrateIcons($('#studio'));
 }
 
@@ -106,9 +107,10 @@ export async function startRun() {
   }
 }
 
-function subscribe(id) {
+function subscribe(id, box) {
+  if (box) box.dataset.runId = id;
   const ctrl = new AbortController();
-  abort = () => ctrl.abort();
+  if (!box) abort = () => ctrl.abort();
   (async () => {
     const res = await fetch(`/v1/runs/${id}/events`, {
       headers: { Authorization: 'Bearer ' + state.token },
@@ -129,7 +131,7 @@ function subscribe(id) {
         if (!line.startsWith('data:')) continue;
         let ev;
         try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
-        handleEvent(ev);
+        handleEvent(ev, box);
       }
     }
   })().catch(e => {
@@ -138,43 +140,48 @@ function subscribe(id) {
   });
 }
 
-function handleEvent(ev) {
+function handleEvent(ev, box) {
   const d = ev.data || {};
+  const target = box || $('#runTimeline');
+  const add = (title, html, kind) => addTimelineTo(target, title, html, kind);
   switch (ev.type) {
     case 'run.start':
-      addTimeline('开始', `工作区 <code>${esc(d.root || '')}</code> · 权限 ${esc(d.permission || '')}<br><span class="dim">${esc(d.note || '')}</span>`, 'info');
+      add('开始', `工作区 <code>${esc(d.root || '')}</code> · 权限 ${esc(d.permission || '')}<br><span class="dim">${esc(d.note || '')}</span>`, 'info');
       break;
     case 'step.start':
-      addTimeline(`第 ${d.step}/${d.maxSteps} 步`, '', 'step');
+      add(`第 ${d.step}/${d.maxSteps} 步`, '', 'step');
       break;
     case 'assistant.message':
-      addTimeline('说明', esc(d.text || ''), 'say');
+      add('说明', esc(d.text || ''), 'say');
       break;
     case 'tool.start':
-      addTool(d.toolCallId, d.tool, d.args, d.risk);
+      addToolTo(target, d.toolCallId, d.tool, d.args, d.risk);
       break;
     case 'tool.end':
-      endTool(d);
+      endToolIn(target, d);
       break;
     case 'approval.required':
-      addApproval(d);
+      addApprovalTo(target, d);
       break;
     case 'diff':
-      addTimeline('改动', `${d.files} 个文件，共 ${d.total} 处`, 'info');
+      add('改动', `${d.files} 个文件，共 ${d.total} 处`, 'info');
       break;
     case 'run.end':
-      addTimeline('结束', `状态 <b>${esc(d.status)}</b>${d.error ? ' · ' + esc(d.error) : ''} · 第 ${d.step} 步 · token ${d.tokens ? d.tokens.in + '/' + d.tokens.out : '-'}`, d.status === 'done' ? 'ok' : 'err');
-      loadDiff(runId);
-      finishUi();
+      add('结束', `状态 <b>${esc(d.status)}</b>${d.error ? ' · ' + esc(d.error) : ''} · 第 ${d.step} 步 · token ${d.tokens ? d.tokens.in + '/' + d.tokens.out : '-'}`, d.status === 'done' ? 'ok' : 'err');
+      if (!box) { loadDiff(id); finishUi(); }
       break;
     case 'error':
-      addTimeline('错误', esc(d.message || JSON.stringify(d)), 'err');
+      add('错误', esc(d.message || JSON.stringify(d)), 'err');
       break;
   }
 }
 
 function addTimeline(title, html, kind) {
-  const box = $('#runTimeline');
+  return addTimelineTo($('#runTimeline'), title, html, kind);
+}
+
+function addTimelineTo(box, title, html, kind) {
+  if (!box) return null;
   const el = document.createElement('div');
   el.className = 'tl ' + (kind || '');
   el.innerHTML = `<div class="tl-h"><span class="tl-t">${title}</span></div>${html ? `<div class="tl-b">${html}</div>` : ''}`;
@@ -184,12 +191,21 @@ function addTimeline(title, html, kind) {
 }
 
 function addTool(id, tool, args, risk) {
-  const el = addTimeline(toolName(tool) + ` <span class="tl-badge ${esc(risk)}">${esc(risk || '')}</span>`, `<code class="tl-args">${esc(args || '')}</code>`, 'tool');
+  return addToolTo($('#runTimeline'), id, tool, args, risk);
+}
+
+function addToolTo(box, id, tool, args, risk) {
+  const el = addTimelineTo(box, toolName(tool) + ` <span class="tl-badge ${esc(risk)}">${esc(risk || '')}</span>`, `<code class="tl-args">${esc(args || '')}</code>`, 'tool');
   el.dataset.toolCall = id;
 }
 
 function endTool(d) {
-  const el = document.querySelector(`.tl[data-tool-call="${d.toolCallId}"]`);
+  endToolIn($('#runTimeline'), d);
+}
+
+function endToolIn(box, d) {
+  if (!box) return;
+  const el = box.querySelector(`.tl[data-tool-call="${d.toolCallId}"]`);
   if (!el) return;
   const body = el.querySelector('.tl-b');
   const status = d.status === 'ok' ? 'ok' : (d.status === 'denied' ? 'denied' : 'err');
@@ -204,7 +220,11 @@ function endTool(d) {
 }
 
 function addApproval(a) {
-  const el = addTimeline('需要批准', `
+  return addApprovalTo($('#runTimeline'), a);
+}
+
+function addApprovalTo(box, a) {
+  const el = addTimelineTo(box, '需要批准', `
     <div class="apv">
       <div class="apv-sum">${esc(a.summary || a.tool)}</div>
       ${a.command ? `<code class="apv-cmd">${esc(a.command)}</code>` : ''}
@@ -215,10 +235,11 @@ function addApproval(a) {
         <button class="btn btn-line" data-act="no">拒绝</button>
       </div>
     </div>`, 'approval');
+  const rid = (box && box.dataset.runId) || runId;
   el.querySelectorAll('button').forEach(b => {
     b.addEventListener('click', async () => {
       try {
-        await api(`/v1/runs/${runId}/approve`, {
+        await api(`/v1/runs/${rid}/approve`, {
           method: 'POST',
           body: { approvalId: a.id, approve: b.dataset.act !== 'no', scope: b.dataset.act === 'run' ? 'run' : 'once' },
         });
@@ -281,6 +302,8 @@ export function initStudio() {
   const panel = $('#studio');
   if (!panel) return;
   $('#studioClose').addEventListener('click', closeStudio);
+  $('#collabDiscuss')?.addEventListener('click', () => startCollab(true));
+  $('#collabRun')?.addEventListener('click', () => startCollab(false));
   $('#wsPick')?.addEventListener('click', () => {
     if (window.__ensemblePickDirectory) {
       toast('用菜单「文件 → 选择工作区目录」（⌘O）');
@@ -295,4 +318,96 @@ export function initStudio() {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && panel.classList.contains('on')) closeStudio();
   });
+}
+
+/* ---------------- 群聊协作 ---------------- */
+
+async function loadConvOptions() {
+  const sel = $('#collabConv');
+  if (!sel) return;
+  try {
+    const list = await api('/v1/conversations');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">不关联群聊，直接执行</option>' +
+      (list || []).map(c => `<option value="${esc(c.id)}">${esc(c.title || '未命名群')}</option>`).join('');
+    if (cur) sel.value = cur;
+  } catch (e) { /* 未登录时忽略 */ }
+}
+
+/** 把工作区重新绑定到某个群（collab 需要 conversationId）。 */
+async function ensureCollabWorkspace() {
+  const convId = $('#collabConv').value;
+  const root = $('#wsRoot').value.trim();
+  if (!root) throw new Error('先选择工作区');
+  if (!convId) return null;
+  const list = await api('/v1/workspaces');
+  const hit = (list || []).find(w => w.conversationId === convId && w.root === root);
+  if (hit) { wsId = hit.id; return hit.id; }
+  const w = await api('/v1/workspaces', { method: 'POST', body: { root, conversationId: convId } });
+  wsId = w.id;
+  refreshWorkspaces();
+  return w.id;
+}
+
+function renderDiscussion(box, lines) {
+  if (!lines || !lines.length) {
+    box.appendChild(el('没有角色发言（可能额度不足或被跳过）'));
+    return;
+  }
+  lines.forEach(l => {
+    const d = document.createElement('div');
+    d.className = 'collab-say';
+    d.innerHTML = `<div class="who">${esc(l.agent || '角色')}</div><div class="txt"></div>`;
+    d.querySelector('.txt').textContent = l.text || '';
+    box.appendChild(d);
+  });
+  function el(t) {
+    const x = document.createElement('div');
+    x.className = 'studio-hint';
+    x.textContent = t;
+    return x;
+  }
+}
+
+export async function startCollab(discussOnly) {
+  const task = $('#runTask').value.trim();
+  if (!task) { toast('先写一句要做什么'); return; }
+  const convId = $('#collabConv').value;
+  if (!convId) { toast('先选一个群聊'); return; }
+  const btn = discussOnly ? $('#collabDiscuss') : $('#collabRun');
+  btn.disabled = true;
+  const out = $('#collabOut');
+  out.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'collab-box';
+  out.appendChild(box);
+  box.innerHTML = '<div class="studio-hint">讨论中…（一个人一个人说，通常 3–6 秒）</div>';
+  try {
+    const id = await ensureCollabWorkspace();
+    if (!id) throw new Error('工作区绑定失败');
+    const res = await api(`/v1/workspaces/${id}/collab`, {
+      method: 'POST',
+      body: { task, discussOnly, maxStepsPerRun: 10 },
+    });
+    box.innerHTML = '<div class="tl-dim">讨论</div>';
+    renderDiscussion(box, res.discussion || []);
+    if (discussOnly) return;
+    if (res.note) { const n = document.createElement('div'); n.className = 'studio-hint'; n.textContent = res.note; box.appendChild(n); }
+    (res.runs || []).forEach(r => {
+      if (r.error) { addTimelineTo(box, `${r.agent} 未能启动`, esc(r.error), 'err'); return; }
+      const head = document.createElement('div');
+      head.className = 'tl-dim';
+      head.textContent = `${r.agent} 开始执行`;
+      box.appendChild(head);
+      const tl = document.createElement('div');
+      tl.className = 'timeline';
+      tl.style.maxHeight = '320px';
+      box.appendChild(tl);
+      subscribe(r.runId, tl);
+    });
+  } catch (e) {
+    box.innerHTML = `<div class="studio-hint" style="color:var(--bad)">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
 }

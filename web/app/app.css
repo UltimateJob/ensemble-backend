@@ -1171,3 +1171,9 @@ a{color:inherit;text-decoration:none}
   .studio-body{grid-template-columns:1fr}
   .studio-side{border-right:none;border-bottom:1px solid var(--line)}
 }
+.studio-row{display:flex;gap:7px;flex-wrap:wrap}
+.studio-row .btn{flex:1;min-width:110px;height:36px;font-size:12px;padding:0 10px}
+.collab-box{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.collab-say{border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;background:#fff}
+.collab-say .who{font-size:11px;font-weight:600;color:var(--pri);margin-bottom:4px}
+.collab-say .txt{font-size:11.5px;color:var(--tx-2);line-height:1.6;white-space:pre-wrap}

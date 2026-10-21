@@ -205,6 +205,119 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	created(w, run)
 }
 
+// handleCollab 群聊讨论 + 分头执行。
+//
+// 先让群里的角色讨论一轮（同步，通常 3-6 秒），再把任务派给有写权限的角色。
+// 这是「架构师接需求 → 群里对齐 → 前后端各自开干」的完整链路，
+// 之前只有脚本能跑，界面上没有入口。
+func (s *Server) handleCollab(w http.ResponseWriter, r *http.Request) {
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	bw, okw := s.agents.Workspace(r.PathValue("id"), u.ID)
+	if !okw {
+		notFound(w, "工作区不存在")
+		return
+	}
+	if bw.ConversationID == "" {
+		badRequest(w, "这个工作区没有绑定群聊")
+		return
+	}
+	var req struct {
+		Task           string `json:"task"`
+		MaxStepsPerRun int    `json:"maxStepsPerRun"`
+		DiscussOnly    bool   `json:"discussOnly"`
+	}
+	if err := decode(r, &req); err != nil || strings.TrimSpace(req.Task) == "" {
+		badRequest(w, "task 不能为空")
+		return
+	}
+	conv, err := s.chat.Get(u.ID, bw.ConversationID)
+	if err != nil {
+		notFound(w, "会话不存在")
+		return
+	}
+	if u.Remaining() <= 0 {
+		fail(w, 402, "quota_exceeded", "本月额度已用完")
+		return
+	}
+
+	// 1) 讨论：同步跑一轮，收集每个角色的发言
+	type line struct {
+		Agent string `json:"agent"`
+		Text  string `json:"text"`
+	}
+	var lines []line
+	s.orchestrator.Run(r.Context(), conv, u, req.Task, func(ev service.Event) {
+		if ev.Type == "end" && strings.TrimSpace(ev.Content) != "" {
+			lines = append(lines, line{Agent: ev.Name, Text: strings.TrimSpace(ev.Content)})
+		}
+	})
+
+	if req.DiscussOnly {
+		ok(w, map[string]any{"discussion": lines, "runs": []any{}})
+		return
+	}
+
+	// 2) 分头干：只派给「能写」的角色，readonly 留下看
+	agents := service.ConversationAgents(conv)
+	plan := ""
+	for _, l := range lines {
+		for _, a := range agents {
+			if a.Name == l.Agent {
+				plan = l.Text
+			}
+		}
+	}
+	if plan == "" && len(lines) > 0 {
+		plan = lines[0].Text
+	}
+
+	type started struct {
+		Agent string `json:"agent"`
+		RunID string `json:"runId"`
+		Error string `json:"error,omitempty"`
+	}
+	var startedRuns []started
+	maxSteps := req.MaxStepsPerRun
+	if maxSteps <= 0 {
+		maxSteps = 10
+	}
+	for _, a := range agents {
+		perm := agent.Permission(a.Permission)
+		if perm != agent.PermissionApproval && perm != agent.PermissionFull {
+			continue
+		}
+		task := strings.TrimSpace(req.Task)
+		if plan != "" {
+			task += "\n\n架构师的方案：\n" + plan
+		}
+		run, err := s.agents.Start(r.Context(), s.gw, agent.StartRequest{
+			WorkspaceID:    bw.ID,
+			ConversationID: bw.ConversationID,
+			UserID:         u.ID,
+			OperatorKey:    a.Key,
+			OperatorName:   a.Name,
+			Permission:     perm,
+			Scope:          a.Scope,
+			Task:           task,
+			MaxSteps:       maxSteps,
+		})
+		if err != nil {
+			startedRuns = append(startedRuns, started{Agent: a.Name, Error: err.Error()})
+			continue
+		}
+		startedRuns = append(startedRuns, started{Agent: a.Name, RunID: run.ID})
+	}
+	if len(startedRuns) == 0 {
+		ok(w, map[string]any{"discussion": lines, "runs": []any{}, "note": "群里没有可执行的角色（权限都是只读）"})
+		return
+	}
+	ok(w, map[string]any{"discussion": lines, "runs": startedRuns})
+}
+
 // handleGetRun 查询运行状态与工具时间线。
 func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	u, found := UserFrom(r.Context())

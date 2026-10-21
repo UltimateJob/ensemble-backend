@@ -246,7 +246,17 @@
           <label>任务</label>
           <textarea id="runTask" rows="5" placeholder="比如：修一下 calc.go 里 Add 的 bug，跑 go test 确认通过"></textarea>
         </div>
-        <button class="btn btn-grad" id="runStart" style="width:100%">开始执行</button>
+        <div class="field">
+          <label>群聊协作（可选）</label>
+          <select id="collabConv"><option value="">不关联群聊，直接执行</option></select>
+          <div class="studio-hint">关联后先让角色讨论一轮，再把任务派给有写权限的角色。</div>
+        </div>
+        <div class="studio-row">
+          <button class="btn btn-grad" id="runStart">开始执行</button>
+          <button class="btn btn-line" id="collabDiscuss">先讨论</button>
+          <button class="btn btn-line" id="collabRun">讨论并执行</button>
+        </div>
+        <div id="collabOut"></div>
         <div class="ws-wrap">
           <div class="info-h">已绑定工作区</div>
           <div id="wsList"></div>
