@@ -475,8 +475,13 @@ export async function runRound(path, body, opts = {}) {
 
   let curEl = null;
   let curText = '';
+  // 后端每轮结束都会发一个 done。如果流在 done 之前就断了，
+  // 前端原本完全分不出来——看起来和正常结束一模一样，
+  // 用户只会觉得「怎么没人接着说了」。
+  let sawDone = false;
 
   function handleEvent(ev) {
+    if (ev.type === 'done') { sawDone = true; return; }
     if (ev.type === 'start') {
       // 上一个角色如果只留下一个空的思考占位（上游失败或前端没收到内容），
       // 先清掉——不然连着几个 start 会堆出好几个空气泡
@@ -615,6 +620,12 @@ export async function runRound(path, body, opts = {}) {
         try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
         handleEvent(ev);
       }
+    }
+
+    // 流正常关闭但没收到 done：连接被中途掐断了。
+    // 已经说出来的话都在（服务端逐条落库了），只是这一轮没跑完。
+    if (!sawDone && opts.expectDone !== false) {
+      addSysNote('连接断了，这一轮没说完 — 已经说出来的都保留着');
     }
   } catch (e) {
     if (/额度/.test(e.message)) {

@@ -205,6 +205,17 @@ for f in ['web/app/js/app.js', 'web/app/js/chat.js', 'web/app/js/convs.js']:
     if bare:
         problems.append(f'{f} 有 {bare} 处直接把 e.message 弹出去——要用 humanError')
 
+
+# 13) 流被截断时必须能看出来。
+#     后端每轮末尾发 done；如果流在 done 之前就断了，前端原本
+#     和「正常结束」一模一样，用户只会觉得「怎么没人接着说了」。
+if "ev.type === 'done'" not in chatjs2:
+    problems.append('runRound 没有跟踪 done 事件——截断的流会被当成正常结束')
+elif 'sawDone' not in chatjs2:
+    problems.append('runRound 没有 sawDone 标记')
+elif '这一轮没说完' not in chatjs2:
+    problems.append('流被截断时没有给用户任何提示')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:
