@@ -2,6 +2,8 @@ package service
 
 import (
 	"testing"
+
+	"github.com/UltimateJob/ensemble-backend/internal/domain"
 )
 
 func TestIsPass(t *testing.T) {
@@ -282,5 +284,58 @@ func TestSlowLog(t *testing.T) {
 	}
 	if got := empty.List(5); got != nil {
 		t.Fatal("nil 日志应返回 nil")
+	}
+}
+
+func TestAgentsFromConversationFillsMissingKeys(t *testing.T) {
+	conv := &domain.Conversation{Agents: []domain.ConvAgent{
+		{Name: "雪之下雪乃", Title: "毒舌"},
+		{Name: "由比滨结衣", Title: "温柔"},
+		{Key: "", Name: "一色彩羽", Title: "小恶魔"},
+	}}
+
+	agents := agentsFromConversation(conv)
+	if len(agents) != 3 {
+		t.Fatalf("应转出 3 个角色，得到 %d", len(agents))
+	}
+	seen := map[string]bool{}
+	for _, a := range agents {
+		if a.Key == "" {
+			t.Fatalf("角色 %s 的 key 不能为空", a.Name)
+		}
+		if seen[a.Key] {
+			t.Fatalf("角色 key 重复：%s", a.Key)
+		}
+		seen[a.Key] = true
+	}
+}
+
+func TestCharacterKeyStable(t *testing.T) {
+	a := CharacterKey("雪之下雪乃")
+	if a == "" || a != CharacterKey("雪之下雪乃") {
+		t.Fatal("同一个角色应得到稳定的 key")
+	}
+	if a == CharacterKey("由比滨结衣") {
+		t.Fatal("不同角色的 key 不应相同")
+	}
+}
+
+func TestWantsEveryone(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"你们三个分别怎么看加班", true},
+		{"大家怎么看", true},
+		{"你们觉得呢", true},
+		{"你们好", false},
+		{"今天天气怎样", false},
+		{"帮我拆一下这个需求", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := wantsEveryone(c.in); got != c.want {
+			t.Fatalf("wantsEveryone(%q) = %v, want %v", c.in, got, c.want)
+		}
 	}
 }

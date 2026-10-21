@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"hash/fnv"
 	"strings"
 )
 
@@ -292,3 +293,11 @@ func PickRandomCharacters(n int) []Character {
 
 // AllCharacters 给离线场景或测试用。
 func AllCharacters() []Character { return characters }
+
+// CharacterKey 为角色库角色生成稳定的内部 key。
+// 建群时把它一起写入 ConvAgent，选人、产物和事件才能区分不同角色。
+func CharacterKey(name string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	return fmt.Sprintf("char_%08x", h.Sum32())
+}

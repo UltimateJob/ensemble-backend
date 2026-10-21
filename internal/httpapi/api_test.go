@@ -707,3 +707,31 @@ func TestCollaboratorsShowRealNames(t *testing.T) {
 		}
 	}
 }
+
+func TestCharacterLibrary(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	rec, out := doJSON(t, h, "GET", "/v1/characters?q=%E6%AF%92%E8%88%8C", token, nil)
+	if rec.Code != 200 {
+		t.Fatalf("搜索角色失败：%d %s", rec.Code, rec.Body.String())
+	}
+	items, _ := out["data"].([]interface{})
+	if len(items) == 0 {
+		t.Fatal("搜「毒舌」应该有结果")
+	}
+
+	rec, out = doJSON(t, h, "POST", "/v1/characters/to-agent", token, map[string]string{
+		"name": "雪之下雪乃",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("角色转 Agent 失败：%d %s", rec.Code, rec.Body.String())
+	}
+	agent := out["data"].(map[string]interface{})
+	if agent["key"] == "" || agent["key"] == nil {
+		t.Fatal("角色转 Agent 必须带上 key，否则多人建群会全部被当成同一个人")
+	}
+	if agent["prompt"] == "" || agent["prompt"] == nil {
+		t.Fatal("角色转 Agent 应带完整人设")
+	}
+}

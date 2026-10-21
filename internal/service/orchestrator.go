@@ -64,7 +64,7 @@ func (o *Orchestrator) Run(ctx context.Context, conv *domain.Conversation, user 
 		Role:           domain.RoleUser,
 		Content:        userText,
 	})
-	o.loop(ctx, conv, user, emit, fmt.Sprintf("用户刚说：%s", userText), false)
+	o.loop(ctx, conv, user, emit, fmt.Sprintf("用户刚说：%s", userText), false, wantsEveryone(userText))
 }
 
 // Kickoff 没有用户消息时，让角色之间自己聊起来。
@@ -74,12 +74,40 @@ func (o *Orchestrator) Kickoff(ctx context.Context, conv *domain.Conversation, u
 		prompt = "用户刚才提到：" + topic + "，但还没人回应。"
 	}
 	// 没有人先开口时，第一个人必须说话，否则整轮都是沉默
-	o.loop(ctx, conv, user, emit, prompt, true)
+	o.loop(ctx, conv, user, emit, prompt, true, false)
+}
+
+// agentsFromConversation 把会话里的自定义角色转成编排器使用的角色。
+//
+// 角色库回来的角色可能没有 key（早期客户端只传了名字和设定），
+// 而 key 是选人时去重的依据：全是空字符串会让所有人被当成同一个人，
+// 一轮只能开口一次，甚至完全不说话。这里给缺失/重复的 key 补一个兜底。
+func agentsFromConversation(conv *domain.Conversation) []Agent {
+	if len(conv.Agents) == 0 {
+		return nil
+	}
+	out := make([]Agent, 0, len(conv.Agents))
+	used := make(map[string]bool, len(conv.Agents))
+	for i, a := range conv.Agents {
+		key := strings.TrimSpace(a.Key)
+		if key == "" || used[key] {
+			key = fmt.Sprintf("agent_%d", i+1)
+		}
+		for used[key] {
+			key += "_"
+		}
+		used[key] = true
+		out = append(out, Agent{
+			Key: key, Name: a.Name, Title: a.Title,
+			Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt,
+		})
+	}
+	return out
 }
 
 // loop 核心循环：最多让 N 个人开口，其余可以沉默。
 // 整轮持有会话锁，避免两轮编排交错。
-func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user *domain.User, emit func(Event), trigger string, forceFirst bool) {
+func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user *domain.User, emit func(Event), anchor string, forceFirst, addressAll bool) {
 	if !o.locks.TryLock(conv.ID) {
 		// 有人在说：这一轮直接跳过，不产生交错的发言
 		emit(Event{Type: "busy"})
@@ -96,14 +124,8 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 
 	// 会话里有自定义角色时，以它们为准
 	agents := sc.Agents
-	if len(conv.Agents) > 0 {
-		agents = make([]Agent, 0, len(conv.Agents))
-		for _, a := range conv.Agents {
-			agents = append(agents, Agent{
-				Key: a.Key, Name: a.Name, Title: a.Title,
-				Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt,
-			})
-		}
+	if custom := agentsFromConversation(conv); len(custom) > 0 {
+		agents = custom
 	}
 	if sc.Round <= 0 || len(agents) < sc.Round {
 		sc.Round = len(agents)
@@ -112,6 +134,14 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		emit(Event{Type: "done"})
 		return
 	}
+
+	// 闲聊场景（二次元 / 日常陪聊 / 自定义群）允许寒暄和关心；
+	// 工作场景保持先定目标、再给结论。
+	casual := sc.Category == "fun" || sc.Key == "custom"
+	// ask 需要知道完整成员列表，否则自定义群会把「群里还有」拼成空字符串，
+	// 角色不知道自己在跟谁聊。
+	promptSc := sc
+	promptSc.Agents = agents
 
 	history := o.store.ListMessages(conv.ID, 16)
 	maxSpeakers := sc.Round
@@ -148,13 +178,13 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		default:
 		}
 
-		agent := pickSpeaker(agents, spoken, lastKey, speakers == 0)
+		agent := pickSpeaker(agents, spoken, lastKey, speakers == 0 && !casual)
 		if agent.Key == "" {
 			break
 		}
 
 		force := forceFirst && speakers == 0
-		res, err := o.ask(ctx, conv, sc, *agent, history, trigger, emit, force)
+		res, err := o.ask(ctx, conv, promptSc, *agent, history, anchor, emit, force, addressAll, casual)
 		if err != nil {
 			logx.Req(ctx).Warn("agent speak failed", "agent", agent.Name, "err", err.Error())
 			spoken[agent.Key] = true
@@ -189,9 +219,6 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		lastKey = agent.Key
 		speakers++
 
-		// 被点名问到，就停下等用户
-		trigger = fmt.Sprintf("刚才 %s 说：%s", agent.Name, res.text)
-
 		_ = o.store.IncrementUsed(user.ID, 1)
 
 		if res.asksUser {
@@ -205,9 +232,8 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 
 // pickSpeaker 选择下一个发言者。
 //
-// 第一轮固定给负责人（agents[0]）：用户说了一句话，应该先由拆解角色接住、
-// 定个调子，而不是随机抽到某个专业角色直接反问用户——那样整轮就只有一个
-// 问句，群里显得没人。
+// 工作场景第一轮固定给负责人（agents[0]）：先由拆解角色接住、定个调子。
+// 闲聊/自定义群不这样——否则第一个人永远定调，整场像她的个人发布会。
 //
 // 之后按「没说过话 + 不是上一个」随机，保持自主。
 func pickSpeaker(agents []Agent, spoken map[string]bool, lastKey string, first bool) *Agent {
@@ -239,21 +265,30 @@ type speakResult struct {
 }
 
 // ask 让一个角色自己决定要不要说话、说什么。
-func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Scenario, agent Agent, history []*domain.Message, trigger string, emit func(Event), force bool) (speakResult, error) {
+func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Scenario, agent Agent, history []*domain.Message, anchor string, emit func(Event), force, addressAll, casual bool) (speakResult, error) {
 	emit(Event{Type: "start", Agent: agent.Key, Name: agent.Name, Color: agent.Color})
+
+	mode := "这是工作群：先确认目标，再给结论；必要时问一句。"
+	if casual {
+		mode = "这是朋友之间的闲聊，不是评审会：可以寒暄、开玩笑、关心对方；先接住对方的话和情绪，再表达自己的看法。"
+	}
 
 	sys := fmt.Sprintf(`%s
 
 你正在一个群聊里，群名「%s」，你的名字是「%s」，身份是「%s」。
 群里还有：%s。
 
-这是真实群聊，不是客服。规则：
-1. 你有权保持沉默。如果这个话题跟你无关、或者别人已经说清楚了，只回复 [PASS]，不要硬接。
-2. 想说话就直接说你要说的话，不要加「%s：」这样的前缀，不要写旁白。
-3. 如果缺关键信息、必须问用户才能继续，就直接问，用「@用户」开头。
-4. 一句话到三句话，像真人在群里打字。不要用 markdown、不要列点、不要客套。
-5. 不要复述别人刚说过的话。%s`,
-		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key), agent.Name,
+%s
+
+这是真实群聊，不是客服，也不是评审会。规则：
+1. 先接住对方：如果对方在讲自己的处境或情绪，先用一句回应（理解、关心或追问），再表达看法。不要只评判对错。
+2. 结合前面的聊天和群成员，不要每次从零开始；相关的事可以带一句。
+3. 如果话题跟你无关、或者别人已经说清楚了，可以只回复 [PASS]。但如果用户在直接问你们（「你们」「分别」「每个人」），或者轮到你时还没人接住用户，不要 PASS，给出你自己的看法。
+4. 想说话就直接说，不要写自己的名字，也不要写旁白。
+5. 如果缺关键信息、必须问用户才能继续，就直接问，用「@用户」开头。
+6. 一句话到三句话，像真人在群里打字。不要用 markdown、不要列点、不要客服腔。
+7. 不要复述别人刚说过的话，也不要只点评上一位；接着话题往下说，或者直接回应用户。%s`,
+		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key), mode,
 		forceLine(force))
 
 	msgs := []domain.ChatMessage{{Role: "system", Content: sys}}
@@ -267,8 +302,10 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 	instruction := "现在轮到你判断：要不要说话？说就直说，不说就回 [PASS]。"
 	if force {
 		instruction = "群里冷场了，必须由你起个头。直接说一句话把话头挑起来，不要说 [PASS]。"
+	} else if addressAll {
+		instruction = "用户在直接问你们每一个人。请给出你自己的看法，可以很短，但不要回 [PASS]。"
 	}
-	msgs = append(msgs, domain.ChatMessage{Role: "user", Content: trigger + "\n\n" + instruction})
+	msgs = append(msgs, domain.ChatMessage{Role: "user", Content: anchor + "\n\n" + instruction})
 
 	start := time.Now()
 	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: "", Messages: msgs, Stream: true})
@@ -296,12 +333,14 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 			if flushed {
 				emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: chunk.Content})
 			} else {
-				// 先缓冲，确认不是 [PASS] 再开始推流
+				// 先缓冲开头：既要确认不是 [PASS]，也要等够长度把「角色名：」前缀剥掉。
+				// 只等 2 个字符就推流的话，名字会先闪一下，用户看到的是「雪之下雪乃：」。
 				pending.WriteString(chunk.Content)
-				if pending.Len() >= 6 {
+				if pending.Len() >= 24 {
 					if !looksLikePass(pending.String()) {
 						flushed = true
-						emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: pending.String()})
+						out := stripSpeakerPrefix(strings.TrimSpace(pending.String()), sc, agent)
+						emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: out})
 						pending.Reset()
 					}
 				}
@@ -327,6 +366,11 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 	// 清理模型带出的说话人前缀。
 	// 它有时会替别人说话（"桃桃：凛酱又…"），或者在开头补自己的名字。
 	text = stripSpeakerPrefix(text, sc, agent)
+
+	// 太短的回复可能还没触发首块推流（不足 24 字节），收尾时补一次。
+	if !flushed && text != "" {
+		emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: text})
+	}
 
 	asksUser := strings.Contains(text, "@用户") || strings.Contains(text, "@你")
 	if asksUser {
@@ -372,6 +416,22 @@ func looksLikePass(s string) bool {
 	return strings.HasPrefix(u, "[PASS") || strings.HasPrefix(u, "PASS")
 }
 
+// wantsEveryone 判断用户是不是在问「你们每一个人」。
+// 只做很轻的启发式：明确要意见，或者同时点名群体 + 提问。
+func wantsEveryone(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return false
+	}
+	group := strings.Contains(t, "你们") || strings.Contains(t, "大家") || strings.Contains(t, "各位") ||
+		strings.Contains(t, "每个人") || strings.Contains(t, "三个") || strings.Contains(t, "几个")
+	ask := strings.ContainsAny(t, "？?") || strings.Contains(t, "吗") || strings.Contains(t, "呢")
+	opinion := strings.Contains(t, "分别") || strings.Contains(t, "各自") || strings.Contains(t, "怎么看") ||
+		strings.Contains(t, "怎么想") || strings.Contains(t, "意见") || strings.Contains(t, "说说") ||
+		strings.Contains(t, "聊聊")
+	return opinion || (group && ask)
+}
+
 // isPass 完整判定。
 // 只要以 [PASS] 或 PASS 开头就算沉默——模型有时会补一句解释，
 // 那也是在表达「我不参与」，不该当成发言推给用户。
@@ -392,7 +452,7 @@ func isPass(text string) bool {
 
 func forceLine(force bool) string {
 	if force {
-		return "\n6. 现在群里冷场了，你必须开口起个头——问一句、抛个话题、或者对刚才的事表态。"
+		return "\n\n现在群里冷场了，你必须开口起个头——问一句、抛个话题、或者对刚才的事表态。"
 	}
 	return ""
 }

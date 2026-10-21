@@ -37,6 +37,7 @@ func (s *Server) handleCharacterToAgent(w http.ResponseWriter, r *http.Request) 
 	}
 	title, prompt := service.CharacterPrompt(*found)
 	ok(w, map[string]string{
+		"key":    service.CharacterKey(found.Name),
 		"name":   found.Name,
 		"title":  title,
 		"prompt": prompt,
