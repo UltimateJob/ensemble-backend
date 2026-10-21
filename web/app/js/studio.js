@@ -115,7 +115,7 @@ export async function startRun() {
     const permission = $('#runPerm').value;
     const run = await api(`/v1/workspaces/${id}/runs`, {
       method: 'POST',
-      body: { task, permission, maxSteps: 20 },
+      body: { task, permission, maxSteps: 20, autoReview: $('#autoReview')?.checked !== false },
     });
     runId = run.id;
     runs.set(run.id, { toolCalls: [], diffs: [] });
@@ -184,12 +184,32 @@ function handleEvent(ev, box) {
     case 'approval.required':
       addApprovalTo(target, d);
       break;
+    case 'review.started':
+      if (d.reviewRunId) {
+        const head = document.createElement('div');
+        head.className = 'tl-dim';
+        head.textContent = '自动复审（只读，新上下文）';
+        target.parentNode.appendChild(head);
+        const tl = document.createElement('div');
+        tl.className = 'timeline';
+        tl.style.maxHeight = '320px';
+        target.parentNode.appendChild(tl);
+        subscribe(d.reviewRunId, tl);
+      }
+      break;
     case 'diff':
       add('改动', `${d.files} 个文件，共 ${d.total} 处`, 'info');
       break;
     case 'run.end':
       add('结束', `状态 <b>${esc(d.status)}</b>${d.error ? ' · ' + esc(d.error) : ''} · 第 ${d.step} 步 · token ${d.tokens ? d.tokens.in + '/' + d.tokens.out : '-'}`, d.status === 'done' ? 'ok' : 'err');
-      if (!box) { loadDiff(id); finishUi(); }
+      if (!box) {
+        loadDiff(id);
+        finishUi();
+        // 复审是在主 run 结束后才起来的，主 run 的 SSE 已经关了，
+        // 所以这里主动问一次「有没有 reviewRunId」
+        const rid = (target && target.dataset.runId) || runId;
+        setTimeout(() => probeReview(rid), 1500);
+      }
       break;
     case 'error':
       add('错误', esc(d.message || JSON.stringify(d)), 'err');
@@ -432,4 +452,25 @@ export async function startCollab(discussOnly) {
   } finally {
     btn.disabled = false;
   }
+}
+
+/** 主 run 结束后探一次自动复审，起了就订阅它。 */
+const reviewed = new Set();
+async function probeReview(mainRunId) {
+  if (!mainRunId || reviewed.has(mainRunId)) return;
+  reviewed.add(mainRunId);
+  try {
+    const r = await api(`/v1/runs/${mainRunId}`);
+    if (!r || !r.reviewRunId) return;
+    const tl = $('#runTimeline');
+    const head = document.createElement('div');
+    head.className = 'tl-dim';
+    head.textContent = '自动复审（只读，新上下文）';
+    tl.appendChild(head);
+    const box = document.createElement('div');
+    box.className = 'timeline';
+    box.style.maxHeight = '340px';
+    tl.appendChild(box);
+    subscribe(r.reviewRunId, box);
+  } catch (e) { /* 忽略 */ }
 }

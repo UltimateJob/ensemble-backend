@@ -135,6 +135,12 @@ func main() {
 	})
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc)
 	agentMgr.SetModel(gw)
+	// 工作区与最近 100 个 Run 落盘：重启后不用重新绑目录
+	stateFile := filepath.Join(dataDir, "agent-state.json")
+	if err := agentMgr.Load(stateFile); err != nil {
+		log.Warn("加载工作区状态失败，从空状态开始", "err", err.Error())
+	}
+	agentMgr.SetPersistence(stateFile)
 	srv.SetAgentManager(agentMgr)
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,

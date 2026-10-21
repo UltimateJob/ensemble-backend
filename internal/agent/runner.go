@@ -353,6 +353,7 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		r.Summary = fmt.Sprintf("完成 %d 步，改动 %d 个文件", r.Step, total)
 	}
 	finish(StatusDone, "")
+	m.SaveAsync()
 	if r.AutoReview {
 		go m.startReview(r, w)
 	}

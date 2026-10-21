@@ -210,6 +210,8 @@ type Manager struct {
 	usage UsageRecorder
 	// model 主模型引用（复审 Run 复用同一个网关）
 	model Model
+	// statePath 状态落盘路径；空表示纯内存
+	statePath string
 }
 
 // NewManager 创建管理器。
@@ -265,6 +267,7 @@ func (m *Manager) BindWorkspace(userID, convID, root, label string) (*Workspace,
 	m.mu.Lock()
 	m.workspaces[w.ID] = w
 	m.mu.Unlock()
+	m.SaveAsync()
 	return w, nil
 }
 
@@ -661,4 +664,12 @@ func (r *Run) toolOutputs() []string {
 		}
 	}
 	return out
+}
+
+// SaveAsync 异步落盘，不阻塞调用方。
+func (m *Manager) SaveAsync() {
+	if m.statePath == "" {
+		return
+	}
+	go func() { _ = m.Save() }()
 }

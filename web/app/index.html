@@ -248,6 +248,13 @@
           <textarea id="runTask" rows="5" placeholder="比如：修一下 calc.go 里 Add 的 bug，跑 go test 确认通过"></textarea>
         </div>
         <div class="field">
+          <label class="studio-check">
+            <input type="checkbox" id="autoReview" checked>
+            <span>执行完自动复审一遍（只读，能跑测试）</span>
+          </label>
+          <div class="studio-hint">复审是新的上下文，不是让它在同一个对话里检查自己。</div>
+        </div>
+        <div class="field">
           <label>群聊协作（可选）</label>
           <select id="collabConv"><option value="">不关联群聊，直接执行</option></select>
           <div class="studio-hint">关联后先让角色讨论一轮，再把任务派给有写权限的角色。</div>
