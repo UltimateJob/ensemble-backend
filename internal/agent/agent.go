@@ -68,6 +68,8 @@ const (
 	MaxToolOutputBytes = 8 << 10 // 回填给模型的结果上限
 	// maxParallelRuns 同一工作区允许同时跑的任务数
 	maxParallelRuns = 3
+	// maxReviewRounds 复审最多几轮（防止修复-复审无限循环）
+	maxReviewRounds = 2
 )
 
 var (
@@ -133,7 +135,13 @@ type Run struct {
 	// ParentRunID 复审轮指回主 Run
 	ParentRunID string `json:"parentRunId,omitempty"`
 	// Chain 整条链的汇总（主 Run + 复审 + …）
-	Chain      *Chain               `json:"chain,omitempty"`
+	Chain *Chain `json:"chain,omitempty"`
+	// Role 主 Run 为空；复审 "review"；修复 "fix"
+	Role string `json:"role,omitempty"`
+	// ReviewRound 第几轮复审（从 1 开始）
+	ReviewRound int `json:"reviewRound,omitempty"`
+	// AutoFix 复审发现 issues 时自动起修复轮
+	AutoFix    bool                 `json:"autoFix,omitempty"`
 	Task       string               `json:"task"`
 	Model      string               `json:"model,omitempty"`
 	Status     Status               `json:"status"`
@@ -693,6 +701,9 @@ type Chain struct {
 }
 
 // rollupChainLocked 把整条链的用量汇总到根 Run 上。调用方持锁。
+//
+// 按 ParentRunID 遍历所有子 Run，而不是顺着 ReviewRunID 单线走：
+// 第二轮复审会覆盖 ReviewRunID，只走单线会漏掉第一轮复审和修复轮。
 func (m *Manager) rollupChainLocked(root *Run) {
 	if root == nil {
 		return
@@ -720,8 +731,10 @@ func (m *Manager) rollupChainLocked(root *Run) {
 				chain.Seconds += d
 			}
 		}
-		if r.ReviewRunID != "" {
-			walk(m.runs[r.ReviewRunID])
+		for _, x := range m.runs {
+			if x.ParentRunID == r.ID {
+				walk(x)
+			}
 		}
 	}
 	walk(root)
@@ -739,4 +752,26 @@ func (m *Manager) chainRootLocked(r *Run) *Run {
 		cur = next
 	}
 	return cur
+}
+
+// extractVerdict 从复审结论里取结论标记。
+func extractVerdict(summary string) string {
+	up := strings.ToUpper(summary)
+	switch {
+	case strings.Contains(up, "VERDICT: ISSUES"):
+		return "issues"
+	case strings.Contains(up, "VERDICT: CLEAN"):
+		return "clean"
+	}
+	return ""
+}
+
+// ChainSummary 只读地取链汇总（给 handler 用）。
+func (m *Manager) ChainSummary(id string) *Chain {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[id]; ok {
+		return r.Chain
+	}
+	return nil
 }

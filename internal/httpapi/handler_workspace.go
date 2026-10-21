@@ -146,6 +146,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Model        string   `json:"model"`
 		MaxSteps     int      `json:"maxSteps"`
 		AutoReview   bool     `json:"autoReview"`
+		AutoFix      bool     `json:"autoFix"`
 		SystemPrompt string   `json:"systemPrompt"`
 	}
 	if err := decode(r, &req); err != nil || strings.TrimSpace(req.Task) == "" {
@@ -194,6 +195,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Model:          req.Model,
 		MaxSteps:       req.MaxSteps,
 		AutoReview:     req.AutoReview,
+		AutoFix:        req.AutoFix,
 		SystemPrompt:   req.SystemPrompt,
 	})
 	if err != nil {

@@ -166,3 +166,96 @@ func TestChainRollupIncludesReview(t *testing.T) {
 		t.Fatalf("chain steps=%d", r.Chain.Steps)
 	}
 }
+
+// 复审报 issues → 自动起修复 → 修复后再复审，最多 2 轮。
+func TestAutoFixChain(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager()
+	// 复审/修复共用这个假模型：每次都说有事要改
+	m.SetModel(&fakeModel{steps: []fakeStep{{text: "发现两个问题：\n1. 测试覆盖薄\n2. 溢出未处理\nVERDICT: issues"}}})
+	ws, err := m.BindWorkspace("u1", "c1", root, "fixchain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := &fakeModel{steps: []fakeStep{{text: "写好了。"}}}
+	r, err := m.Start(context.Background(), fm, StartRequest{
+		WorkspaceID: ws.ID, UserID: "u1", Permission: PermissionApproval,
+		Task: "写点东西", AutoReview: true, AutoFix: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, m, r.ID)
+
+	// 等整条链跑完（最多 2 轮复审 + 1 次修复）
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		roles := map[string]int{}
+		active := 0
+		for _, x := range m.runs {
+			if x.ParentRunID == r.ID {
+				roles[x.Role]++
+				if x.Status == StatusRunning || x.Status == StatusWaiting {
+					active++
+				}
+			}
+		}
+		m.mu.Unlock()
+		if active == 0 && roles["review"] >= 2 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var reviews, fixes int
+	for _, x := range m.runs {
+		if x.ParentRunID != r.ID {
+			continue
+		}
+		switch x.Role {
+		case "review":
+			reviews++
+		case "fix":
+			fixes++
+		}
+	}
+	if reviews != maxReviewRounds {
+		t.Fatalf("expected %d review rounds, got %d", maxReviewRounds, reviews)
+	}
+	if fixes != 1 {
+		t.Fatalf("expected 1 fix run, got %d", fixes)
+	}
+	if r.Chain == nil || r.Chain.Runs < 4 {
+		t.Fatalf("chain should count every run: %+v", r.Chain)
+	}
+}
+
+// 复审说 clean 时不该起修复轮。
+func TestAutoFixSkippedWhenClean(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager()
+	m.SetModel(&fakeModel{steps: []fakeStep{{text: "看起来没问题。\nVERDICT: clean"}}})
+	ws, err := m.BindWorkspace("u1", "c1", root, "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := m.Start(context.Background(), &fakeModel{steps: []fakeStep{{text: "done"}}}, StartRequest{
+		WorkspaceID: ws.ID, UserID: "u1", Permission: PermissionApproval,
+		Task: "x", AutoReview: true, AutoFix: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, m, r.ID)
+	time.Sleep(800 * time.Millisecond)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, x := range m.runs {
+		if x.ParentRunID == r.ID && x.Role == "fix" {
+			t.Fatal("clean verdict must not trigger a fix run")
+		}
+	}
+}

@@ -31,9 +31,14 @@ type StartRequest struct {
 	Scope []string
 	// AutoReview 成功后自动起一轮只读复审
 	AutoReview bool
-	Task       string
-	Model      string
-	MaxSteps   int
+	// AutoFix 复审发现 issues 时自动起修复轮
+	AutoFix bool
+	// Role / ParentRunID 用于把复审、修复挂回主 Run
+	Role        string
+	ParentRunID string
+	Task        string
+	Model       string
+	MaxSteps    int
 	// SystemPrompt 由会话层注入角色人设与协作规则；为空时用默认 operator 提示。
 	SystemPrompt string
 }
@@ -169,6 +174,9 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		Permission:     req.Permission,
 		Scope:          Scope(req.Scope),
 		AutoReview:     req.AutoReview,
+		AutoFix:        req.AutoFix,
+		Role:           req.Role,
+		ParentRunID:    req.ParentRunID,
 		Task:           req.Task,
 		Model:          req.Model,
 		Status:         StatusRunning,
@@ -359,6 +367,7 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 	if r.AutoReview {
 		go m.startReview(r, w)
 	}
+	m.maybeContinueChain(r, w)
 }
 
 // finishRun 收尾：清理快照目录（保留到 revert 之后由调用方触发 DeleteSnapshot）。
@@ -829,6 +838,8 @@ func (m *Manager) startReview(main *Run, w *Workspace) {
 		OperatorKey:    operator + "-review",
 		OperatorName:   "复审",
 		Permission:     PermissionAudit,
+		Role:           "review",
+		ParentRunID:    main.ID,
 		Task:           task,
 		Model:          model,
 		MaxSteps:       6,
@@ -836,16 +847,61 @@ func (m *Manager) startReview(main *Run, w *Workspace) {
 			"做法：读改动文件 → 跑现有测试（go test / go vet）→ 给结论。三步之内完成。" +
 			"不要做变异测试、不要复制或修改任何文件、不要新建文件——你只有 6 步预算。" +
 			"优先怀疑测试：断言是否恒真、是否真的覆盖了新逻辑、测试能否编译通过。" +
-			"检查完必须用一段话给出结论（按严重度列问题，或明确说没有问题），不要只调工具就结束。",
+			"检查完必须用一段话给出结论（按严重度列问题，或明确说没有问题），不要只调工具就结束。" +
+			"最后单独一行写 `VERDICT: clean`（没有需要改的问题）或 `VERDICT: issues`（有需要改的问题）。",
 	})
 	if err != nil {
 		return
 	}
 	m.mu.Lock()
 	main.ReviewRunID = review.ID
+	round := main.ReviewRound + 1
+	main.ReviewRound = round
 	if rr, ok := m.runs[review.ID]; ok {
-		rr.ParentRunID = main.ID
+		rr.ReviewRound = round
 	}
 	m.mu.Unlock()
 	m.emit(main, "review.started", map[string]any{"reviewRunId": review.ID})
+}
+
+// maybeContinueChain 复审发现问题就起修复；修复完再复审一轮。
+//
+// 上限 maxReviewRounds 轮，防止「改坏 → 复审发现 → 再改坏」的死循环。
+func (m *Manager) maybeContinueChain(r *Run, w *Workspace) {
+	if r.ParentRunID == "" {
+		return
+	}
+	m.mu.Lock()
+	parent := m.runs[r.ParentRunID]
+	md := m.model
+	m.mu.Unlock()
+	if parent == nil || md == nil || parent.Status != StatusDone {
+		return
+	}
+
+	switch r.Role {
+	case "review":
+		if !parent.AutoFix || r.ReviewRound >= maxReviewRounds {
+			return
+		}
+		if extractVerdict(r.Summary) != "issues" {
+			return
+		}
+		_, _ = m.Start(context.Background(), md, StartRequest{
+			WorkspaceID:    w.ID,
+			ConversationID: parent.ConversationID,
+			UserID:         parent.UserID,
+			OperatorKey:    parent.OperatorKey,
+			OperatorName:   "修复",
+			Permission:     PermissionFull,
+			Role:           "fix",
+			ParentRunID:    parent.ID,
+			Task: "复审发现了下面这些问题，请逐条修复，然后跑测试确认。\n\n" +
+				r.Summary + "\n\n只修这些问题，不要顺手改别的地方。",
+			Model:    parent.Model,
+			MaxSteps: 10,
+		})
+	case "fix":
+		m.startReview(parent, w)
+	}
 }
