@@ -15,6 +15,8 @@ export async function loadConvs() {
     state.convs = [];
   }
   renderConvs();
+  // 会话数变化会影响上手清单
+  if (window.__refreshOnboard) window.__refreshOnboard();
 }
 
 export function renderConvs() {

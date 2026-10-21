@@ -114,6 +114,7 @@ async function enterApp() {
   }
   await loadLibrary();
   await loadConvs();
+  renderOnboard();
   const qs2 = new URLSearchParams(location.search);
   if (qs2.get('scenes') || qs2.get('forge')) openScenes();
   if (qs2.get('forge')) {
@@ -168,6 +169,62 @@ $('#clearBtn').addEventListener('click', () => {
   $('#msgWrap').innerHTML = '';
   addSysNote('显示已清空（服务端记录保留）');
 });
+
+/* ---------------- 上手引导 ---------------- */
+// 不弹教程、不遮屏幕。就挂在会话列表下面，
+// 把「造角色」「存工作室」这些藏在菜单里的能力变成看得见的下一步。
+function renderOnboard() {
+  const box = $('#onboard');
+  if (!box) return;
+  if (localStorage.getItem('ens_onboard_off') === '1') {
+    box.innerHTML = '';
+    return;
+  }
+
+  const steps = [
+    {
+      done: state.convs.length > 0,
+      text: '开一个群',
+      hint: '右上角 <em>新建</em>',
+    },
+    {
+      done: state.library.length > 0,
+      text: '造一个自己的角色',
+      hint: '场景页 <em>自己造角色</em>',
+    },
+    {
+      done: state.scenarios.some(s => s.custom),
+      text: '把角色组合存成工作室',
+      hint: '群右上 <em>⋯ → 存为工作室</em>',
+    },
+  ];
+  const doneN = steps.filter(s => s.done).length;
+  if (doneN === steps.length) {
+    box.innerHTML = '';
+    return;
+  }
+
+  box.innerHTML = `<div class="ob-card">
+    <div class="ob-head">
+      <b>上手</b>
+      <span>${doneN}/${steps.length}</span>
+      <button class="ob-close" id="obClose" title="不再显示">×</button>
+    </div>
+    ${steps.map(s => `
+      <div class="ob-item ${s.done ? 'done' : ''}">
+        <span class="dot">✓</span>
+        <span class="txt">${s.text}${s.done ? '' : '<br><em>' + s.hint + '</em>'}</span>
+      </div>`).join('')}
+  </div>`;
+
+  const close = $('#obClose');
+  if (close) {
+    close.addEventListener('click', () => {
+      localStorage.setItem('ens_onboard_off', '1');
+      box.innerHTML = '';
+    });
+  }
+}
 
 /* ---------------- 角色库 ---------------- */
 async function loadLibrary() {
@@ -457,5 +514,8 @@ document.addEventListener('keydown', e => {
 hydrateIcons();
 boot();
 
+// 供 chat.js 反向刷新引导清单
+window.__refreshOnboard = renderOnboard;
+
 // 调试出口：出问题时可以在控制台直接调
-window.__ens = { kickoff, send, openConv, loadConvs, state };
+window.__ens = { kickoff, send, openConv, loadConvs, state, renderOnboard };
