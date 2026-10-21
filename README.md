@@ -271,6 +271,21 @@ make injection     # 需要真实 Key
 
 顺带修了个显示问题：模型偶尔「说了话又带个 `[PASS]`」，正文里的标记现在会被清掉。
 
+## 移动端的真机差异
+
+![移动端](docs/mobile-safe.png)
+
+模拟器能验布局，验不了这四件事——都已经处理：
+
+| 问题 | 处理 |
+|---|---|
+| 刘海屏 / 灵动岛 | `viewport-fit=cover` |
+| Home 指示条压住输入框 | `padding-bottom: calc(12px + env(safe-area-inset-bottom))` |
+| iOS 地址栏吃掉高度 | `height: 100dvh`（回退 `100vh`） |
+| 点按有蓝色高亮和 300ms 延迟 | `-webkit-tap-highlight-color: transparent` + `touch-action: manipulation` |
+
+E2E 里验的是「CSS 有没有用 safe-area」和「视口从 844 缩到 640 时输入框还在屏幕内」——**运行时值验不了**，CDP 默认模拟没有 Home 条，`env()` 算出来是 0。
+
 ## 搜索
 
 ![搜索](docs/search.png)
@@ -757,7 +772,7 @@ node scripts/e2e-mobile.mjs   # 移动 390
 | 套件 | 断言 | 覆盖 |
 |---|---|---|
 | 桌面 | 51 | 登录 → 场景 → 建群 → 发消息 → 流式回复 → 分页 → 重命名 → 刷新恢复 |
-| 移动 | 13 | 390 视口、三栏收敛、抽屉开关、无横向溢出、窄屏流式 |
+| 移动 | 17 | 390 视口、三栏收敛、抽屉开关、无横向溢出、窄屏流式 |
 | 多标签页 | 8 | 共享登录态、跨标签看到消息、同群并发 busy |
 | 韧性 | 10 | 断线、重复提交、空闲不消耗 |
 | 并发 | 9 | 20 用户同时、跨用户隔离、额度一致 |

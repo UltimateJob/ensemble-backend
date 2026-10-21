@@ -2,6 +2,9 @@
    合奏 Ensemble · 客户端
    珠光配色 + 靛蓝主色，三栏工作台
    ============================================================ */
+*{-webkit-tap-highlight-color:transparent}
+button,a,[role="button"]{touch-action:manipulation}
+
 :root{
   --bg:#F3F4F7;
   --card:rgba(255,255,255,.97);
@@ -151,11 +154,18 @@ a{color:inherit;text-decoration:none}
 .login-foot{margin-top:16px;font-size:11.5px;color:var(--tx-4);text-align:center;line-height:1.6}
 
 /* ---------- 应用骨架 ---------- */
-#app{display:none;height:100vh;grid-template-rows:54px 1fr}
+#app{
+  display:none;
+  /* dvh 跟随地址栏变化；不支持的浏览器回退到 vh */
+  height:100vh;
+  height:100dvh;
+  grid-template-rows:54px 1fr;
+}
 #app.on{display:grid}
 
 .topbar{
-  display:flex;align-items:center;gap:14px;padding:0 16px;
+  display:flex;align-items:center;gap:14px;
+  padding:env(safe-area-inset-top) 16px 0;
   background:rgba(255,255,255,.72);backdrop-filter:blur(28px) saturate(180%);
   border-bottom:1px solid var(--line);
   position:relative;z-index:30;
@@ -395,7 +405,7 @@ a{color:inherit;text-decoration:none}
 .sys-note::before,.sys-note::after{content:"";height:1px;flex:1;background:var(--line)}
 
 /* 输入区 */
-.composer{padding:12px 24px 18px;background:linear-gradient(to top,rgba(243,244,247,.96),rgba(243,244,247,.6))}
+.composer{padding:12px 24px calc(18px + env(safe-area-inset-bottom));background:linear-gradient(to top,rgba(243,244,247,.96),rgba(243,244,247,.6))}
 .composer-in{
   max-width:min(760px,100%);margin:0 auto;
   background:#fff;border:1px solid var(--line-2);border-radius:14px;
@@ -980,7 +990,7 @@ a{color:inherit;text-decoration:none}
   .msg{gap:9px;padding:8px 0}
   .msg-text{font-size:14.5px}
   .msg.me .msg-text{max-width:86%}
-  .composer{padding:8px 10px 12px}
+  .composer{padding:8px 10px calc(12px + env(safe-area-inset-bottom))}
   .composer-in{border-radius:12px}
   .composer textarea{padding:11px 13px 2px;font-size:15px}
   .composer-hint{display:none}
