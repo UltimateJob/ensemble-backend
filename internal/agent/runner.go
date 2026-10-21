@@ -658,6 +658,10 @@ func runTool(ctx context.Context, w *Workspace, call domain.ToolCall) (string, s
 		if err := json.Unmarshal([]byte(call.Arguments), &a); err != nil {
 			return "", "", 0, fmt.Errorf("bad args: %w", err)
 		}
+		if workspace.IsDaemonCommand(a.Argv, a.Shell) {
+			return "", "", 0, fmt.Errorf("执行器不负责启动常驻进程（nohup / 后台运行会一直挂着）。" +
+				"要验证服务，请改成跑测试（如 go test ./...），或用带 timeout 的前台命令")
+		}
 		cmd := workspace.Command{Argv: a.Argv, Cwd: a.Cwd, Shell: a.Shell}
 		if a.Timeout > 0 {
 			cmd.Timeout = time.Duration(a.Timeout) * time.Second

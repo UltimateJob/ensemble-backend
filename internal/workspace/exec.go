@@ -110,6 +110,35 @@ func riskOf(argv []string, shell bool) string {
 // RiskOf 暴露给上层做审批预判。
 func RiskOf(argv []string, shell bool) string { return riskOf(argv, shell) }
 
+// daemonPrefixes 是「启动常驻进程」的命令。
+//
+// 执行器是同步工具：跑完就该返回。nohup / 后台运行会让 Wait 一直挂着，
+// 实测里一条 `nohup ./bin` 把一次 Run 卡了 120 秒。要验证服务，应该用测试，
+// 而不是把服务真的拉起来。
+var daemonPrefixes = map[string]bool{
+	"nohup": true, "setsid": true, "daemonize": true,
+	"launchctl": true, "supervisord": true,
+}
+
+// IsDaemonCommand 判断这条命令是不是在启动常驻进程。
+func IsDaemonCommand(argv []string, shell bool) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	if daemonPrefixes[filepath.Base(argv[0])] {
+		return true
+	}
+	joined := strings.TrimSpace(strings.Join(argv, " "))
+	// shell 模式下 "xxx &" 结尾、或显式 nohup
+	if shell && (strings.HasSuffix(joined, "&") || strings.Contains(joined, "nohup ")) {
+		return true
+	}
+	if strings.HasSuffix(joined, " &") || strings.HasSuffix(joined, "&") {
+		return true
+	}
+	return false
+}
+
 // IsCritical 判断是否命中不可逆黑名单。
 func IsCritical(argv []string, shell bool) bool {
 	return riskOf(argv, shell) == RiskCritical

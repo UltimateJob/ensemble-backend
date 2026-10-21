@@ -322,6 +322,7 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		// 四个人都客气地 PASS 掉，群聊就变成"问一句没人理"。
 		// 强制不等于让所有人说话——只保证至少有一个角色接住。
 		force := (forceFirst && speakers == 0) || (attempt > 0 && speakers == 0) ||
+			(!casual && attempt == 0) ||
 			(len(addressed) > 0 && addressed[agent.Key] && !spoken[agent.Key])
 		memoryCard := ""
 		if o.mem != nil {

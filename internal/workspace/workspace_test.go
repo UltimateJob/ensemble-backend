@@ -313,3 +313,23 @@ func TestSnapshotSkipsVendorDirs(t *testing.T) {
 		t.Fatalf("node_modules should be skipped, files=%d", snap.Files)
 	}
 }
+
+func TestDaemonCommandRejected(t *testing.T) {
+	cases := []struct {
+		argv  []string
+		shell bool
+		want  bool
+	}{
+		{[]string{"nohup", "./bin"}, false, true},
+		{[]string{"bash", "-c", "./bin >/tmp/log 2>&1 &"}, true, true},
+		{[]string{"./bin", "&"}, false, true},
+		{[]string{"go", "test", "./..."}, false, false},
+		{[]string{"ls", "-la"}, false, false},
+		{[]string{"bash", "-c", "go build ./..."}, true, false},
+	}
+	for _, c := range cases {
+		if got := IsDaemonCommand(c.argv, c.shell); got != c.want {
+			t.Errorf("IsDaemonCommand(%v, %v)=%v want %v", c.argv, c.shell, got, c.want)
+		}
+	}
+}
