@@ -448,6 +448,15 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 		return deny(reason)
 	}
 
+	// 文档里的统计数字必须有来源，否则拒绝。
+	// 实测里 agent 会写出「12 条用例」「17 个文件」这种看起来专业、实际编造的句子。
+	if call.Name == ToolDocx || call.Name == ToolXlsx {
+		if missing := UnsourcedNumbers(call.Arguments, r.toolOutputs()); len(missing) > 0 {
+			return deny("文档里的这些数字没有来源：" + strings.Join(missing, "、") +
+				"（本次任务的工具输出里找不到）。请先用 read/run/grep 取得真实数据，或改成不带具体数字的表述")
+		}
+	}
+
 	// 文件级互斥：两个并行 Run 可以改不同文件，但不能同时改同一个。
 	// 短锁——占上、写完立刻放，避免 A 持有到 Run 结束把 B 饿死。
 	var claimedPath string

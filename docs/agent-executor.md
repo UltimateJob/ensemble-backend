@@ -18,6 +18,7 @@ P0 已实现并跑通真实链路：
 | 前端工作室面板 | `web/app/js/studio.js` + `#studio` | 已实现 |
 | 桌面壳（原生 WKWebView + 原生目录选择） | `desktop/EnsembleDesktop.swift` | 已实现 |
 | 文档工具：docx / xlsx 生成（纯标准库） | `internal/docgen/` | 已实现，python-docx 验证可打开 |
+| 文档数字来源校验 | `internal/agent/facts.go` | 已实现：统计数字必须在工具输出里出现 |
 
 真实上游验证：`calc` 修 bug（5 步 6 次工具）、`divide` 双 agent 协作（22s，后端核对后不重复改）、`tinysrv` 跨栈（34.7s）。数据在 `docs/collab-benchmark.md`。
 
@@ -29,6 +30,7 @@ P0 已实现并跑通真实链路：
    实测两个 agent 同时改 `main.go`，通过精确 `edit` 都成功写入，互不覆盖。
    仍不做 worktree 隔离：整文件 `write` 的「读旧写新」覆盖风险还在，靠模型先 read 兜底。
 3. 审批 `scope=session` 未落地（`run` 已生效）。
+5. 数字来源校验只覆盖「带单位的统计量」（条/个/次/步/秒/%/文件…），日期、端口、版本号不查——否则全是误报。
 4. Docker / OS sandbox 执行器未做——`full` 权限如实等同当前用户。
 
 ---

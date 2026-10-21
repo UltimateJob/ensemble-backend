@@ -626,3 +626,14 @@ func isWriteTool(tool string) bool {
 	}
 	return false
 }
+
+// toolOutputs 收集本次 Run 所有工具调用的输出，用于核对文档里的数字来源。
+func (r *Run) toolOutputs() []string {
+	out := make([]string, 0, len(r.ToolCalls))
+	for _, tc := range r.ToolCalls {
+		if tc.Output != "" {
+			out = append(out, tc.Output)
+		}
+	}
+	return out
+}
