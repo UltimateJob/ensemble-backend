@@ -286,7 +286,10 @@ export function scrollBottom() {
 
 export function renderMembers() {
   const box = $('#memberList');
-  box.innerHTML = state.agents.map(a => `
+  const conv = state.cur;
+  const iAmOwner = !!(conv && state.user && conv.userId === state.user.id);
+
+  const agentRows = state.agents.map(a => `
     <div class="member">
       ${makeAv(a.name, a.color, 'av-sm')}
       <div>
@@ -295,9 +298,42 @@ export function renderMembers() {
       </div>
       <span class="st"></span>
     </div>`).join('');
-  $('#memberCount').textContent = state.agents.length;
+
+  // 协作者：后端一直支持，之前界面上没有入口
+  const collabs = (conv && conv.collaborators) || [];
+  const collabRows = collabs.map(uid => `
+    <div class="member" data-collab="${uid}">
+      ${makeAv('人', '#4F46E5', 'av-sm')}
+      <div>
+        <div class="mn">协作者</div>
+        <div class="mt mono">${esc(uid.slice(-6))}</div>
+      </div>
+      ${iAmOwner ? `<button class="collab-x" data-rm="${uid}" title="移除协作者">×</button>` : ''}
+    </div>`).join('');
+
+  box.innerHTML = agentRows + (collabRows
+    ? `<div class="member-sep">协作者 · ${collabs.length}</div>${collabRows}`
+    : '');
+
+  $('#memberCount').textContent = state.agents.length + collabs.length;
   $('#topAvatars').innerHTML = state.agents.slice(0, 5)
     .map(a => makeAv(a.name, a.color, 'av-sm')).join('');
+
+  box.querySelectorAll('[data-rm]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const uid = b.dataset.rm;
+      const yes = await uiConfirm('移除这个协作者？', '对方将不能再看到这个群里的对话。', {
+        okText: '移除', danger: true,
+      });
+      if (!yes) return;
+      try {
+        await api(`/v1/conversations/${conv.id}/collaborators/${uid}`, { method: 'DELETE' });
+        conv.collaborators = conv.collaborators.filter(x => x !== uid);
+        renderMembers();
+        toast('已移除');
+      } catch (e) { toast(e.message); }
+    });
+  });
 }
 
 let pipeDone = 0;
@@ -351,6 +387,18 @@ export function addArtifact(name, title, detail) {
 let ctxConvId = null;
 
 function openCtxMenu(id, rect) {
+  // 权限不同，能做的操作也不同
+  const conv = state.convs.find(c => c.id === id);
+  const iAmOwner = !!(conv && state.user && conv.userId === state.user.id);
+  document.querySelectorAll('#ctxMenu [data-act]').forEach(b => {
+    const act = b.dataset.act;
+    // 改群名和删除、存模板都是群主的操作；
+    // 协作者能看到的是邀请和离开
+    if (act === 'delete' || act === 'saveStudio' || act === 'rename') {
+      b.style.display = iAmOwner ? '' : 'none';
+    }
+    if (act === 'leave') b.style.display = iAmOwner ? 'none' : '';
+  });
   ctxConvId = id;
   const menu = $('#ctxMenu');
   const mask = $('#ctxMask');

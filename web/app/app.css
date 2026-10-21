@@ -326,6 +326,18 @@ a{color:inherit;text-decoration:none}
   content:""; height:1px; flex:1; background:var(--line); margin:0 12px;
 }
 
+/* 成员面板里的协作者 */
+.member-sep{
+  padding:10px 12px 6px;font-size:9.5px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--tx-4);
+}
+.collab-x{
+  margin-left:auto;width:20px;height:20px;border-radius:5px;
+  font-size:13px;line-height:1;color:var(--tx-4);
+  display:grid;place-items:center;transition:all .15s;
+}
+.collab-x:hover{background:rgba(220,38,38,.1);color:var(--bad)}
+
 /* 会话列表空态 */
 .conv-empty{padding:30px 16px 24px;text-align:center}
 .conv-empty .ce-t{font-size:13px;color:var(--tx-3);margin-bottom:6px}
