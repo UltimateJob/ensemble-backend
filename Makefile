@@ -32,6 +32,10 @@ quality:
 injection:
 	@node scripts/injection.mjs
 
+# 真实输出的卫生检查：前缀、出戏、空发言、复读、超长（需要真实 Key）
+sanity:
+	@node scripts/sanity.mjs
+
 # 长时间运行 / 并发
 soak:
 	@ROUNDS=100 node scripts/soak.mjs

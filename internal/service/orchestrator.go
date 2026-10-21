@@ -345,9 +345,12 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 		emit(Event{Type: "ask", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: text})
 	}
 
+	// end 要带上清理后的正文。前端是边流边显示的，
+	// 显示的是 delta 累积的原文——不带 content 的话，
+	// 界面会一直显示「工头：…」而库里存的是干净的文本，两边不一致。
 	emit(Event{
 		Type: "end", Agent: agent.Key, Name: agent.Name, Color: agent.Color,
-		Tokens: tokens, Latency: latency,
+		Content: text, Tokens: tokens, Latency: latency,
 	})
 
 	// 慢的话记一笔：平均和 P95 只说明整体，定位问题需要知道是谁慢
