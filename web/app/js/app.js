@@ -105,9 +105,46 @@ async function boot() {
     state.me = d;      // 含 demo / upstream
     enterApp();
   } catch (e) {
-    localStorage.removeItem('ens_token');
-    state.token = '';
+    // 只有令牌真的失效才清掉。
+    // 之前是不管什么错都清——网络抖一下、后端重启一下，
+    // 用户就被登出了，而且没有任何提示，看起来像「又要重新登录」。
+    const code = (e && e.code) || '';
+    const status = (e && e.status) || 0;
+    const authed = code === 'unauthorized' || status === 401 || /HTTP 401/.test(String(e && e.message));
+    if (authed) {
+      localStorage.removeItem('ens_token');
+      state.token = '';
+    } else {
+      // 连不上：保留令牌，给一个可以重试的提示
+      showBootFail(e);
+    }
   }
+}
+
+// 把 fetch 的原始错误翻成人话。「Failed to fetch」对用户没有任何意义。
+function bootFailReason(err) {
+  const m = String((err && err.message) || '');
+  if (/Failed to fetch|NetworkError|load failed/i.test(m)) return '网络不通，或者服务正在重启。检查一下网络再试。';
+  if (/timeout|timed out/i.test(m)) return '服务器响应超时。稍等一下再试。';
+  if (/HTTP 5\d\d/.test(m)) return '服务端出错了。稍后再试，或者看看服务日志。';
+  return m || '网络可能不通';
+}
+
+// 启动连不上服务器时的状态：不伪装成「未登录」，给一句实话和一个重试。
+function showBootFail(err) {
+  const box = document.createElement('div');
+  box.className = 'boot-fail';
+  box.innerHTML = `
+    <div class="bf-card">
+      <b>连不上服务器</b>
+      <p>${esc(bootFailReason(err))}</p>
+      <button class="btn btn-grad" id="bootRetry">重试</button>
+    </div>`;
+  document.body.appendChild(box);
+  box.querySelector('#bootRetry').addEventListener('click', () => {
+    box.remove();
+    boot();
+  });
 }
 
 async function enterApp() {
