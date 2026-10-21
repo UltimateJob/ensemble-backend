@@ -14,10 +14,10 @@
 
 - **代码工作室必须有执行器**：只靠聊天模型改不了仓库。需要 `read/write/edit/list/grep/run`，还要能看 diff、跑测试。
 - **执行器跑在本地**：桌面端 Go 进程以当前用户身份运行，工作区就是用户选中的本机目录。
-- **本地运行时不是安全沙箱**：Agent 的「完全访问」本质上和 PI-agent 一样，拥有启动用户的权限。产品必须在执行器层做路径约束、命令风险分类、审批、快照和审计。
+- **本地运行时不是安全沙箱**：Agent 的「完全访问」本质上和 PI-agent 一样，拥有启动用户的权限。文件工具可以做 root 约束，但本地 shell 命令不能假装被 root 约束；命令风险分类、审批、快照和审计必须诚实说明边界。
 - **权限按 Agent 配**：同一个群里，架构/审校可以只读，operator 可以「命令需批准」，只有用户明确授权的 Agent 才能「完全访问」。
 - **写操作可回滚**：每次 Run 前做 snapshot；写入产生 diff；Run 结束可 revert。
-- **默认不联网、不越界**：即使「完全访问」，默认也只允许工作区内路径；宿主级无限制访问需要单独开关，不作为首版默认。
+- **命令权限要诚实**：`read/write/edit/list/grep` 这类文件工具会被 root 守卫限制；`run` 是本地进程，`full` 下等同于当前用户权限，可能访问工作区外。首版不把本地 shell 宣称为沙箱；要严格隔离就以后接 Docker/OS sandbox。
 
 ---
 
@@ -130,7 +130,8 @@ type Executor interface {
 补充：
 
 - `approval` 的写操作默认允许，但会产生 diff 和 snapshot；如果用户希望写也审批，可以在 Workspace 上开 `writeApproval=true`。
-- `full` 仍然受工作区根目录约束；越界路径一律拒绝。宿主级无限制访问不是首版默认，要单独开 `allowHostAccess` 并二次确认。
+- `full` 的文件工具仍受工作区根目录约束；但 `run` 是本地进程，命令本身可能访问工作区外。`full` 必须由群主二次确认，并在 UI 明确标注「等同当前系统用户权限」。
+- 如果产品要求「命令也只能碰工作区」，本地模式需要 macOS `sandbox-exec`/Linux namespace 或 Docker；首版不做这个承诺。
 - 删除大量文件、`git push/reset/clean`、安装依赖、联网，即使在 `full` 下也建议单独确认；这些是不可逆/高影响动作。
 - 协作者不能把自己的权限改成 `full`；只有群主/工作区所有者能改。
 
@@ -192,14 +193,14 @@ type Approval struct {
 
 首版缓解：
 
-- 工作区根目录约束；
-- 命令风险分类 + 审批；
+- 文件工具的工作区根目录约束；
+- 命令风险分类 + 审批（`approval` 每次看命令；`full` 二次确认后放行）；
 - 写前 snapshot、写后 diff；
 - 最小 env，不传密钥；
 - 运行日志/审计，记录 agent、命令、退出码、diff；
 - 高风险命令黑名单（`sudo`、`ssh`、`curl | sh`、`rm -rf /`、磁盘格式化、关机等）；
 - 超时、输出上限、进程组清理；
-- 用户二次确认 `full` 权限。
+- 明确告知：`full` 的本地命令不受工作区 root 约束；要强隔离需 Docker/OS sandbox。
 
 以后需要更强隔离时，再把 `LocalExecutor` 替换成 Docker/VM，接口不变。
 
@@ -353,6 +354,6 @@ Permission AgentPermission `json:"permission,omitempty"` // 缺省按场景默�
 - 运行时：**本地进程**，参考 PI-agent；Docker 以后可选。
 - 权限：**每个 Agent 可选 `readonly` / `approval` / `full`**；服务端强制执行，不靠提示词。
 - 写操作：**工作区内自动 + diff/snapshot**；命令按权限审批。
-- `full`：**工作区内完全访问**；越界路径仍拒绝，宿主级无限制访问需单独开关 + 二次确认。
+- `full`：**文件工具工作区内完全访问；本地命令等同当前系统用户权限**，需要群主二次确认；工作区 root 不约束 shell。
 
 下一步就是 P0：先把 Workspace + LocalExecutor + 三档权限 + 审批/快照跑通，再接 operator 的 tool loop 和 UI。
