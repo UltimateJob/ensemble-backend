@@ -251,15 +251,13 @@ func TestFileStoreDeleteConvClearsShard(t *testing.T) {
 	_ = fs.DeleteConv("c1")
 	_ = fs.Flush()
 
-	// 分片应被重写为空数组，而不是残留旧消息
-	b, err := os.ReadFile(filepath.Join(dir, "messages", "c1.json"))
-	if err != nil {
-		t.Fatalf("分片文件应保留但为空：%v", err)
-	}
-	var msgs []*domain.Message
-	_ = json.Unmarshal(b, &msgs)
-	if len(msgs) != 0 {
-		t.Fatalf("删会话后分片应清空，还剩 %d 条", len(msgs))
+	// 分片文件应该被删掉，而不是留一个空数组。
+	// 保留空文件的话，每删一个群就在 messages/ 里留一个孤儿，
+	// 跑几十个群之后里面全是 2 字节的 []。
+	//
+	// 旧断言是「保留但为空」——那时候没人意识到会累积。
+	if _, err := os.Stat(filepath.Join(dir, "messages", "c1.json")); !os.IsNotExist(err) {
+		t.Fatal("删会话后分片文件应该被删掉")
 	}
 }
 

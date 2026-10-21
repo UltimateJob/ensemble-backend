@@ -366,7 +366,17 @@ func (fs *FileStore) Flush() error {
 				list = append(list, m)
 			}
 		}
+		_, convExists := fs.Memory.convs[convID]
 		fs.Memory.mu.RUnlock()
+
+		// 会话已经删了就没有消息可写——直接删文件，别留一个空数组。
+		// 之前每次删群都会留下一个 2 字节的 []，跑几十个群之后
+		// messages/ 里全是孤儿文件。
+		if !convExists && len(list) == 0 {
+			_ = os.Remove(filepath.Join(fs.dir, dirMsgs, safeName(convID)+".json"))
+			continue
+		}
+
 		if err := writeJSON(filepath.Join(fs.dir, dirMsgs, safeName(convID)+".json"), list); err != nil {
 			return err
 		}

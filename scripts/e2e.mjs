@@ -414,8 +414,9 @@ async function run() {
       }).then(r => r.text());
     }
 
-    await cdp.send('Page.reload');
-    await cdp.waitFor('document.readyState === "complete"', 20000, '刷新');
+    const curUrl = await cdp.eval('location.href');
+    await cdp.send('Page.navigate', { url: curUrl });
+    await cdp.waitFor('document.readyState === "complete"', 30000, '刷新');
     await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '会话加载');
     await cdp.eval(`document.querySelector('.conv[data-id="${convId0}"]').click()`);
     await cdp.waitFor('document.querySelectorAll(".msg").length > 0', 20000, '消息加载');
@@ -554,8 +555,9 @@ async function run() {
     ok(`重命名生效（${oldTitle} → ${newTitle}）`, newTitle === '改名后的群');
 
     // 重新加载后仍是新名字（确认已落库）
-    await cdp.send('Page.reload');
-    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '刷新后');
+    const curUrl2 = await cdp.eval('location.href');
+    await cdp.send('Page.navigate', { url: curUrl2 });
+    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 30000, '刷新后');
     const persisted = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
     ok('重命名已持久化', persisted === '改名后的群');
 

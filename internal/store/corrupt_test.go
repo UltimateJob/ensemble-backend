@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/UltimateJob/ensemble-backend/internal/domain"
 )
 
 // 数据文件损坏时不能「从空库继续」——内存是空的，
@@ -60,4 +62,45 @@ func containsStr(s, sub string) bool {
 		}
 		return false
 	})()
+}
+
+// 删除会话后，消息文件应该被删掉，不是留一个空数组。
+// 之前每删一个群就在 messages/ 里留一个 2 字节的 []，
+// 跑几十个群之后里面全是孤儿文件。
+func TestDeleteConvRemovesMessageFile(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	conv := &domain.Conversation{ID: "c_del", UserID: "u1", Title: "要删的群"}
+	if err := fs.CreateConv(conv); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		_ = fs.AppendMessage(&domain.Message{
+			ConversationID: conv.ID, Role: domain.RoleUser, Content: "消息",
+		})
+	}
+	if err := fs.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	msgFile := filepath.Join(dir, "messages", "c_del.json")
+	if _, err := os.Stat(msgFile); err != nil {
+		t.Fatal("消息文件应该存在")
+	}
+
+	if err := fs.DeleteConv(conv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(msgFile); !os.IsNotExist(err) {
+		t.Fatalf("删除会话后消息文件应该被删掉，实际还在")
+	}
 }
