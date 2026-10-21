@@ -92,6 +92,24 @@ else:
         if not m:
             problems.append(f'后台媒体查询里没有针对 {sel} 的规则')
 
+
+# 6b) 后台的卡片式表格靠 data-label 显示字段名。
+#     窄屏下 thead 被隐藏，没有 data-label 的 td 就变成没有标签的裸值。
+#
+#     注意：这些 td 大多是 JS 模板字符串生成的，不在 <table> 标签块里，
+#     所以要扫脚本区，不能扫 HTML 区。只排除 colspan（空状态横跨整表）。
+script_part = admin[admin.find('<script'):] if '<script' in admin else admin
+bare = []
+for m in re.finditer(r'<td\b([^>]*)>', script_part):
+    attrs = m.group(1)
+    if 'colspan' in attrs:
+        continue
+    if 'data-label' not in attrs:
+        bare.append(script_part[max(0, m.start() - 60):m.start()].strip().split('\n')[-1][:40])
+if bare:
+    problems.append(f'后台有 {len(bare)} 个 td 缺 data-label——窄屏卡片里会是没有字段名的裸值：{bare[:3]}')
+
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:
