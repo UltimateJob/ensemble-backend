@@ -236,6 +236,12 @@ type Provider interface {
 
 ---
 
+## 部署到公网之前
+
+默认配置是「本地能跑」的。直接搬上公网有三个洞：`DEV_BYPASS=true` 任何人能登录、`ADMIN_TOKEN` 是默认值任何人都能进运维台、没配 Key 一直在说演示台词。
+
+`PROD=1` 会做自检，不通过就拒绝启动。完整清单见 [docs/deploy.md](docs/deploy.md)。
+
 ## 文档
 
 | 文档 | 回答什么 |

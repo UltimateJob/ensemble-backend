@@ -49,6 +49,19 @@ func main() {
 		{Key: "deepseek-reasoner", Provider: "deepseek", Upstream: "deepseek-reasoner", Enabled: false, Weight: 1, CostPer1K: 0.002, Note: "推理模型"},
 	}
 
+	// 生产自检：不安全的默认值直接拒绝启动。
+	// 宁可起不来，也不要带着 DEV_BYPASS=true 和默认运维令牌对外跑。
+	if problems := cfg.ProdProblems(); len(problems) > 0 {
+		log.Error("生产模式自检未通过，拒绝启动", "问题数", len(problems))
+		for i, p := range problems {
+			log.Error(fmt.Sprintf("  %d. %s", i+1, p))
+		}
+		os.Exit(1)
+	}
+	if cfg.Prod {
+		log.Info("生产模式：自检通过")
+	}
+
 	if !cfg.UpstreamConfigured() {
 		if !cfg.AllowMock {
 			log.Error("未配置 DEEPSEEK_API_KEY，且 ALLOW_MOCK=false，无法启动")

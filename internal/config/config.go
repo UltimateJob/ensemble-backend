@@ -41,6 +41,9 @@ type Config struct {
 	// 单次发言超过这个毫秒数就记一条慢日志
 	SlowThresholdMS int
 
+	// Prod 为真时启用生产自检：不安全的默认值会导致启动失败
+	Prod bool
+
 	// 验证码通道：log（默认，写日志并回显） / aliyun / tencent …
 	SmsProvider string
 	SmsSign     string
@@ -78,6 +81,8 @@ func Load() Config {
 		DataDir:   env("DATA_DIR", "data"),
 
 		SlowThresholdMS: intEnv("SLOW_THRESHOLD_MS", 10000),
+
+		Prod: boolEnv("PROD", false),
 
 		SmsProvider: env("SMS_PROVIDER", "log"),
 		SmsSign:     env("SMS_SIGN", ""),
