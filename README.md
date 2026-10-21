@@ -156,7 +156,7 @@ make reset    # 清空本地数据
 - 记忆会去重、合并；清空群记忆不会重置处理游标，避免把旧消息重新学一遍。
 - 记忆整理失败会保留游标，下一轮重试；不会阻塞聊天，也不消耗用户额度。
 
-完整设计见 [docs/memory-architecture.md](docs/memory-architecture.md)。
+完整设计见 [docs/memory-architecture.md](docs/memory-architecture.md)，真实环境测试记录见 [docs/memory-test-report.md](docs/memory-test-report.md)。
 
 ---
 

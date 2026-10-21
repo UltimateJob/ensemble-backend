@@ -483,7 +483,9 @@ func (m *MemoryService) Snapshot(convID, userID string, agents []Agent) domain.M
 	if m == nil || m.store == nil {
 		return out
 	}
-	out.Conversation = m.store.ListConversation(convID)
+	if ms := m.store.ListConversation(convID); ms != nil {
+		out.Conversation = ms
+	}
 	for _, a := range agents {
 		ms := m.store.ListAgent(a.CharacterID, userID)
 		if len(ms) == 0 {

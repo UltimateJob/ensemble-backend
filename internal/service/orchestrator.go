@@ -402,6 +402,7 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 9. 记忆卡里没有的事就是不知道。不要假装记得，也不要编造；需要就请用户提醒。
 10. 历史行首的「[时间] 角色名：」只是记录格式，不是你要模仿的内容；回复时不要带时间和自己的名字。
 11. 引用记忆时用记忆卡上的日期；不确定就说「之前」，不要自己编「昨天/上周」。
+12. 如果「距离上一条消息」超过一天，先自然承认时间过去了（比如「好久没聊了」），不要假装昨天刚聊过；但不要夸张。
 %s`,
 		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key), mode,
 		memoryCardLine(memoryCard, timeLine), forceLine(force))

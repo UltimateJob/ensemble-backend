@@ -794,4 +794,11 @@ func TestMemorySnapshotAndClear(t *testing.T) {
 	if rec.Code != 200 || out["data"].(map[string]interface{})["cleared"].(float64) != 1 {
 		t.Fatalf("清空群记忆应返回 1，得到 %d %v", rec.Code, out)
 	}
+
+	// 空快照返回 [] 而不是 null，前端和第三方调用都少一层判空。
+	_, out = doJSON(t, h, "GET", "/v1/memories?conversationId="+convID, token, nil)
+	data = out["data"].(map[string]interface{})
+	if data["conversation"] == nil || data["agents"] == nil {
+		t.Fatalf("空记忆应返回空数组，得到 %v", data)
+	}
 }

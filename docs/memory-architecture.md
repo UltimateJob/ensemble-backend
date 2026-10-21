@@ -495,6 +495,8 @@ LLM 提取（结构化 JSON）
   - `DELETE /v1/memories?characterId=` 清该角色对当前用户的全部记忆（跨群）。
 - **界面**：群聊顶栏「他们记得」，展示群记忆、每个角色的关系与记忆，并可直接清空。
 
+真实环境测试记录见 [memory-test-report.md](memory-test-report.md)。
+
 首版取舍：
 
 - 检索是关键词 + 权重，不是向量；记忆量大了要换 BM25/embedding。
