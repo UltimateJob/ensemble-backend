@@ -1,0 +1,56 @@
+{
+ "case": "big-solo-solo",
+ "task": "按 README 的待办把功能做完：GET /api/users 返回两条示例用户、POST /api/users 接收 {\"name\":\"...\"} 追加并返回新用户、GET /api/stats 返回 {\"users\":N}；补这三个接口的测试；前端新增 web/users.html（列出用户 + 新增表单），并在 web/index.html 导航里加「用户」链接。最后跑 go test ./... 确认全绿。",
+ "root": "/tmp/dsh-big-solo",
+ "mode": "solo",
+ "wallSeconds": 26.1,
+ "quotaUsed": 6,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_9c31f790f8a18827",
+   "status": "done",
+   "steps": 12,
+   "tokensIn": 52192,
+   "tokensOut": 3653,
+   "seconds": 26.1,
+   "toolCalls": 18,
+   "diffFiles": [
+    [
+     "main.go",
+     "modified",
+     27,
+     90
+    ],
+    [
+     "main_test.go",
+     "modified",
+     14,
+     112
+    ],
+    [
+     "web/index.html",
+     "modified",
+     17,
+     2
+    ],
+    [
+     "web/users.html",
+     "added",
+     70,
+     0
+    ]
+   ],
+   "summary": "完成 12 步，改动 4 个文件",
+   "error": ""
+  }
+ ],
+ "review": null,
+ "at": "2026-10-22 02:51:14"
+}
