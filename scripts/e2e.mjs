@@ -436,10 +436,17 @@ async function run() {
       60000,
       '继续聊这一轮结束'
     );
-    await sleep(500);
+    // 等按钮真的恢复，别用固定 sleep。
+    // speaking 归零发生在 DOM 层，而按钮由 kickoff() 的 finally 恢复——
+    // 两者之间有窗口期，负载高的时候 500ms 不够，断言会偶发红。
+    await cdp.waitFor(
+      '!document.querySelector("#nudgeBtn").disabled',
+      20000,
+      '继续聊按钮恢复'
+    );
     const after = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
     ok(`继续聊新增了 ${after - before} 条发言`, after > before);
-    ok('按钮已恢复可点', await cdp.eval('!document.querySelector("#nudgeBtn").disabled'));
+    ok('按钮已恢复可点', true);
 
     // ---- 分页：灌够消息后顶部出现「加载更早」 ----
     const convId0 = await cdp.eval('document.querySelector(".conv").dataset.id');
