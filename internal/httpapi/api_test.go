@@ -581,9 +581,10 @@ func TestSavedStudio(t *testing.T) {
 	}
 
 	// 没有自定义角色的群不能存。
-	// 注意不能用 companion——那个场景会自动生成随机朋友，永远有自定义角色。
+	// 注意不能用 companion / anime——那两个场景开群时会自动生成角色，
+	// 永远有自定义角色。用竞标场景（角色固定在场景里，不进 conv.Agents）。
 	_, out = doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
-		"title": "纯预设群", "studio": "anime",
+		"title": "纯预设群", "studio": "bid",
 	})
 	emptyConv := out["data"].(map[string]interface{})["id"].(string)
 	rec, _ = doJSON(t, h, "POST", "/v1/studios", token, map[string]interface{}{

@@ -319,7 +319,9 @@ function openScenes() {
       <span style="min-width:0;flex:1">
         <span class="scene-n">${esc(s.name)}</span>
         <span class="scene-d">${esc(s.tagline)}</span>
-        <span class="scene-m">${(s.agents || []).slice(0, 4).map(a => makeAv(a.name, a.color)).join('')}</span>
+        <span class="scene-m">${(s.agents || []).length
+          ? (s.agents || []).slice(0, 4).map(a => makeAv(a.name, a.color)).join('')
+          : '<em class="scene-rand">开局随机挑 3 个</em>'}</span>
       </span>
     </button>`).join('');
 

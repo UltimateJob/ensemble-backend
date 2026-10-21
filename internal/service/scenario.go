@@ -13,6 +13,9 @@ type Scenario struct {
 	Opening string `json:"opening"`
 	// Round 每轮最多几个 Agent 发言，控制延迟与成本
 	Round int `json:"round"`
+
+	// Random 为真表示角色在开群时从角色库随机挑，不在场景里写死
+	Random bool `json:"random,omitempty"`
 }
 
 // Agent 群里的一个角色。
@@ -77,32 +80,19 @@ var Scenarios = []Scenario{
 		},
 	},
 	{
-		Key: "anime", Name: "二次元茶话会", Tagline: "拉几个角色进群，让她们自己聊", Category: "fun",
-		Icon: "sparkles", Accent: "#DB2777", Round: 5,
+		Key: "anime", Name: "二次元茶话会", Tagline: "从角色库挑几个，让她们自己聊", Category: "fun",
+		Icon: "sparkles", Accent: "#DB2777", Round: 5, Random: true,
 		Opening: "诶？今天怎么突然把我们几个叫到一起了。",
-		Agents: []Agent{
-			{Key: "yuki", Name: "雪见", Title: "冷静毒舌的学姐", Emoji: "雪", Color: "#0369A1",
-				Prompt: "你是雪见，18 岁学姐，冷静、毒舌但不刻薄。说话短，偶尔用「…」停顿。不用敬语。绝不承认自己在关心别人。别人示弱时你嘴上会嫌弃，但一定会接一句——沉默不是你的风格。"},
-			{Key: "momo", Name: "桃桃", Title: "元气过头的学妹", Emoji: "桃", Color: "#DB2777",
-				Prompt: "你是桃桃，16 岁学妹，元气、话多、爱用感叹号。容易跑题。会突然想到奇怪的点子。说话带「诶嘿」。"},
-			{Key: "rin", Name: "凛", Title: "沉默寡言的技术宅", Emoji: "凛", Color: "#7C3AED",
-				Prompt: "你是凛，话极少，一次不超过两句。喜欢用技术比喻解释日常。不主动搭话，被问到才回答。"},
-			{Key: "aoi", Name: "葵", Title: "温柔的调和者", Emoji: "葵", Color: "#047857",
-				Prompt: "你是葵，温柔、会照顾人。你总是第一个注意到别人情绪不对，也总是第一个开口。说话带一点试探：「这样会不会比较好？」但别人低落时，你不会回避。"},
-		},
+		// 角色从内置角色库里挑，每次开群不一样。
+		// 原来这里是四个原创角色，和「搜索角色库」两套并存，
+		// 用户会疑惑为什么茶话会里没有雪之下雪乃。
 	},
 	{
-		Key: "companion", Name: "日常陪聊", Tagline: "平台生成的几个朋友，随时在", Category: "fun",
-		Icon: "heart", Accent: "#E85A2C", Round: 3,
+		Key: "companion", Name: "日常陪聊", Tagline: "每次开群遇到几个新朋友", Category: "fun",
+		Icon: "heart", Accent: "#E85A2C", Round: 3, Random: true,
 		Opening: "在的在的，今天怎么样？",
-		Agents: []Agent{
-			{Key: "lin", Name: "林", Title: "话少但靠谱", Emoji: "林", Color: "#0369A1",
-				Prompt: "你是林，25 岁，做设计的。话不多，但每句都实在。会问具体的问题，不给空泛建议。偶尔自嘲。"},
-			{Key: "zhou", Name: "周", Title: "热闹的开心果", Emoji: "周", Color: "#E85A2C",
-				Prompt: "你是周，23 岁，做运营的。爱开玩笑，情绪外放。会记住别人说过的小事并提起来。"},
-			{Key: "chen", Name: "陈", Title: "稳重的倾听者", Emoji: "陈", Color: "#047857",
-				Prompt: "你是陈，28 岁，做产品的。说话慢，先复述对方的感受再回应。不轻易下判断。"},
-		},
+		// 角色由 RandomFriends 在开群时生成，
+		// 这里写死的三个只用于「场景预览」之外的兜底。
 	},
 }
 

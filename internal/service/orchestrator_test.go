@@ -100,8 +100,13 @@ func TestScenarios(t *testing.T) {
 		}
 		keys[sc.Key] = true
 
-		if len(sc.Agents) < 2 {
+		// Random 场景的角色在开群时生成，场景里可以是空的；
+		// 非 Random 场景必须有至少两个写死的角色。
+		if !sc.Random && len(sc.Agents) < 2 {
 			t.Fatalf("场景 %s 至少要有 2 个角色", sc.Key)
+		}
+		if sc.Random && len(sc.Agents) > 0 {
+			t.Fatalf("场景 %s 标了 Random 却写死了角色，开群时会重复生成", sc.Key)
 		}
 		if sc.Round <= 0 {
 			t.Fatalf("场景 %s 的 Round 必须为正，否则不会有人说话", sc.Key)

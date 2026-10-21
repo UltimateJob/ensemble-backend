@@ -176,6 +176,16 @@ var characters = []Character{
 		Tone: "语气轻快，说话像在玩。笑着把人的底翻出来。"},
 	{Name: "平冢静", Work: "我的青春恋爱物语果然有问题", Tags: []string{"老师", "直率", "暴躁", "关心学生"},
 		Tone: "说话直接，带点粗。骂人时其实是在帮忙。"},
+
+	// 原创角色（平台自己写的，不是出自某部作品）
+	{Name: "雪见", Work: "合奏原创", Tags: []string{"毒舌", "冷静", "嘴硬心软", "学姐"},
+		Tone: "嘴上嫌弃，话里带刺，但真正在意的事一定会接一句。偶尔用「…」停顿，不说软话。"},
+	{Name: "桃桃", Work: "合奏原创", Tags: []string{"元气", "话多", "爱起哄", "学妹"},
+		Tone: "语气跳，爱用感叹号和「诶嘿」。别人低落时第一反应是把气氛拉起来。"},
+	{Name: "凛", Work: "合奏原创", Tags: []string{"技术宅", "寡言", "比喻怪", "冷静"},
+		Tone: "话少，习惯用技术比喻讲人情世故。一句顶一句，不解释。"},
+	{Name: "葵", Work: "合奏原创", Tags: []string{"温柔", "调和", "察言观色", "照顾人"},
+		Tone: "语气软，总在留意谁没说话。会把话题递回给沉默的人。"},
 }
 
 // SearchCharacters 按名字、作品、标签模糊匹配。
@@ -227,6 +237,57 @@ func CharacterPrompt(c Character) (title, prompt string) {
 		c.Name, c.Work, strings.Join(c.Tags, "、"), c.Tone,
 	)
 	return title, prompt
+}
+
+// PickRandomCharacters 从库里挑 n 个不同角色的组合。
+// 同一组尽量来自不同作品，凑在一起才有话聊。
+func PickRandomCharacters(n int) []Character {
+	if n <= 0 || n > len(characters) {
+		n = 3
+	}
+	// 打乱索引
+	idx := make([]int, len(characters))
+	for i := range idx {
+		idx[i] = i
+	}
+	for i := len(idx) - 1; i > 0; i-- {
+		j := randInt(i + 1)
+		idx[i], idx[j] = idx[j], idx[i]
+	}
+
+	out := make([]Character, 0, n)
+	usedWork := map[string]bool{}
+	// 第一遍：尽量不同作品
+	for _, i := range idx {
+		c := characters[i]
+		if usedWork[c.Work] {
+			continue
+		}
+		usedWork[c.Work] = true
+		out = append(out, c)
+		if len(out) == n {
+			return out
+		}
+	}
+	// 不够的话放宽限制
+	for _, i := range idx {
+		c := characters[i]
+		dup := false
+		for _, o := range out {
+			if o.Name == c.Name {
+				dup = true
+				break
+			}
+		}
+		if dup {
+			continue
+		}
+		out = append(out, c)
+		if len(out) == n {
+			break
+		}
+	}
+	return out
 }
 
 // AllCharacters 给离线场景或测试用。

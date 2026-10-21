@@ -28,14 +28,27 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "请求格式不正确")
 		return
 	}
-	// 日常陪聊：每次开群生成一组随机性格的朋友。
-	// 之前是三个写死的角色，每次都是同样三个人。
-	if req.Studio == "companion" && len(req.Agents) == 0 {
-		for _, a := range service.RandomFriends(3) {
-			req.Agents = append(req.Agents, domain.ConvAgent{
-				Key: a.Key, Name: a.Name, Title: a.Title,
-				Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt,
-			})
+	// 两个 C 端场景的角色都是开局生成的：
+	//   日常陪聊 —— 随机性格的朋友（6 种性格模板）
+	//   二次元茶话会 —— 从角色库随机挑（不同作品，凑一起才有话聊）
+	if len(req.Agents) == 0 {
+		switch req.Studio {
+		case "companion":
+			for _, a := range service.RandomFriends(3) {
+				req.Agents = append(req.Agents, domain.ConvAgent{
+					Key: a.Key, Name: a.Name, Title: a.Title,
+					Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt,
+				})
+			}
+		case "anime":
+			colors := []string{"#0369A1", "#DB2777", "#7C3AED", "#047857"}
+			for i, c := range service.PickRandomCharacters(3) {
+				title, prompt := service.CharacterPrompt(c)
+				req.Agents = append(req.Agents, domain.ConvAgent{
+					Key: c.Name, Name: c.Name, Title: title,
+					Emoji: string([]rune(c.Name)[0]), Color: colors[i%len(colors)], Prompt: prompt,
+				})
+			}
 		}
 	}
 

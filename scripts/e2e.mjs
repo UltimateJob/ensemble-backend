@@ -118,6 +118,19 @@ async function launch() {
     { stdio: 'ignore' }
   );
 
+  // 跑之前把演示账号的额度清零。
+  // 不然反复建群几十轮之后额度耗尽，开场直接返回 quota 事件，
+  // 表现为「开场启动」超时——看起来像前端坏了。
+  try {
+    const lr = await fetch(BASE + '/v1/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'phone', target: '13800000000' }),
+    }).then(x => x.json());
+    await fetch(`${BASE}/admin/api/users/${lr.data.user.id}/reset-usage`, {
+      method: 'POST', headers: { 'X-Admin-Token': 'admin-dev-token' },
+    });
+  } catch { /* 重置失败就让后面的断言自己报 */ }
+
   // 等调试端口起来
   for (let i = 0; i < 60; i++) {
     try {
@@ -213,9 +226,14 @@ async function run() {
     );
     ok('包含竞标场景', sceneNames.some(n => n.includes('竞标')));
     ok('包含二次元场景', sceneNames.some(n => n.includes('二次元')));
+    // 写死角色的场景显示头像；随机场景显示「开局随机挑」的说明。
+    // 两种都算「这个场景有角色」，不能只认头像。
     ok(
-      '每个场景都画出了角色头像',
-      await cdp.eval('[...document.querySelectorAll(".scene")].every(s => s.querySelectorAll(".scene-m .av").length > 0)')
+      '每个场景都标出了角色',
+      await cdp.eval(`[...document.querySelectorAll(".scene")].every(s =>
+        s.querySelectorAll(".scene-m .av").length > 0 ||
+        !!s.querySelector(".scene-rand")
+      )`)
     );
 
     // ---- 建群 ----
