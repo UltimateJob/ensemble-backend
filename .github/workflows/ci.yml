@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 手动触发才跑真实上游（要配 DEEPSEEK_API_KEY secret）
+  workflow_dispatch:
 
 jobs:
   # 逻辑层：快，每次 push 都跑
@@ -79,3 +81,24 @@ jobs:
       - name: 失败时打印后端日志
         if: failure()
         run: cat server.log
+
+  # 真实上游：只在手动触发时跑，避免每次 push 都烧额度
+  live:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: 真实上游集成测试
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "没有配置 DEEPSEEK_API_KEY secret，跳过"
+            exit 0
+          fi
+          go test ./internal/gateway/ -run Live -v -timeout 180s

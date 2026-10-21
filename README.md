@@ -311,6 +311,23 @@ GET /v1/conversations/{id}/messages?page=1&limit=30&before=m_0a92...
 
 加载更早时会记录插入前后的 `scrollHeight` 差，把滚动位置顶回去，视觉上不跳。
 
+### 真实上游
+
+mock 测试永远是绿的——但如果 DeepSeek 改了协议（字段名、SSE 格式、错误码），线上会直接断，而 mock 测不出来。
+
+```bash
+make test-live    # 需要 DEEPSEEK_API_KEY
+```
+
+```go
+key := os.Getenv("DEEPSEEK_API_KEY")
+if key == "" { t.Skip("未设置 DEEPSEEK_API_KEY") }
+```
+
+没有 Key 自动跳过，CI 不受影响。手动触发 workflow 才会真跑一次。
+
+验证的是三件事：流能正常结束、有 usage、网关的计数/延迟/健康统计都记上了。
+
 ### 浏览器端到端
 
 ```bash

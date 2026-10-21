@@ -20,6 +20,10 @@ release:
 test:
 	go test ./... -count=1
 
+# 真实上游（需要 DEEPSEEK_API_KEY）
+test-live:
+	DEEPSEEK_API_KEY=$(DEEPSEEK_API_KEY) go test ./internal/gateway/ -run Live -v -timeout 180s
+
 clean:
 	rm -rf bin data
 
