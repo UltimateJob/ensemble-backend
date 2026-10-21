@@ -288,7 +288,19 @@ type Provider interface {
 三栏：会话 / 消息流 / 成员·流水线·产物。移动端收敛为单栏 + 抽屉切群。
 
 角色头像由名字 hash 生成渐变底色 + 首字，无外部图片依赖。
-图标用 [Lucide](https://lucide.dev)（MIT），46 个内联进 `icons.js`，离线可用。
+图标用 [Lucide](https://lucide.dev)（MIT），48 个内联进 `icons.js`，离线可用。
+
+前端五个 ES 模块，零构建，浏览器原生 `<script type="module">`：
+
+| 模块 | 行数 | 职责 |
+|---|---|---|
+| `core.js` | 205 | 工具 / 头像 / 全局状态 / API |
+| `convs.js` | 208 | 左栏列表 / 右键菜单 / 重命名·邀请·删除·离开 |
+| `chat.js` | 552 | 消息渲染 / SSE / 分页 / 成员 / 产物 |
+| `dialog.js` | 78 | 弹层（替代原生 prompt） |
+| `app.js` | 737 | 登录 / 场景 / 角色编辑器 / 快捷键 |
+
+依赖单向 `core ← convs ← chat ← app`。`convs` 需要「打开群」时用回调注入，不反向 import `chat`，避免成环。
 
 ---
 
