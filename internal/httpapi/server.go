@@ -42,6 +42,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		ok(w, map[string]string{"status": "ok"})
 	})
+	// Prometheus 抓取习惯用 /metrics。要求 admin 令牌，
+	// 免得把用户量和业务指标公开出去。
+	mux.HandleFunc("GET /metrics", s.handlePublicMetrics)
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		m := s.gw.Metrics()
 		ready := len(m.Providers) > 0
@@ -114,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	adminMux.HandleFunc("GET /admin/api/conversations", s.handleAdminConversations)
 	adminMux.HandleFunc("POST /admin/api/conversations/{id}/unlock", s.handleAdminUnlock)
 	adminMux.HandleFunc("GET /admin/api/events", s.handleAdminEvents)
+	adminMux.HandleFunc("GET /admin/api/metrics", s.handleMetrics)
 
 	// 登录接口免 token，其余需要
 	mux.Handle("/admin/api/login", adminMux)

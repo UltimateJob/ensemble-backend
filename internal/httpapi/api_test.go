@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -756,5 +757,66 @@ func TestSearchScoped(t *testing.T) {
 	rec, _ := doJSON(t, h, "GET", "/v1/search?q=紫水晶", "", nil)
 	if rec.Code != 401 {
 		t.Fatalf("未登录应 401，得到 %d", rec.Code)
+	}
+}
+
+// /metrics 要符合 Prometheus 文本格式，且需要令牌
+func TestMetricsEndpoint(t *testing.T) {
+	_, h := newTestServer(t)
+
+	// 无令牌
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatalf("无令牌应 401，得到 %d", rec.Code)
+	}
+
+	// 带令牌
+	req = httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("X-Admin-Token", "test-admin")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("带令牌应 200，得到 %d", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// Prometheus 的基本要求：每个指标有 TYPE 声明，
+	// 每行数据行要么是注释要么是 name{labels} value
+	if !strings.Contains(body, "# TYPE ensemble_uptime_seconds gauge") {
+		t.Fatal("缺少 TYPE 声明")
+	}
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	dataLines := 0
+	for _, ln := range lines {
+		if ln == "" || strings.HasPrefix(ln, "#") {
+			continue
+		}
+		dataLines++
+		// 最后一个空格之后必须是数字
+		parts := strings.Fields(ln)
+		if len(parts) < 2 {
+			t.Fatalf("数据行格式不对：%q", ln)
+		}
+		val := parts[len(parts)-1]
+		if _, err := strconv.ParseFloat(val, 64); err != nil {
+			t.Fatalf("数据行的值不是数字：%q", ln)
+		}
+	}
+	if dataLines < 5 {
+		t.Fatalf("指标太少（%d 行），可能没渲染出来", dataLines)
+	}
+
+	// 关键指标都在
+	for _, want := range []string{
+		"ensemble_http_requests_total",
+		"ensemble_llm_tokens_total",
+		"ensemble_conversations",
+		"ensemble_messages",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("缺少指标 %s", want)
+		}
 	}
 }

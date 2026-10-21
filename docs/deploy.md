@@ -65,6 +65,37 @@ ERROR   4. 没有配置 DEEPSEEK_API_KEY——对外服务会一直返回演示�
 
 ---
 
+## 监控
+
+```bash
+curl -H "X-Admin-Token: $ADMIN_TOKEN" http://你的域名/metrics
+```
+
+Prometheus 文本格式，直接配 `scrape_configs` 就行：
+
+```yaml
+scrape_configs:
+  - job_name: ensemble
+    metrics_path: /metrics
+    bearer_token: <ADMIN_TOKEN>
+    static_configs:
+      - targets: ['你的域名:8080']
+```
+
+无令牌返回 401——**业务指标（用户量、会话数）不该公开**。
+
+主要指标：
+
+| 指标 | 说明 |
+|---|---|
+| `ensemble_provider_up` | 上游是否可用，0 表示熔断中 |
+| `ensemble_llm_latency_ms{quantile="0.95"}` | 上游 P95 延迟 |
+| `ensemble_llm_tokens_total` | token 累计消耗（算成本用） |
+| `ensemble_http_errors_total` | 5xx 计数 |
+| `ensemble_slow_requests_total` | 超阈值的慢请求（重启清零） |
+
+---
+
 ## 备份
 
 `data/` 是唯一的数据源，没有第二份。
