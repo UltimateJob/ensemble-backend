@@ -1,12 +1,14 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/UltimateJob/ensemble-backend/internal/docgen"
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/workspace"
 )
@@ -43,6 +45,8 @@ const (
 	ToolWrite = "write"
 	ToolEdit  = "edit"
 	ToolRun   = "run"
+	ToolDocx  = "docx_create"
+	ToolXlsx  = "xlsx_create"
 )
 
 // Tools 返回暴露给模型的工具声明。
@@ -80,6 +84,16 @@ func Tools() []domain.Tool {
 			Name:        ToolEdit,
 			Description: "精确文本替换。old 必须在文件中唯一（除非 all=true）。这是改代码的首选方式。",
 			Parameters:  raw(`{"type":"object","properties":{"path":{"type":"string"},"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"},"all":{"type":"boolean"}},"required":["old","new"]}}},"required":["path","edits"]}`),
+		},
+		{
+			Name:        ToolDocx,
+			Description: "生成 Word 文档（.docx）到工作区。适合报告、周报、说明文档。支持标题、章节、段落、要点列表。",
+			Parameters:  raw(`{"type":"object","properties":{"path":{"type":"string"},"title":{"type":"string"},"subtitle":{"type":"string"},"sections":{"type":"array","items":{"type":"object","properties":{"heading":{"type":"string"},"paragraphs":{"type":"array","items":{"type":"string"}},"bullets":{"type":"array","items":{"type":"string"}}}}}},"required":["path","title"]}`),
+		},
+		{
+			Name:        ToolXlsx,
+			Description: "生成 Excel 表格（.xlsx）到工作区。支持多个工作表、表头、行数据。",
+			Parameters:  raw(`{"type":"object","properties":{"path":{"type":"string"},"sheets":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"header":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{"type":"string"}}}}}}},"required":["path","sheets"]}`),
 		},
 		{
 			Name:        ToolRun,
@@ -437,7 +451,7 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 	// 文件级互斥：两个并行 Run 可以改不同文件，但不能同时改同一个。
 	// 短锁——占上、写完立刻放，避免 A 持有到 Run 结束把 B 饿死。
 	var claimedPath string
-	if call.Name == ToolWrite || call.Name == ToolEdit {
+	if isWriteTool(call.Name) {
 		if p := argPath(call.Arguments); p != "" {
 			if owner := m.claimFile(p, r.ID); owner != "" {
 				return deny("文件 " + p + " 正被另一个任务写入。稍等一步再改")
@@ -448,7 +462,7 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 	}
 
 	// 写入边界：只读权限已经在上面挡掉了；这里挡的是「权限够但越界」。
-	if call.Name == ToolWrite || call.Name == ToolEdit {
+	if isWriteTool(call.Name) {
 		if p := argPath(call.Arguments); p != "" && !r.Scope.Allows(p) {
 			who := r.OperatorKey
 			if who == "" {
@@ -546,7 +560,7 @@ func toolRisk(call domain.ToolCall) string {
 		}
 		_ = json.Unmarshal([]byte(call.Arguments), &args)
 		return workspace.RiskOf(args.Argv, args.Shell)
-	case ToolWrite, ToolEdit:
+	case ToolWrite, ToolEdit, ToolDocx, ToolXlsx:
 		return workspace.RiskWrite
 	default:
 		return workspace.RiskRead
@@ -668,6 +682,46 @@ func runTool(ctx context.Context, w *Workspace, call domain.ToolCall) (string, s
 			return "", "", 0, err
 		}
 		b, _ := json.Marshal(res)
+		return string(b), "", 0, nil
+
+	case ToolDocx:
+		var a struct {
+			Path     string           `json:"path"`
+			Title    string           `json:"title"`
+			Subtitle string           `json:"subtitle"`
+			Sections []docgen.Section `json:"sections"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &a); err != nil {
+			return "", "", 0, fmt.Errorf("bad args: %w", err)
+		}
+		var buf bytes.Buffer
+		if err := docgen.WriteDocx(&buf, docgen.Doc{Title: a.Title, Subtitle: a.Subtitle, Sections: a.Sections}); err != nil {
+			return "", "", 0, err
+		}
+		n, _, err := fs.Write(a.Path, buf.Bytes())
+		if err != nil {
+			return "", "", 0, err
+		}
+		b, _ := json.Marshal(map[string]any{"path": a.Path, "bytes": n, "format": "docx"})
+		return string(b), "", 0, nil
+
+	case ToolXlsx:
+		var a struct {
+			Path   string         `json:"path"`
+			Sheets []docgen.Sheet `json:"sheets"`
+		}
+		if err := json.Unmarshal([]byte(call.Arguments), &a); err != nil {
+			return "", "", 0, fmt.Errorf("bad args: %w", err)
+		}
+		var buf bytes.Buffer
+		if err := docgen.WriteXlsx(&buf, a.Sheets); err != nil {
+			return "", "", 0, err
+		}
+		n, _, err := fs.Write(a.Path, buf.Bytes())
+		if err != nil {
+			return "", "", 0, err
+		}
+		b, _ := json.Marshal(map[string]any{"path": a.Path, "bytes": n, "format": "xlsx"})
 		return string(b), "", 0, nil
 
 	case ToolRun:

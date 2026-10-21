@@ -17,6 +17,7 @@ P0 已实现并跑通真实链路：
 | HTTP 路由 | `internal/httpapi/handler_workspace.go` | 已实现 |
 | 前端工作室面板 | `web/app/js/studio.js` + `#studio` | 已实现 |
 | 桌面壳（原生 WKWebView + 原生目录选择） | `desktop/EnsembleDesktop.swift` | 已实现 |
+| 文档工具：docx / xlsx 生成（纯标准库） | `internal/docgen/` | 已实现，python-docx 验证可打开 |
 
 真实上游验证：`calc` 修 bug（5 步 6 次工具）、`divide` 双 agent 协作（22s，后端核对后不重复改）、`tinysrv` 跨栈（34.7s）。数据在 `docs/collab-benchmark.md`。
 

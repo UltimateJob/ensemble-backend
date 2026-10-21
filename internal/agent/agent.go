@@ -437,7 +437,7 @@ func permissionFor(p Permission, tool string, risk string) (allowed bool, needAp
 		if readOnlyTool {
 			return true, false, ""
 		}
-		if tool == "write" || tool == "edit" {
+		if isWriteTool(tool) {
 			return true, false, "" // 写工作区自动放行，但会产生 diff/snapshot
 		}
 		if tool == "run" && risk == workspace.RiskRead {
@@ -616,4 +616,13 @@ func (m *Manager) releaseFiles(runID string) {
 			delete(m.writers, p)
 		}
 	}
+}
+
+// isWriteTool 判断某个工具是否会写工作区。
+func isWriteTool(tool string) bool {
+	switch tool {
+	case "write", "edit", "docx_create", "xlsx_create":
+		return true
+	}
+	return false
 }
