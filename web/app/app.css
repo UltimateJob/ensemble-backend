@@ -13,14 +13,14 @@ button,a,[role="button"]{touch-action:manipulation}
   --line-2:#D6D6DE;
   --tx:#0D0D10;
   --tx-2:#47474F;
-  --tx-3:#77777F;
-  --tx-4:#A5A5AE;
+  --tx-3:#6E6E77;   /* 5.05/4.59 — 原来 #77777F 是 4.44/4.04，正文不达标 */
+  --tx-4:#88888F;   /* 3.52/3.20 — 原来 #A5A5AE 是 2.44/2.22，次要文字看不清 */
   --pri:#4F46E5;
   --pri-2:#7C3AED;
   --grad:linear-gradient(135deg,#4F46E5,#7C3AED);
-  --ok:#059669;
-  --warn:#D97706;
-  --bad:#DC2626;
+  --ok:#047857;     /* 5.48/4.99 — 原来 #059669 是 3.77/3.43 */
+  --warn:#B45309;   /* 5.02/4.57 — 原来 #D97706 是 3.19/2.90 */
+  --bad:#CE1F1F;    /* 5.47/4.97 — 原来 #DC2626 在灰底上是 4.39 */
   --mono:ui-monospace,"SF Mono",Menlo,monospace;
   --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:20px;
   --sh-1:0 1px 2px rgba(18,18,26,.04);

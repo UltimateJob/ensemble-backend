@@ -126,6 +126,38 @@ else:
     if 'outline-offset' not in body:
         problems.append(':focus-visible 缺 outline-offset')
 
+
+# 8) 文字对比度。checklist C9：正文 ≥4.5:1，次要文字 ≥3:1。
+#    这几个值不是拍脑袋——是量出来不达标之后调深的。
+def _rgb(h):
+    h = h.lstrip('#')
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+def _lum(rgb):
+    def f(c):
+        c = c / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2])
+
+def _ratio(a, b):
+    la, lb = _lum(a), _lum(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+WHITE = (255, 255, 255)
+PAGE_BG = _rgb('F3F4F7')
+MIN = {'--tx': 7.0, '--tx-2': 4.5, '--tx-3': 4.5, '--tx-4': 3.0, '--pri': 4.5,
+       '--ok': 4.5, '--warn': 4.5, '--bad': 4.5}
+for tok, need in MIN.items():
+    m = re.search(re.escape(tok) + r'\s*:\s*(#[0-9A-Fa-f]{6})', css)
+    if not m:
+        problems.append(f'找不到 {tok} 的颜色值')
+        continue
+    c = _rgb(m.group(1))
+    worst = min(_ratio(c, WHITE), _ratio(c, PAGE_BG))
+    if worst < need:
+        problems.append(f'{tok} {m.group(1)} 对比度 {worst:.2f} < {need}（最差背景）')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:
