@@ -296,22 +296,33 @@ func (o *Orchestrator) ask(ctx context.Context, sc Scenario, agent Agent, histor
 }
 
 // looksLikePass 前缀判定，用于流式缓冲阶段。
+// 传入的是还没读完的片段，所以要判断「它可能是 [PASS] 的开头」。
 func looksLikePass(s string) bool {
 	u := strings.ToUpper(strings.TrimSpace(s))
-	return strings.HasPrefix(u, "[PASS") || strings.HasPrefix(u, "PASS") || strings.HasPrefix(u, "[PASS]")
+	if u == "" {
+		return true
+	}
+	// 片段本身还是标记的开头（如 "[PA"、"PAS"）
+	if strings.HasPrefix("[PASS]", u) || strings.HasPrefix("PASS", u) {
+		return true
+	}
+	// 片段已经以标记开头（如 "[PASS] 我不懂"、"PASS 跳过"）
+	return strings.HasPrefix(u, "[PASS") || strings.HasPrefix(u, "PASS")
 }
 
 // isPass 完整判定。
+// 只要以 [PASS] 或 PASS 开头就算沉默——模型有时会补一句解释，
+// 那也是在表达「我不参与」，不该当成发言推给用户。
 func isPass(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {
 		return true
 	}
 	u := strings.ToUpper(t)
-	if u == "[PASS]" || u == "PASS" || u == "（无）" {
+	if u == "（无）" || u == "无" {
 		return true
 	}
-	if strings.Contains(u, "[PASS]") && len([]rune(t)) < 12 {
+	if strings.HasPrefix(u, "[PASS]") || strings.HasPrefix(u, "PASS") {
 		return true
 	}
 	return false
