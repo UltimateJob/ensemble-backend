@@ -8,10 +8,11 @@ import {
 } from './core.js';
 
 import {
-  loadConvs, renderConvs, openConv, loadEarlier, buildMsgEl, addMsg,
+  openConv, loadEarlier, buildMsgEl, addMsg,
   addSysNote, scrollBottom, renderMembers, renderPipeline,
   addArtifact, appendArtifactCard, send, kickoff,
 } from './chat.js';
+import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
 import { uiPrompt } from './dialog.js';
 
 /* ---------------- 登录 ---------------- */
@@ -724,6 +725,9 @@ if (kbBtn) kbBtn.addEventListener('click', showShortcuts);
 
 hydrateIcons();
 boot();
+
+// 会话列表点击时打开群的入口（避免 convs.js 直接 import chat.js 成环）
+setConvOpener(openConv);
 
 // 供 chat.js 反向刷新引导清单
 window.__refreshOnboard = renderOnboard;
