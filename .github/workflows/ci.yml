@@ -78,6 +78,12 @@ jobs:
       - name: 端到端 · 移动端 390
         run: EDGE_PATH="$(which chrome)" node scripts/e2e-mobile.mjs
 
+      - name: 端到端 · 多标签页
+        run: EDGE_PATH="$(which chrome)" node scripts/multi-tab.mjs
+
+      - name: 端到端 · 键盘导航
+        run: EDGE_PATH="$(which chrome)" node scripts/keyboard.mjs
+
       - name: 失败时打印后端日志
         if: failure()
         run: cat server.log

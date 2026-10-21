@@ -33,6 +33,21 @@ const key=async (k, code, mods=0, text) => {
 };
 await send('Page.enable');await send('Runtime.enable');
 const token=(await (await fetch(`${BASE}/v1/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'phone',target:'13800000000'})})).json()).data.token;
+// 键盘导航需要至少两个群才能测「下移」。
+// 不依赖外部数据，自己准备。
+const existing = await fetch(`${BASE}/v1/conversations`, {
+  headers: { Authorization: 'Bearer ' + token },
+}).then(r => r.json()).then(j => j.data || []);
+if (existing.length < 2) {
+  for (let i = existing.length; i < 2; i++) {
+    await fetch(`${BASE}/v1/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ title: '键盘测试群 ' + (i + 1), studio: 'companion' }),
+    });
+  }
+}
+
 await send('Page.navigate',{url:`${BASE}/app/?token=${token}`});
 await sleep(4000);
 let pass=0,fail=0;
