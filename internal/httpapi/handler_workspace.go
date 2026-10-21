@@ -139,12 +139,13 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Task         string `json:"task"`
-		OperatorKey  string `json:"operatorKey"`
-		Permission   string `json:"permission"`
-		Model        string `json:"model"`
-		MaxSteps     int    `json:"maxSteps"`
-		SystemPrompt string `json:"systemPrompt"`
+		Task         string   `json:"task"`
+		OperatorKey  string   `json:"operatorKey"`
+		Permission   string   `json:"permission"`
+		Scope        []string `json:"scope"`
+		Model        string   `json:"model"`
+		MaxSteps     int      `json:"maxSteps"`
+		SystemPrompt string   `json:"systemPrompt"`
 	}
 	if err := decode(r, &req); err != nil || strings.TrimSpace(req.Task) == "" {
 		badRequest(w, "task 不能为空")
@@ -156,6 +157,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		perm = agent.PermissionApproval
 	}
 	operatorName := req.OperatorKey
+	operatorScope := req.Scope
 	// 会话里带了角色时，从角色上读权限与名字；请求体显式给的优先。
 	if bw.ConversationID != "" {
 		if conv, err := s.chat.Get(u.ID, bw.ConversationID); err == nil {
@@ -168,6 +170,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 					if req.Permission == "" && a.Permission != "" {
 						perm = agent.Permission(a.Permission)
 					}
+					operatorScope = a.Scope
 					break
 				}
 			}
@@ -185,6 +188,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		OperatorKey:    req.OperatorKey,
 		OperatorName:   operatorName,
 		Permission:     perm,
+		Scope:          operatorScope,
 		Task:           req.Task,
 		Model:          req.Model,
 		MaxSteps:       req.MaxSteps,

@@ -25,9 +25,11 @@ type StartRequest struct {
 	OperatorKey    string
 	OperatorName   string
 	Permission     Permission
-	Task           string
-	Model          string
-	MaxSteps       int
+	// Scope 该 agent 允许写的路径（空表示不限）
+	Scope    []string
+	Task     string
+	Model    string
+	MaxSteps int
 	// SystemPrompt 由会话层注入角色人设与协作规则；为空时用默认 operator 提示。
 	SystemPrompt string
 }
@@ -146,6 +148,7 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		UserID:         req.UserID,
 		OperatorKey:    req.OperatorKey,
 		Permission:     req.Permission,
+		Scope:          Scope(req.Scope),
 		Task:           req.Task,
 		Model:          req.Model,
 		Status:         StatusRunning,
@@ -403,6 +406,17 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 		return deny(reason)
 	}
 
+	// 写入边界：只读权限已经在上面挡掉了；这里挡的是「权限够但越界」。
+	if call.Name == ToolWrite || call.Name == ToolEdit {
+		if p := argPath(call.Arguments); p != "" && !r.Scope.Allows(p) {
+			who := r.OperatorKey
+			if who == "" {
+				who = "该角色"
+			}
+			return deny("越界：" + who + " 只允许改 " + r.Scope.String() + "，不能改 " + p)
+		}
+	}
+
 	if needApproval {
 		m.mu.Lock()
 		auto := r.approved != nil && r.approved[risk]
@@ -644,4 +658,15 @@ func clip(s string, max int) string {
 		return s
 	}
 	return s[:max] + "… (truncated)"
+}
+
+// argPath 从写类工具的参数里取 path，用于 scope 检查。
+func argPath(raw string) string {
+	var a struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(raw), &a); err != nil {
+		return ""
+	}
+	return a.Path
 }

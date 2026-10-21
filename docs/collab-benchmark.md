@@ -17,6 +17,8 @@
 | divide | 单 agent | **8.0s** | — | 8.0s | 8 | 1 | 12789/1105 | 0 | 绿 |
 | web | 协作 | 34.7s | 4.5s · 206 tok · 3 人发言 | 20.1s + 10.1s | 15 + 12 | 1 + 1 | 33181/2662 + 17103/979 | 3 | 绿 |
 | web | 单 agent | **18.1s** | — | 18.1s | 20 | 0 | 40827/2325 | 0 | 绿 |
+| web（带 scope） | 协作 | 32.3s | 4.1s · 218 tok · 3 人 | 14.1 + 14.1 | 11 + 11 | 1 + 1 | — | 9 | 绿 |
+| cache-review | 协作 + QA 审查 | 72.1s | 3.7s · 185 tok · 3 人 | 30.2 + 26.1 + 12.1 | 14 + 15 + 6 | — | — | 16 | 绿 |
 
 墙钟包含群聊与串行执行；token 是上游实测 usage，不是估算。
 
@@ -47,13 +49,13 @@
 
 ## 暴露的问题（按严重度）
 
-### 1. 执行器的 token 不计费（必须修）
+### 1. 执行器的 token 不计费（已修）
 
 单 agent 跑完额度消耗是 **0**。群聊按「轮」扣额度，但 Run 里的 LLM 调用完全没进账。
 
 实际成本：divide 协作 34k token、web 协作 50k token。这些是真金白银，却不出现在任何账单里。
 
-**修法**：Run 结束时按 `tokensIn/Out` 折算额度（或单独计量），并在 `/v1/me` 里分成「对话」与「执行」两栏。
+**已修**：Run 结束按 `tokensIn/Out` 折算（每 10k token 1 次，最少 1 次）。修完同一量级的协作从「额度 3」变成「额度 9–16」——之前的账是真的没记上。
 
 ### 2. 第一个角色一问问题，整轮就结束了（已修）
 
@@ -66,16 +68,44 @@
 `studio=custom` 之前一律 `casual=true`，导致架构师把「加个接口」当寒暄直接 PASS。
 现在：群里有任何带执行权限的角色，就按工作群处理（先定目标、再给结论）。
 
-### 4. 角色会越界（未修）
+### 4. 角色会越界（已修，强制在服务端）
 
 web 案例里前端 agent 把后端代码也写了。它如实说明了，但这说明**职责边界只写在 prompt 里，执行器没有强制**。
 
-**修法（下一轮）**：给每个 agent 声明 `scope`（前端只允许改 `web/`，后端只允许改 `*.go`），执行器在 `write/edit` 前检查路径前缀。这比 prompt 约束可靠得多。
+**已修**：每个角色声明 `scope`（`web/`、`*.go`、`web/**/*.html`），执行器在 `write/edit` 前强制检查。
+
+反例验证（让一个 `scope=["web/"]` 的角色去改 `main.go`）：
+
+```
+[denied] edit {"path":"main.go", ...}
+   -> 越界：该角色 只允许改 web/，不能改 main.go
+```
+
+模型收到拒绝后自己改回范围内继续干活——边界是硬的，不靠自觉。
+
+注意：正常任务里模型大多数时候会**自己遵守** scope（web 案例里前端读了 main.go 但没写），所以这条不常触发；但它决定了「不遵守时能不能挡住」。
 
 ### 5. 协作的墙钟是串行的（设计取舍）
 
 同工作区只允许一个 active Run（写入冲突的根因），所以两个 agent 只能排队。
 如果要并行，得先做 worktree 隔离（每个 agent 一个 git worktree，最后合并）。
+
+## 闭环：加一轮只读 QA 审查
+
+`--review` 会在执行完后让测试角色做一轮 **readonly** 审查（只能读，不能改），把 diff 清单交给它。
+
+cache-review 案例（给 health 加 5 秒缓存 + 前端 10 秒轮询）：
+
+- 群聊阶段，测试就抛出两个风险：缓存会让「刚恢复」滞后最多 5 秒；过期瞬间的并发击穿要单独用例。
+- 后端按约定实现（互斥锁 + 假时钟 + 50 协程并发测试），前端做了 `pagehide` 清理和 `disposed` 标志。
+- **QA 审查阶段真的抓到了东西**：
+
+> `main_test.go:15-21` 的 helper `get()` 每次请求都 `newMux()`，等于每次都是全新缓存。
+> `TestHealthEndpoint` / `TestTimeEndpoint` 拿到的「能过」结果，把「缓存跨请求复用」这条核心需求完全旁路了。
+
+这是单 agent 不会做的事——它做完就结束了，没有人回头看测试是不是测到了东西。
+
+代价：72.1s、35 次工具、16 额度。值不值取决于任务重要性；对「加了缓存/并发/安全边界」这类改动，值。
 
 ## 什么时候该开群
 
@@ -93,6 +123,8 @@ web 案例里前端 agent 把后端代码也写了。它如实说明了，但这
 python3 scripts/collab_demo.py --case divide --root /tmp/dsh-ws-divide --task "..."
 # 基线
 python3 scripts/collab_demo.py --case divide --root /tmp/dsh-divide-solo --solo --task "..."
+# 带 QA 审查的闭环
+python3 scripts/collab_demo.py --case cache-review --root /tmp/dsh-ws-review --review --task "..."
 ```
 
 原始数据在 `docs/collab-{divide,web}{,-solo}.json`，含每次工具调用、token、diff。

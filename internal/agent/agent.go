@@ -111,26 +111,28 @@ type Approval struct {
 
 // Run 一次任务执行。
 type Run struct {
-	ID             string               `json:"id"`
-	WorkspaceID    string               `json:"workspaceId"`
-	ConversationID string               `json:"conversationId"`
-	UserID         string               `json:"userId"`
-	OperatorKey    string               `json:"operatorKey"`
-	Permission     Permission           `json:"permission"`
-	Task           string               `json:"task"`
-	Model          string               `json:"model,omitempty"`
-	Status         Status               `json:"status"`
-	Step           int                  `json:"step"`
-	MaxSteps       int                  `json:"maxSteps"`
-	TokensIn       int                  `json:"tokensIn"`
-	TokensOut      int                  `json:"tokensOut"`
-	CostUSD        float64              `json:"costUsd"`
-	StartedAt      time.Time            `json:"startedAt"`
-	EndedAt        time.Time            `json:"endedAt"`
-	SnapshotID     string               `json:"snapshotId,omitempty"`
-	Diffs          []workspace.FileDiff `json:"diffs,omitempty"`
-	DiffTotal      int                  `json:"diffTotal"`
-	ToolCalls      []*ToolCall          `json:"toolCalls,omitempty"`
+	ID             string     `json:"id"`
+	WorkspaceID    string     `json:"workspaceId"`
+	ConversationID string     `json:"conversationId"`
+	UserID         string     `json:"userId"`
+	OperatorKey    string     `json:"operatorKey"`
+	Permission     Permission `json:"permission"`
+	// Scope 写入边界（相对路径/glob）。空表示不限。
+	Scope      Scope                `json:"scope,omitempty"`
+	Task       string               `json:"task"`
+	Model      string               `json:"model,omitempty"`
+	Status     Status               `json:"status"`
+	Step       int                  `json:"step"`
+	MaxSteps   int                  `json:"maxSteps"`
+	TokensIn   int                  `json:"tokensIn"`
+	TokensOut  int                  `json:"tokensOut"`
+	CostUSD    float64              `json:"costUsd"`
+	StartedAt  time.Time            `json:"startedAt"`
+	EndedAt    time.Time            `json:"endedAt"`
+	SnapshotID string               `json:"snapshotId,omitempty"`
+	Diffs      []workspace.FileDiff `json:"diffs,omitempty"`
+	DiffTotal  int                  `json:"diffTotal"`
+	ToolCalls  []*ToolCall          `json:"toolCalls,omitempty"`
 	// approved 本次 Run 内已批准的同类命令（scope=run），避免每条命令都打扰用户
 	approved map[string]bool
 	Summary  string  `json:"summary,omitempty"`

@@ -36,6 +36,8 @@ type Agent struct {
 	Artifact string `json:"artifact,omitempty"`
 	// Permission 执行权限（readonly / approval / full）；空表示按场景默认。
 	Permission string `json:"permission,omitempty"`
+	// Scope 允许改的路径；空表示不限。
+	Scope []string `json:"scope,omitempty"`
 }
 
 // Scenarios 全部内置场景。新增场景只需在这里加一项。

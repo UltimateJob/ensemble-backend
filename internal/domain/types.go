@@ -124,6 +124,8 @@ type ConvAgent struct {
 	// Permission 该角色的执行权限：readonly / approval / full。
 	// 空值表示未设置，由工作层按场景默认（approval）。
 	Permission string `json:"permission,omitempty"`
+	// Scope 该角色允许写的路径（如 "web/" 或 "*.go"）。空表示不限。
+	Scope []string `json:"scope,omitempty"`
 }
 
 // Message 一条消息。Agent 消息带产物引用。
