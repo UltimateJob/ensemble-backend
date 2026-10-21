@@ -380,7 +380,7 @@
       artifacts.length = 0;
       msgs.forEach(m => {
         const agent = state.agents.find(a => a.name === m.agent);
-        addMsg({
+        const el = addMsg({
           name: m.role === 'user' ? (state.user && state.user.name) || '你' : (m.agent || 'Agent'),
           title: agent ? agent.title : '',
           color: agent ? agent.color : null,
@@ -388,6 +388,10 @@
           me: m.role === 'user',
           time: m.createdAt,
         });
+        // 历史里若在 @用户，恢复「在问你」标记
+        if (m.role === 'assistant' && /@用户|@你/.test(m.content || '')) {
+          el.classList.add('asking');
+        }
         // 有产物定义的角色，历史里也补一张文件卡
         if (agent && agent.artifact && m.role === 'assistant') {
           addArtifact(agent.name, agent.artifact, m.content);
