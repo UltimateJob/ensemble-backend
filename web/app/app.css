@@ -436,6 +436,40 @@ a{color:inherit;text-decoration:none}
 .scene-m .av:first-child{margin-left:0}
 .scenes-foot{display:flex;gap:9px;justify-content:center;margin-top:26px}
 
+/* 会话操作菜单 */
+.conv{ position:relative }
+.conv-more{
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  width:24px; height:24px; border-radius:6px;
+  display:none; place-items:center; color:var(--tx-4);
+  background:rgba(255,255,255,.9);
+}
+.conv:hover .conv-more, .conv.on .conv-more{ display:grid }
+.conv-more:hover{ background:#fff; color:var(--tx); box-shadow:var(--sh-1) }
+
+.ctx-mask{
+  position:fixed; inset:0; z-index:120; display:none;
+}
+.ctx-mask.on{ display:block }
+.ctx-menu{
+  position:fixed; z-index:121; display:none;
+  min-width:150px; padding:6px;
+  background:rgba(255,255,255,.98); backdrop-filter:blur(24px);
+  border:1px solid var(--line); border-radius:12px;
+  box-shadow:var(--sh-3), inset 0 1px 0 #fff;
+  animation:ctxIn .16s cubic-bezier(.2,.8,.2,1) both;
+}
+.ctx-menu.on{ display:block }
+@keyframes ctxIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+.ctx-menu button{
+  display:flex; align-items:center; gap:9px; width:100%;
+  padding:8px 10px; border-radius:8px;
+  font-size:12.5px; color:var(--tx-2); text-align:left;
+}
+.ctx-menu button:hover{ background:rgba(120,130,170,.1); color:var(--tx) }
+.ctx-menu button.danger{ color:var(--bad) }
+.ctx-menu button.danger:hover{ background:rgba(220,38,38,.07) }
+
 /* ---------- 移动端抽屉 ---------- */
 .only-mobile{display:none}
 .drawer-mask{

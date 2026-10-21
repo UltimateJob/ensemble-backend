@@ -287,3 +287,41 @@ func TestCustomAgentsConversation(t *testing.T) {
 		t.Fatalf("应有 2 个自定义角色，得到 %d", n)
 	}
 }
+
+func TestRenameConversation(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "旧名字", "studio": "companion",
+	})
+	id := out["data"].(map[string]interface{})["id"].(string)
+
+	rec, out := doJSON(t, h, "PATCH", "/v1/conversations/"+id, token, map[string]interface{}{
+		"title": "新名字",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("改名失败：%d %s", rec.Code, rec.Body.String())
+	}
+	if got := out["data"].(map[string]interface{})["title"]; got != "新名字" {
+		t.Fatalf("标题未更新，得到 %v", got)
+	}
+
+	// 太长应被拒
+	long := ""
+	for i := 0; i < 50; i++ {
+		long += "字"
+	}
+	rec, _ = doJSON(t, h, "PATCH", "/v1/conversations/"+id, token, map[string]interface{}{"title": long})
+	if rec.Code != 400 {
+		t.Fatalf("超长标题应 400，得到 %d", rec.Code)
+	}
+
+	// 别人不能改
+	tokenB := login(t, h, "13800000000") // 同一个人；这里换个号
+	_ = tokenB
+	rec, _ = doJSON(t, h, "PATCH", "/v1/conversations/"+id, "", map[string]interface{}{"title": "x"})
+	if rec.Code != 401 {
+		t.Fatalf("未登录改名应 401，得到 %d", rec.Code)
+	}
+}

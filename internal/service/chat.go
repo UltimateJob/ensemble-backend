@@ -69,6 +69,11 @@ func (c *Chat) Get(userID, convID string) (*domain.Conversation, error) {
 	return conv, nil
 }
 
+// Update 保存会话改动（改名、换模型）。
+func (c *Chat) Update(conv *domain.Conversation) error {
+	return c.store.UpdateConv(conv)
+}
+
 func (c *Chat) Messages(userID, convID string, limit int) ([]*domain.Message, error) {
 	if _, err := c.Get(userID, convID); err != nil {
 		return nil, err

@@ -341,6 +341,32 @@ async function run() {
       ok(`点了之后拉回更早的消息（${firstPage} → ${afterMore}）`, afterMore > firstPage);
     }
 
+    // ---- 会话操作：重命名 ----
+    const renameTarget = await cdp.eval('document.querySelector(".conv").dataset.id');
+    const oldTitle = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
+
+    ok('会话项带 ⋯ 按钮', await cdp.eval('!!document.querySelector(".conv-more")'));
+
+    await cdp.eval(`(() => {
+      const btn = document.querySelector('.conv[data-id="${renameTarget}"] .conv-more');
+      btn.click();
+    })()`);
+    await cdp.waitFor('document.querySelector("#ctxMenu").classList.contains("on")', 5000, '菜单打开');
+    ok('⋯ 能打开操作菜单', true);
+
+    await cdp.eval('window.prompt = () => "改名后的群"');
+    await cdp.eval('document.querySelector("#ctxMenu button[data-act=rename]").click()');
+    await sleep(1200);
+
+    const newTitle = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
+    ok(`重命名生效（${oldTitle} → ${newTitle}）`, newTitle === '改名后的群');
+
+    // 重新加载后仍是新名字（确认已落库）
+    await cdp.send('Page.reload');
+    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '刷新后');
+    const persisted = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
+    ok('重命名已持久化', persisted === '改名后的群');
+
     // ---- 刷新后仍在（持久化 + 会话恢复）----
     const convId = await cdp.eval('window.__e2eConvId = document.querySelector(".conv").dataset.id; window.__e2eConvId');
     await cdp.send('Page.reload');

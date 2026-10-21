@@ -64,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/conversations", s.handleListConvs)
 	userMux.HandleFunc("POST /v1/conversations", s.handleCreateConv)
 	userMux.HandleFunc("GET /v1/conversations/{id}", s.handleGetConv)
+	userMux.HandleFunc("PATCH /v1/conversations/{id}", s.handleUpdateConv)
 	userMux.HandleFunc("DELETE /v1/conversations/{id}", s.handleDeleteConv)
 	userMux.HandleFunc("GET /v1/conversations/{id}/messages", s.handleListMessages)
 	userMux.HandleFunc("POST /v1/conversations/{id}/messages", s.handleSendMessage)

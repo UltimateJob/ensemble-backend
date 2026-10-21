@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>合奏 Ensemble</title>
-<link rel="stylesheet" href="app.css?v=17">
+<link rel="stylesheet" href="app.css?v=18">
 </head>
 <body>
 
@@ -236,9 +236,20 @@
   </div>
 </div>
 
+<!-- 会话操作菜单 -->
+<div class="ctx-mask" id="ctxMask"></div>
+<div class="ctx-menu" id="ctxMenu">
+  <button data-act="rename">
+    <i data-ic="pencil" data-size="14"></i>重命名
+  </button>
+  <button data-act="delete" class="danger">
+    <i data-ic="trash" data-size="14"></i>删除群聊
+  </button>
+</div>
+
 <div id="toast"></div>
 
 <script src="icons.js"></script>
-<script src="app.js?v=22"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>

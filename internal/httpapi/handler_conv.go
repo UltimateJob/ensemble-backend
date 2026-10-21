@@ -46,6 +46,39 @@ func (s *Server) handleGetConv(w http.ResponseWriter, r *http.Request) {
 	ok(w, conv)
 }
 
+// handleUpdateConv 改名或换默认模型。
+func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
+	u, _ := UserFrom(r.Context())
+	conv, err := s.chat.Get(u.ID, r.PathValue("id"))
+	if err != nil {
+		notFound(w, "会话不存在")
+		return
+	}
+	var req struct {
+		Title string `json:"title"`
+		Model string `json:"model"`
+	}
+	if err := decode(r, &req); err != nil {
+		badRequest(w, "请求格式不正确")
+		return
+	}
+	if req.Title != "" {
+		if len([]rune(req.Title)) > 40 {
+			badRequest(w, "群名太长（最多 40 字）")
+			return
+		}
+		conv.Title = req.Title
+	}
+	if req.Model != "" {
+		conv.Model = req.Model
+	}
+	if err := s.chat.Update(conv); err != nil {
+		serverErr(w, err.Error())
+		return
+	}
+	ok(w, conv)
+}
+
 func (s *Server) handleDeleteConv(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
 	if _, err := s.chat.Get(u.ID, r.PathValue("id")); err != nil {

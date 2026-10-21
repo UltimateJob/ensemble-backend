@@ -346,11 +346,22 @@
           <div class="conv-meta">${esc(sc.name || (c.agents && c.agents.length ? '自定义群' : c.studio) || '自定义')} · ${(c.agents || []).length || (c.members || []).length || (sc.agents || []).length} 个角色</div>
         </div>
         <div class="conv-time">${agoStr(c.updatedAt || c.createdAt).replace('前', '')}</div>
+        <button class="conv-more" data-more="${c.id}" title="更多">
+          ${icon('ellipsis', 14)}
+        </button>
       </div>`;
     }).join('');
 
     $$('.conv').forEach(el => {
-      el.addEventListener('click', () => openConv(el.dataset.id));
+      el.addEventListener('click', e => {
+        const more = e.target.closest('[data-more]');
+        if (more) {
+          e.stopPropagation();
+          openCtxMenu(more.dataset.more, more.getBoundingClientRect());
+          return;
+        }
+        openConv(el.dataset.id);
+      });
     });
   }
 
@@ -850,6 +861,86 @@
     $('#msgWrap').innerHTML = '';
     addSysNote('显示已清空（服务端记录保留）');
   });
+
+  /* ---------------- 会话右键菜单 ---------------- */
+  let ctxConvId = null;
+
+  function openCtxMenu(id, rect) {
+    ctxConvId = id;
+    const menu = $('#ctxMenu');
+    const mask = $('#ctxMask');
+    menu.classList.add('on');
+    mask.classList.add('on');
+    // 贴着按钮右侧展开，超出视口就翻到左边
+    const w = 150;
+    let left = rect.right + 4;
+    if (left + w > window.innerWidth - 8) left = rect.left - w - 4;
+    const top = Math.min(rect.top, window.innerHeight - 120);
+    menu.style.left = Math.max(8, left) + 'px';
+    menu.style.top = Math.max(8, top) + 'px';
+  }
+
+  function closeCtxMenu() {
+    $('#ctxMenu').classList.remove('on');
+    $('#ctxMask').classList.remove('on');
+    ctxConvId = null;
+  }
+
+  $('#ctxMask').addEventListener('click', closeCtxMenu);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCtxMenu(); });
+
+  $$('#ctxMenu button').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const act = btn.dataset.act;
+      const id = ctxConvId;
+      closeCtxMenu();
+      if (!id) return;
+      const conv = state.convs.find(c => c.id === id);
+      if (!conv) return;
+
+      if (act === 'rename') {
+        const name = prompt('新的群名', conv.title);
+        if (!name || name === conv.title) return;
+        try {
+          await api('/v1/conversations/' + id, { method: 'PATCH', body: { title: name } });
+          await loadConvs();
+          if (state.cur && state.cur.id === id) {
+            state.cur.title = name;
+            $('#chatTitle').textContent = name;
+            $('#crumbName').textContent = name;
+          }
+          toast('已重命名');
+        } catch (e) { toast(e.message); }
+        return;
+      }
+
+      if (act === 'delete') {
+        UI_confirm_delete(conv);
+      }
+    });
+  });
+
+  function UI_confirm_delete(conv) {
+    // 复用一个简易确认弹层
+    if (!confirm(`删除「${conv.title}」？群里的消息会一并清掉，不可恢复。`)) return;
+    api('/v1/conversations/' + conv.id, { method: 'DELETE' })
+      .then(async () => {
+        if (state.cur && state.cur.id === conv.id) {
+          state.cur = null;
+          $('#msgWrap').innerHTML = '';
+          $('#msgs').style.display = 'none';
+          $('#composer').style.display = 'none';
+          $('#chatHead').style.display = 'none';
+          $('#chatEmpty').style.display = 'flex';
+          $('#crumbName').textContent = '—';
+          state.agents = [];
+          renderMembers();
+        }
+        await loadConvs();
+        toast('已删除');
+      })
+      .catch(e => toast(e.message));
+  }
 
   /* ---------------- 场景 ---------------- */
   const ICONS = {
