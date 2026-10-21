@@ -112,3 +112,57 @@ func TestReviewCannotWrite(t *testing.T) {
 		t.Fatal("audit run must not create files")
 	}
 }
+
+// 链汇总：主 Run 的 Chain 要包含复审轮的 token / 步数 / 耗时。
+func TestChainRollupIncludesReview(t *testing.T) {
+	root := t.TempDir()
+	m := NewManager()
+	m.SetModel(&fakeModel{steps: []fakeStep{{text: "复审：没问题。"}}})
+	ws, err := m.BindWorkspace("u1", "c1", root, "chain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := &fakeModel{steps: []fakeStep{
+		{calls: []domain.ToolCall{{ID: "c1", Name: "write", Arguments: `{"path":"a.go","content":"package a"}`}}},
+		{text: "写好了。"},
+	}}
+	r, err := m.Start(context.Background(), fm, StartRequest{
+		WorkspaceID: ws.ID, UserID: "u1", Permission: PermissionApproval,
+		Task: "写文件", AutoReview: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitRun(t, m, r.ID)
+
+	// 等复审跑完并回填
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		revID := r.ReviewRunID
+		var rev *Run
+		if revID != "" {
+			rev = m.runs[revID]
+		}
+		m.mu.Unlock()
+		if rev != nil && rev.Status == StatusDone {
+			break
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r.Chain == nil {
+		t.Fatal("chain not rolled up")
+	}
+	if r.Chain.Runs < 2 {
+		t.Fatalf("chain should include review run, got %d runs", r.Chain.Runs)
+	}
+	if r.Chain.TokensIn == 0 || r.Chain.TokensOut == 0 {
+		t.Fatalf("chain tokens empty: %+v", r.Chain)
+	}
+	if r.Chain.Steps < 2 {
+		t.Fatalf("chain steps=%d", r.Chain.Steps)
+	}
+}

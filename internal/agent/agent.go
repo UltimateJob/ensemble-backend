@@ -129,21 +129,25 @@ type Run struct {
 	// AutoReview 成功后自动起一轮只读复审
 	AutoReview bool `json:"autoReview,omitempty"`
 	// ReviewRunID 指向自动复审的 Run
-	ReviewRunID string               `json:"reviewRunId,omitempty"`
-	Task        string               `json:"task"`
-	Model       string               `json:"model,omitempty"`
-	Status      Status               `json:"status"`
-	Step        int                  `json:"step"`
-	MaxSteps    int                  `json:"maxSteps"`
-	TokensIn    int                  `json:"tokensIn"`
-	TokensOut   int                  `json:"tokensOut"`
-	CostUSD     float64              `json:"costUsd"`
-	StartedAt   time.Time            `json:"startedAt"`
-	EndedAt     time.Time            `json:"endedAt"`
-	SnapshotID  string               `json:"snapshotId,omitempty"`
-	Diffs       []workspace.FileDiff `json:"diffs,omitempty"`
-	DiffTotal   int                  `json:"diffTotal"`
-	ToolCalls   []*ToolCall          `json:"toolCalls,omitempty"`
+	ReviewRunID string `json:"reviewRunId,omitempty"`
+	// ParentRunID 复审轮指回主 Run
+	ParentRunID string `json:"parentRunId,omitempty"`
+	// Chain 整条链的汇总（主 Run + 复审 + …）
+	Chain      *Chain               `json:"chain,omitempty"`
+	Task       string               `json:"task"`
+	Model      string               `json:"model,omitempty"`
+	Status     Status               `json:"status"`
+	Step       int                  `json:"step"`
+	MaxSteps   int                  `json:"maxSteps"`
+	TokensIn   int                  `json:"tokensIn"`
+	TokensOut  int                  `json:"tokensOut"`
+	CostUSD    float64              `json:"costUsd"`
+	StartedAt  time.Time            `json:"startedAt"`
+	EndedAt    time.Time            `json:"endedAt"`
+	SnapshotID string               `json:"snapshotId,omitempty"`
+	Diffs      []workspace.FileDiff `json:"diffs,omitempty"`
+	DiffTotal  int                  `json:"diffTotal"`
+	ToolCalls  []*ToolCall          `json:"toolCalls,omitempty"`
 	// approved 本次 Run 内已批准的同类命令（scope=run），避免每条命令都打扰用户
 	approved map[string]bool
 	Summary  string  `json:"summary,omitempty"`
@@ -672,4 +676,67 @@ func (m *Manager) SaveAsync() {
 		return
 	}
 	go func() { _ = m.Save() }()
+}
+
+// Chain 一条任务链的合计账。
+//
+// 用户问的是「这次一共花了多少」，不是「主 Run 花了多少」。
+// 复审、修复都是这条链的一部分，必须算进去。
+type Chain struct {
+	Runs      int     `json:"runs"`
+	TokensIn  int     `json:"tokensIn"`
+	TokensOut int     `json:"tokensOut"`
+	Seconds   float64 `json:"seconds"`
+	ToolCalls int     `json:"toolCalls"`
+	Steps     int     `json:"steps"`
+	DiffFiles int     `json:"diffFiles"`
+}
+
+// rollupChainLocked 把整条链的用量汇总到根 Run 上。调用方持锁。
+func (m *Manager) rollupChainLocked(root *Run) {
+	if root == nil {
+		return
+	}
+	chain := &Chain{}
+	seen := map[string]bool{}
+	var walk func(r *Run)
+	walk = func(r *Run) {
+		if r == nil || seen[r.ID] {
+			return
+		}
+		seen[r.ID] = true
+		chain.Runs++
+		chain.TokensIn += r.TokensIn
+		chain.TokensOut += r.TokensOut
+		chain.ToolCalls += len(r.ToolCalls)
+		chain.Steps += r.Step
+		chain.DiffFiles += len(r.Diffs)
+		if !r.StartedAt.IsZero() {
+			end := r.EndedAt
+			if end.IsZero() {
+				end = time.Now()
+			}
+			if d := end.Sub(r.StartedAt).Seconds(); d > 0 {
+				chain.Seconds += d
+			}
+		}
+		if r.ReviewRunID != "" {
+			walk(m.runs[r.ReviewRunID])
+		}
+	}
+	walk(root)
+	root.Chain = chain
+}
+
+// chainRootLocked 沿 ParentRunID 找到链的起点。调用方持锁。
+func (m *Manager) chainRootLocked(r *Run) *Run {
+	cur := r
+	for i := 0; i < 8 && cur != nil && cur.ParentRunID != ""; i++ {
+		next, ok := m.runs[cur.ParentRunID]
+		if !ok {
+			break
+		}
+		cur = next
+	}
+	return cur
 }

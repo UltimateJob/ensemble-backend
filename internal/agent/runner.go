@@ -206,6 +206,8 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 				delete(m.writers, fp)
 			}
 		}
+		// 把整条链的合计账回填到根 Run（主 Run 结束时=自己；复审结束时=主 Run）
+		m.rollupChainLocked(m.chainRootLocked(r))
 		m.mu.Unlock()
 		if r.cancel != nil {
 			r.cancel()
@@ -820,6 +822,7 @@ func (m *Manager) startReview(main *Run, w *Workspace) {
 	}
 
 	review, err := m.Start(context.Background(), md, StartRequest{
+		// 复审挂回主 Run，最后汇总时能顺着 ParentRunID 找到整条链
 		WorkspaceID:    w.ID,
 		ConversationID: convID,
 		UserID:         userID,
@@ -840,6 +843,9 @@ func (m *Manager) startReview(main *Run, w *Workspace) {
 	}
 	m.mu.Lock()
 	main.ReviewRunID = review.ID
+	if rr, ok := m.runs[review.ID]; ok {
+		rr.ParentRunID = main.ID
+	}
 	m.mu.Unlock()
 	m.emit(main, "review.started", map[string]any{"reviewRunId": review.ID})
 }
