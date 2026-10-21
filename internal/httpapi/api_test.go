@@ -670,3 +670,36 @@ func TestAdminOps(t *testing.T) {
 		t.Fatalf("无令牌应 401，得到 %d", rec.Code)
 	}
 }
+
+// 协作者列表要返回真实姓名和真实在线状态
+func TestCollaboratorsShowRealNames(t *testing.T) {
+	_, h := newTestServer(t)
+	owner := login(t, h, "13800000000")
+
+	_, out := doJSON(t, h, "POST", "/v1/conversations", owner, map[string]interface{}{
+		"title": "协作", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	// 加一个协作者
+	rec, _ := doJSON(t, h, "POST", "/v1/conversations/"+convID+"/collaborators", owner,
+		map[string]interface{}{"target": "13800000000"})
+	if rec.Code != 200 && rec.Code != 201 {
+		t.Fatalf("加协作者失败：%d", rec.Code)
+	}
+
+	_, out = doJSON(t, h, "GET", "/v1/conversations/"+convID+"/collaborators", owner, nil)
+	people := out["data"].([]interface{})
+	if len(people) == 0 {
+		t.Fatal("协作者列表不应为空")
+	}
+	for _, raw := range people {
+		p := raw.(map[string]interface{})
+		if p["name"] == "" || p["name"] == nil {
+			t.Fatalf("协作者应带真实姓名，得到 %v", p)
+		}
+		if _, ok := p["online"]; !ok {
+			t.Fatal("协作者应带 online 字段——界面上的绿点不能是写死的")
+		}
+	}
+}

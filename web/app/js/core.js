@@ -22,6 +22,7 @@ export const state = {
   convs: [],
   cur: null,
   agents: [],
+  people: [],        // 群成员（含协作者的真实姓名与在线状态）
   busy: false,
   pick: null,
   oldestID: null,

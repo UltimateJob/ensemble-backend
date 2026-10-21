@@ -85,6 +85,13 @@ export async function openConv(id) {
     ? conv.agents
     : (sc.agents || []);
 
+  // 协作者的真实姓名和在线状态（renderMembers 要用）
+  try {
+    state.people = await api('/v1/conversations/' + conv.id + '/collaborators');
+  } catch (e) {
+    state.people = [];
+  }
+
   renderConvs();
   if (drawer.classList.contains('on')) closeDrawer();
   $('#chatEmpty').style.display = 'none';
@@ -296,26 +303,28 @@ export function renderMembers() {
         <div class="mn">${esc(a.name)}</div>
         <div class="mt">${esc(a.title)}</div>
       </div>
-      <span class="st"></span>
     </div>`).join('');
 
-  // 协作者：后端一直支持，之前界面上没有入口
-  const collabs = (conv && conv.collaborators) || [];
-  const collabRows = collabs.map(uid => `
-    <div class="member" data-collab="${uid}">
-      ${makeAv('人', '#4F46E5', 'av-sm')}
+  // 协作者：用 /collaborators 返回的真实姓名和在线状态。
+  // 之前显示 uid 末六位（谁也不知道那是谁），绿点也是写死的。
+  const people = state.people || [];
+  const others = people.filter(p => p.role === 'member');
+  const collabRows = others.map(p => `
+    <div class="member">
+      ${makeAv(p.name || '人', '#4F46E5', 'av-sm')}
       <div>
-        <div class="mn">协作者</div>
-        <div class="mt mono">${esc(uid.slice(-6))}</div>
+        <div class="mn">${esc(p.name || p.id.slice(-6))}</div>
+        <div class="mt">${p.online ? '在线' : '离线'}</div>
       </div>
-      ${iAmOwner ? `<button class="collab-x" data-rm="${uid}" title="移除协作者">×</button>` : ''}
+      ${p.online ? '<span class="st"></span>' : '<span class="st off"></span>'}
+      ${iAmOwner ? `<button class="collab-x" data-rm="${p.id}" title="移除协作者">×</button>` : ''}
     </div>`).join('');
 
   box.innerHTML = agentRows + (collabRows
-    ? `<div class="member-sep">协作者 · ${collabs.length}</div>${collabRows}`
+    ? `<div class="member-sep">协作者 · ${others.length}</div>${collabRows}`
     : '');
 
-  $('#memberCount').textContent = state.agents.length + collabs.length;
+  $('#memberCount').textContent = state.agents.length + others.length;
   $('#topAvatars').innerHTML = state.agents.slice(0, 5)
     .map(a => makeAv(a.name, a.color, 'av-sm')).join('');
 

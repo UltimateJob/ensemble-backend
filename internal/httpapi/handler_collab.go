@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
@@ -93,17 +94,25 @@ func (s *Server) handleListCollaborators(w http.ResponseWriter, r *http.Request)
 		notFound(w, "会话不存在")
 		return
 	}
-	people := make([]map[string]string, 0, len(conv.Collaborators)+1)
-	if owner, ok := s.store.GetUser(conv.UserID); ok {
-		people = append(people, map[string]string{
-			"id": owner.ID, "name": owner.Name, "role": "owner",
+	// online 是真实判断：5 分钟内有请求才算在线。
+	// 之前界面上的绿点是写死的，等于骗人。
+	const onlineWindow = 5 * time.Minute
+
+	people := make([]map[string]interface{}, 0, len(conv.Collaborators)+1)
+	add := func(usr *domain.User, role string) {
+		people = append(people, map[string]interface{}{
+			"id":     usr.ID,
+			"name":   usr.Name,
+			"role":   role,
+			"online": time.Since(usr.LastSeen) < onlineWindow,
 		})
+	}
+	if owner, ok := s.store.GetUser(conv.UserID); ok {
+		add(owner, "owner")
 	}
 	for _, id := range conv.Collaborators {
 		if usr, ok := s.store.GetUser(id); ok {
-			people = append(people, map[string]string{
-				"id": usr.ID, "name": usr.Name, "role": "member",
-			})
+			add(usr, "member")
 		}
 	}
 	ok(w, people)
