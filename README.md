@@ -253,7 +253,8 @@ type Provider interface {
 | [docs/decisions.md](docs/decisions.md) | 为什么这么设计 |
 | [docs/walkthrough.md](docs/walkthrough.md) | 怎么发现「用起来卡」 |
 | [docs/hacking.md](docs/hacking.md) | 想改点什么，改哪 |
-| [docs/handoff.md](docs/handoff.md) | 接手的人需要知道什么：验证过什么、没验证什么、下一步做什么 |
+| [docs/handoff.md](docs/handoff.md) | 接手的人需要知道什么：验证过什么、没验证什么 |
+| [docs/roadmap.md](docs/roadmap.md) | 已知缺口怎么补：改哪、多久、会碰坏什么 |
 
 ## 想改点什么
 

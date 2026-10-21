@@ -63,4 +63,4 @@ CI 跑单测和三套浏览器测试。
 - **没有账号找回**
 - **移动端没在真机上验过**：只做了 CDP 设备模拟
 
-完整清单在 [docs/handoff.md](docs/handoff.md)。
+完整清单在 [docs/handoff.md](docs/handoff.md)，怎么补在 [docs/roadmap.md](docs/roadmap.md)。
