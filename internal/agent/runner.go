@@ -134,9 +134,12 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 	}
 
 	m.mu.Lock()
-	if busy := conflictLocked(m.active[w.ID], req.Scope); busy != nil {
+	// 并行准入：允许最多 3 个 Run 同时跑。
+	// 不再按 scope 拒绝——scope 只能表达「大致边界」，
+	// 真正要防的是「两个 Run 同时写同一个文件」，那由文件级 claimFile 兜。
+	if n := len(m.active[w.ID]); n >= maxParallelRuns {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("%w: scope 与运行中的 %s 重叠", ErrRunBusy, busy.ID)
+		return nil, fmt.Errorf("%w: 工作区已有 %d 个任务在跑", ErrRunBusy, n)
 	}
 	// Run 的生命周期不能绑定在 HTTP 请求上：请求一返回 ctx 就取消，
 	// 任务会被瞬间 abort。这里用独立的超时 context，Abort 走 cancel。
@@ -179,6 +182,12 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		}
 		if len(m.active[w.ID]) == 0 {
 			delete(m.active, w.ID)
+		}
+		// 注意：这里已经持有 m.mu，直接清理，不能再调 releaseFiles（会二次加锁）
+		for fp, owner := range m.writers {
+			if owner == r.ID {
+				delete(m.writers, fp)
+			}
 		}
 		m.mu.Unlock()
 		if r.cancel != nil {
@@ -423,6 +432,19 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 
 	if !allowed {
 		return deny(reason)
+	}
+
+	// 文件级互斥：两个并行 Run 可以改不同文件，但不能同时改同一个。
+	// 短锁——占上、写完立刻放，避免 A 持有到 Run 结束把 B 饿死。
+	var claimedPath string
+	if call.Name == ToolWrite || call.Name == ToolEdit {
+		if p := argPath(call.Arguments); p != "" {
+			if owner := m.claimFile(p, r.ID); owner != "" {
+				return deny("文件 " + p + " 正被另一个任务写入。稍等一步再改")
+			}
+			claimedPath = p
+			defer m.releaseFile(claimedPath, r.ID)
+		}
 	}
 
 	// 写入边界：只读权限已经在上面挡掉了；这里挡的是「权限够但越界」。

@@ -62,6 +62,8 @@ const (
 	DefaultRunTimeout  = 10 * time.Minute
 	ApprovalWait       = 10 * time.Minute
 	MaxToolOutputBytes = 8 << 10 // 回填给模型的结果上限
+	// maxParallelRuns 同一工作区允许同时跑的任务数
+	maxParallelRuns = 3
 )
 
 var (
@@ -191,7 +193,11 @@ type Manager struct {
 	subs       map[string][]chan Event
 	// 同一工作区允许并行 Run，但 scope 不能重叠（写入冲突的根因）
 	active map[string][]*Run
-	seq    int
+	// writers 记录「哪个 Run 最近写了哪个文件」，用于文件级互斥。
+	// scope 只能挡住「明显不该并行」的组合；两个 Run 都合法但会改同一文件时，
+	// 靠这张表让后来的那个先失败、重读、再改，而不是静默覆盖。
+	writers map[string]string
+	seq     int
 	// usage 可选的用量上报
 	usage UsageRecorder
 }
@@ -205,6 +211,7 @@ func NewManager() *Manager {
 		snapshots:  make(map[string]*workspace.Snapshot),
 		subs:       make(map[string][]chan Event),
 		active:     make(map[string][]*Run),
+		writers:    make(map[string]string),
 	}
 }
 
@@ -571,4 +578,42 @@ func scopeTokensOverlap(x, y string) bool {
 		return true
 	}
 	return false
+}
+
+// claimFile 尝试占用一个文件的写权（短锁，写完立刻 release）。
+//
+// 返回空字符串表示可以写；否则返回占用者（另一个 Run 的 ID）。
+// 它防的是「两个 Run 同时写同一个文件」的撕裂，不防「先后覆盖」——
+// 后者由模型自己的 read-before-edit 习惯和 scope 兜。
+func (m *Manager) claimFile(path, runID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if owner, ok := m.writers[path]; ok && owner != runID {
+		return owner
+	}
+	m.writers[path] = runID
+	return ""
+}
+
+// releaseFile 释放单个文件（短锁）。
+//
+// 长锁会活锁：A 持有到 Run 结束，B 每步都撞墙。
+// 写入本身是原子的（temp+rename），只需要盖住「并发写」这一段。
+func (m *Manager) releaseFile(path, runID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if owner, ok := m.writers[path]; ok && owner == runID {
+		delete(m.writers, path)
+	}
+}
+
+// releaseFiles 在 Run 结束时清掉它占用的文件。
+func (m *Manager) releaseFiles(runID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for p, owner := range m.writers {
+		if owner == runID {
+			delete(m.writers, p)
+		}
+	}
 }
