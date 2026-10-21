@@ -802,3 +802,31 @@ func TestMemorySnapshotAndClear(t *testing.T) {
 		t.Fatalf("空记忆应返回空数组，得到 %v", data)
 	}
 }
+
+func TestPolishAgentValidationAndLibraryFallback(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	rec, _ := doJSON(t, h, "POST", "/v1/agents/polish", token, map[string]interface{}{
+		"name": "", "source": "火影忍者", "kind": "anime",
+	})
+	if rec.Code != 400 {
+		t.Fatalf("空名字应返回 400，得到 %d", rec.Code)
+	}
+
+	// 测试上游是 mock，解析不出 JSON 时应回退到本地角色库。
+	rec, out := doJSON(t, h, "POST", "/v1/agents/polish", token, map[string]interface{}{
+		"name": "雪之下雪乃", "source": "", "kind": "anime",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("本地库命中应返回 200，得到 %d %s", rec.Code, rec.Body.String())
+	}
+	data := out["data"].(map[string]interface{})
+	if data["found"] != true {
+		t.Fatalf("本地库命中应 found=true：%v", data)
+	}
+	agent := data["agent"].(map[string]interface{})
+	if agent["name"] != "雪之下雪乃" || agent["prompt"] == "" {
+		t.Fatalf("回退角色不完整：%v", agent)
+	}
+}

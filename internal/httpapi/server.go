@@ -68,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
 	userMux.HandleFunc("POST /v1/events", s.handleTrack)
 	userMux.HandleFunc("POST /v1/agents/draft", s.handleDraftAgent)
+	userMux.HandleFunc("POST /v1/agents/polish", s.handlePolishAgent)
 	userMux.HandleFunc("GET /v1/agents", s.handleListAgents)
 	userMux.HandleFunc("POST /v1/agents", s.handleCreateAgent)
 	userMux.HandleFunc("PATCH /v1/agents/{id}", s.handleUpdateAgent)

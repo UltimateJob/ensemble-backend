@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
@@ -127,6 +128,30 @@ func (s *Server) handleDraftAgent(w http.ResponseWriter, r *http.Request) {
 		"color":  agent.Color,
 		"prompt": agent.Prompt,
 	})
+}
+
+// handlePolishAgent 检索并润色已有角色/公众人物。
+func (s *Server) handlePolishAgent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name   string `json:"name"`
+		Source string `json:"source"`
+		Kind   string `json:"kind"`
+		Note   string `json:"note"`
+	}
+	if err := decode(r, &req); err != nil {
+		badRequest(w, "请求格式不正确")
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		badRequest(w, "请先填写角色名")
+		return
+	}
+	res, err := s.drafter.Polish(r.Context(), req.Name, req.Source, req.Kind, req.Note)
+	if err != nil {
+		serverErr(w, err.Error())
+		return
+	}
+	ok(w, res)
 }
 
 // handleScenarios 列出所有内置场景。
