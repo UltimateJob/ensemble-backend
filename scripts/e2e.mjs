@@ -377,6 +377,16 @@ async function run() {
       ok(`点了之后拉回更早的消息（${firstPage} → ${afterMore}）`, afterMore > firstPage);
     }
 
+    // ---- 关页保护 ----
+    // 只在「一轮正在说」时拦一下。空闲时拦人很烦。
+    // 注意：CDP 的导航不触发 beforeunload（浏览器要求真实用户交互），
+    // 这里验证的是事件返回值——dispatchEvent 返回 false 表示被 preventDefault。
+    const idleBlocked = await cdp.eval(`(() => {
+      const e = new Event('beforeunload', { cancelable: true });
+      return !window.dispatchEvent(e);
+    })()`);
+    ok('空闲时关页面不拦人', idleBlocked === false);
+
     // ---- 断网提示 ----
     // 断网时界面必须说话，否则用户点了发送没反应会以为产品坏了
     await cdp.send('Network.enable');

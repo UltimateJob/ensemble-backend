@@ -766,6 +766,19 @@ function reflectNet(on) {
 onNetChange(reflectNet);
 reflectNet(isOnline());
 
+/* ---------------- 关页面时的保护 ---------------- */
+// 只在「一轮正在说」时拦一下。空闲时拦人很烦——
+// 大部分人只是想关个标签页。
+//
+// 浏览器不允许自定义文案，实际显示的是「确定要离开此网站吗」，
+// 所以我们能控制的只有「拦不拦」。
+window.addEventListener('beforeunload', e => {
+  if (!state.busy) return;
+  e.preventDefault();
+  e.returnValue = '';   // Chrome 需要这个才弹
+  return '';
+});
+
 // 供 chat.js 反向刷新引导清单
 window.__refreshOnboard = renderOnboard;
 window.__openScenes = openScenes;
