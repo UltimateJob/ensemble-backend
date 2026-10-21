@@ -261,6 +261,7 @@
 
     try {
       const msgs = await api('/v1/conversations/' + id + '/messages?limit=100');
+      artifacts.length = 0;
       msgs.forEach(m => {
         const agent = state.agents.find(a => a.name === m.agent);
         addMsg({
@@ -271,6 +272,11 @@
           me: m.role === 'user',
           time: m.createdAt,
         });
+        // 有产物定义的角色，历史里也补一张文件卡
+        if (agent && agent.artifact && m.role === 'assistant') {
+          addArtifact(agent.name, agent.artifact, m.content);
+          appendArtifactCard(agent.artifact, m.content.slice(0, 28));
+        }
       });
       if (!msgs.length) {
         addSysNote('群已建好，说第一句话试试');
@@ -350,6 +356,27 @@
   }
 
   const artifacts = [];
+
+  function buildArtifactCard(title, detail) {
+    const card = document.createElement('div');
+    card.className = 'artifact';
+    card.innerHTML = `
+      <span class="fi">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      </span>
+      <div>
+        <div class="an">${esc(title)}</div>
+        <div class="ad">${esc(detail || '')}</div>
+      </div>
+      <span class="go"><svg class="ic" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>`;
+    card.addEventListener('click', () => toast('打开 ' + title));
+    return card;
+  }
+
+  function appendArtifactCard(title, detail) {
+    $('#msgWrap').appendChild(buildArtifactCard(title, detail));
+  }
+
   function addArtifact(name, title, detail) {
     artifacts.push({ name, title, detail });
     $('#artifactCount').textContent = artifacts.length;
@@ -474,19 +501,7 @@
 
       if (ev.type === 'artifact') {
         addArtifact(ev.name, ev.title, ev.detail);
-        const card = document.createElement('div');
-        card.className = 'artifact';
-        card.innerHTML = `
-          <span class="fi">
-            <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-          </span>
-          <div>
-            <div class="an">${esc(ev.title)}</div>
-            <div class="ad">${esc(ev.detail || '')}</div>
-          </div>
-          <span class="go"><svg class="ic" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>`;
-        card.addEventListener('click', () => toast('打开 ' + ev.title));
-        container.appendChild(card);
+        container.appendChild(buildArtifactCard(ev.title, ev.detail));
         scrollBottom();
         return;
       }
