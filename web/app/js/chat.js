@@ -544,83 +544,27 @@ async function UI_confirm_delete(conv) {
 
 
 /* ---------------- 发送（核心） ---------------- */
-export async function send() {
-  // 上一轮还没结束就静默 return 的话，用户点了发送却毫无反应，会以为卡死了
-  if (state.busy) { toast('还在说，等这一轮结束'); return; }
-  if (!state.cur) { toast('先选一个群'); return; }
-  const ta = $('#ta');
-  const text = ta.value.trim();
-  if (!text) return;
-
-  ta.value = '';
-  ta.style.height = 'auto';
-  $('#sendBtn').disabled = true;
-  state.busy = true;
-
-  addMsg({ name: (state.user && state.user.name) || '你', text, me: true, time: new Date() });
-  scrollBottom();
-
-  renderPipeline(true);
+/**
+ * 跑一轮编排，把 SSE 事件画到界面上。
+ *
+ * send 和 kickoff 之前各有一份几乎逐行相同的解析代码，
+ * 改一处漏一处（顶栏状态就是这么漏的）。现在只有这一份。
+ *
+ * 返回本轮的收尾信息，调用方自己决定怎么复位输入框。
+ */
+export async function runRound(path, body, opts = {}) {
   const container = document.createElement('div');
   $('#msgWrap').appendChild(container);
+  renderPipeline(true);
 
-  let curAgent = null;
   let curEl = null;
   let curText = '';
 
-  try {
-    const res = await fetch(API + '/v1/conversations/' + state.cur.id + '/orchestrate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + state.token,
-      },
-      body: JSON.stringify({ content: text }),
-    });
-
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      throw new Error((j.error && j.error.message) || 'HTTP ' + res.status);
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-
-      const parts = buf.split('\n\n');
-      buf = parts.pop();
-
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith('data:')) continue;
-        let ev;
-        try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
-        handleEvent(ev);
-      }
-    }
-  } catch (e) {
-    addSysNote('出错了：' + e.message);
-  } finally {
-    state.busy = false;
-    setChatStatus('');        // 一轮结束，顶栏回到「N 个角色」
-    if (curEl) curEl.querySelector('.msg-text').classList.remove('caret');
-    markRoundEnd($('#msgWrap'));
-    scrollBottom();
-    loadConvs();
-  }
-
   function handleEvent(ev) {
     if (ev.type === 'start') {
-      curAgent = ev;
       setChatStatus(ev.name);
       curText = '';
       container.querySelectorAll('.msg.speaking').forEach(m => m.classList.remove('speaking'));
-      // 思考占位
       curEl = document.createElement('div');
       curEl.className = 'msg';
       curEl.innerHTML = `
@@ -650,11 +594,12 @@ export async function send() {
       return;
     }
 
-    if (ev.type === 'end' && curEl) {
-      curEl.classList.remove('speaking');
-      const tx = curEl.querySelector('.msg-text');
-      tx.classList.remove('caret');
-      curEl.querySelector('.msg-time').textContent = timeStr(new Date());
+    if (ev.type === 'end') {
+      if (curEl) {
+        curEl.classList.remove('speaking');
+        curEl.querySelector('.msg-text').classList.remove('caret');
+        curEl.querySelector('.msg-time').textContent = timeStr(new Date());
+      }
       pipeDone++;
       renderPipeline(false);
       return;
@@ -677,6 +622,7 @@ export async function send() {
       n.className = 'pass-note';
       n.textContent = ev.name + ' 没接话';
       container.appendChild(n);
+      scrollBottom();
       return;
     }
 
@@ -690,11 +636,89 @@ export async function send() {
       return;
     }
 
+    if (ev.type === 'quota') {
+      addSysNote('本月额度用完了 — 这一轮没人能接话，去「账户设置」看看能不能加额度');
+      return;
+    }
+
     if (ev.type === 'error') {
       addSysNote(ev.name + ' 出错了：' + ev.content);
       return;
     }
   }
+
+  try {
+    const res = await fetch(API + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + state.token,
+      },
+      body: JSON.stringify(body || {}),
+    });
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error((j.error && j.error.message) || 'HTTP ' + res.status);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith('data:')) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+        handleEvent(ev);
+      }
+    }
+  } catch (e) {
+    if (/额度/.test(e.message)) {
+      addSysNote('本月额度用完了 — 这句话先留着，加完额度再点「继续聊」');
+    } else {
+      addSysNote('出错了：' + e.message);
+    }
+  } finally {
+    state.busy = false;
+    setChatStatus('');
+    if (curEl) curEl.querySelector('.msg-text').classList.remove('caret');
+    markRoundEnd($('#msgWrap'));
+    scrollBottom();
+    loadConvs();
+    if (opts.onDone) opts.onDone();
+  }
+}
+
+export async function send() {
+  // 上一轮还没结束就静默 return 的话，用户点了发送却毫无反应，会以为卡死了
+  if (state.busy) { toast('还在说，等这一轮结束'); return; }
+  if (!state.cur) { toast('先选一个群'); return; }
+  const ta = $('#ta');
+  const text = ta.value.trim();
+  if (!text) return;
+
+  ta.value = '';
+  ta.style.height = 'auto';
+  $('#sendBtn').disabled = true;
+  state.busy = true;
+
+  addMsg({ name: (state.user && state.user.name) || '你', text, me: true, time: new Date() });
+  scrollBottom();
+
+  await runRound('/v1/conversations/' + state.cur.id + '/orchestrate', { content: text }, {
+    onDone: () => {
+      const box = $('#ta');
+      $('#sendBtn').disabled = !box || !box.value.trim();
+    },
+  });
 }
 
 /* ---------------- 自主开场 ---------------- */
@@ -702,91 +726,13 @@ export async function kickoff(convId) {
   if (state.busy) return;
   state.busy = true;
   $('#sendBtn').disabled = true;
-  const container = document.createElement('div');
-  $('#msgWrap').appendChild(container);
-  renderPipeline(true);
 
-  let curEl = null, curText = '';
-
-  try {
-    const res = await fetch(API + '/v1/conversations/' + convId + '/kickoff', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.token },
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) return;
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const parts = buf.split('\n\n');
-      buf = parts.pop();
-      for (const part of parts) {
-        const line = part.trim();
-        if (!line.startsWith('data:')) continue;
-        let ev; try { ev = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
-        if (ev.type === 'start') {
-          setChatStatus(ev.name);
-          curText = '';
-          curEl = document.createElement('div');
-          curEl.className = 'msg';
-          curEl.innerHTML = `
-            ${makeAv(ev.name, ev.color)}
-            <div class="msg-body">
-              <div class="msg-head">
-                <span class="msg-name" style="color:${ev.color}">${esc(ev.name)}</span>
-                <span class="msg-time"></span>
-              </div>
-              <div class="thinking"><i></i><i></i><i></i></div>
-              <div class="msg-text" style="display:none"></div>
-            </div>`;
-          container.appendChild(curEl);
-          curEl.classList.add('speaking');
-          scrollBottom();
-        } else if (ev.type === 'delta' && curEl) {
-          curEl.querySelector('.thinking').style.display = 'none';
-          const tx = curEl.querySelector('.msg-text');
-          tx.style.display = '';
-          curText += ev.content;
-          tx.textContent = curText;
-          tx.classList.add('caret');
-          scrollBottom();
-        } else if (ev.type === 'end' && curEl) {
-          curEl.classList.remove('speaking');
-          curEl.querySelector('.msg-text').classList.remove('caret');
-          curEl.querySelector('.msg-time').textContent = timeStr(new Date());
-          pipeDone++;
-          renderPipeline(false);
-        } else if (ev.type === 'pass') {
-          const n = document.createElement('div');
-          n.className = 'pass-note';
-          n.textContent = ev.name + ' 没接话';
-          container.appendChild(n);
-          scrollBottom();
-        } else if (ev.type === 'busy') {
-          const n = document.createElement('div');
-          n.className = 'pass-note';
-          n.textContent = '群里正在说话，等一下再试';
-          container.appendChild(n);
-          scrollBottom();
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('开场失败：' + (e && e.message));
-  } finally {
-    state.busy = false;
-    setChatStatus('');
-    const box = $('#ta');
-    $('#sendBtn').disabled = !box || !box.value.trim();
-    const nb = $('#nudgeBtn');
-    if (nb) nb.disabled = false;
-    markRoundEnd($('#msgWrap'));
-    scrollBottom();
-    loadConvs();
-  }
+  await runRound('/v1/conversations/' + convId + '/kickoff', {}, {
+    onDone: () => {
+      const box = $('#ta');
+      $('#sendBtn').disabled = !box || !box.value.trim();
+      const nb = $('#nudgeBtn');
+      if (nb) nb.disabled = false;
+    },
+  });
 }
-

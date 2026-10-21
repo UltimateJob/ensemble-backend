@@ -256,6 +256,16 @@ type Provider interface {
 
 自绘的这套：背景虚化、Enter 确认、Esc 取消、点遮罩关闭、邮箱/手机号有 placeholder 和说明文字。
 
+## 一份 SSE 解析
+
+`send` 和 `kickoff` 之前各有一份几乎逐行相同的 SSE 处理（读流、切 `\n\n`、解析 `data:`、分发七种事件）。
+
+改一处漏一处——顶栏状态就是这么漏的：我先把调用加到 kickoff 的内联分支上，`send` 用的却是另一个 `handleEvent`，测试里「正在说」一直抓不到。
+
+现在合并成 `runRound(path, body, opts)`，只有这一份。`send` 和 `kickoff` 各剩十几行，只负责前置（清输入框）和后置（复位按钮）。
+
+`chat.js` 从 790 行降到 738 行，但更重要的是：**以后改事件处理不可能只改一半**。
+
 ## 对话的视觉节奏
 
 ![节奏](docs/rhythm.png)

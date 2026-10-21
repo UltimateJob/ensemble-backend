@@ -135,6 +135,14 @@ async function main() {
       [...document.querySelectorAll('.scene')].find(s => s.dataset.k === 'companion').click();
       document.querySelector('#sceneCreate').click();
     })()`);
+    // 建群先问群名（自绘弹层）
+    await cdp.waitFor('!!document.querySelector(".ui-dlg .ui-dlg-input")', 8000, '群名弹层');
+    await cdp.eval(`(() => {
+      const i = document.querySelector('.ui-dlg-input');
+      i.value = '手机端验证';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('.ui-dlg-btn[data-x=ok]').click();
+    })()`);
     await cdp.waitFor('document.querySelector("#msgs").style.display !== "none"', 15000, '聊天区');
     ok('移动端建群成功', true);
 
