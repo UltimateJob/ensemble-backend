@@ -211,7 +211,9 @@ a{color:inherit;text-decoration:none}
 }
 .col-head h4{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-4)}
 .col-head .btn{height:26px;padding:0 9px;font-size:11.5px;border-radius:7px;margin-left:auto}
-.conv-list{flex:1;overflow-y:auto;padding:6px}
+/* min-height:0 不能少：flex 子项默认 min-height:auto，
+   会话多了列表不会收缩，会撑破 .col 压到下面的新手引导卡上 */
+.conv-list{flex:1;min-height:0;overflow-y:auto;padding:6px}
 .conv{
   display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;
   cursor:pointer;transition:background .14s;position:relative;
@@ -243,7 +245,14 @@ a{color:inherit;text-decoration:none}
 .chat-sub{font-size:11.5px;color:var(--tx-4);margin-top:1px;display:flex;align-items:center;gap:6px}
 .dot-live{width:6px;height:6px;border-radius:99px;background:var(--ok);box-shadow:0 0 0 3px rgba(5,150,105,.14)}
 
-.msgs{flex:1;overflow-y:auto;overflow-x:hidden;padding:22px 0 10px;scroll-behavior:smooth;min-width:0}
+/* 顶部渐隐：滚动到一半时，最上面那条消息会被硬切一半，
+   看起来像布局坏了。用 mask 让它淡出，是「还有内容」而不是「被切掉」。 */
+.msgs{
+  flex:1;overflow-y:auto;overflow-x:hidden;padding:22px 0 10px;
+  scroll-behavior:smooth;min-width:0;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 20px);
+  mask-image:linear-gradient(to bottom,transparent 0,#000 20px);
+}
 .msg-wrap{max-width:min(760px,100%);margin:0 auto;padding:0 24px}
 .msg{
   display:flex;gap:11px;padding:9px 0;
@@ -320,8 +329,15 @@ a{color:inherit;text-decoration:none}
   width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
   background:rgba(79,70,229,.08);color:var(--pri);flex:0 0 34px;
 }
+.artifact .art-txt{min-width:0;flex:1 1 auto}
 .artifact .an{font-size:13px;font-weight:600}
-.artifact .ad{font-size:11.5px;color:var(--tx-4);margin-top:1px}
+/* 两行截断带省略号。之前是 JS 里 slice(0,28)，切出来是「…到齐再填；在那」——
+   没有省略号，读起来像文案写坏了。 */
+.artifact .ad{
+  font-size:11.5px;color:var(--tx-4);margin-top:1px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;line-height:1.5;
+}
 .artifact .go{margin-left:auto;color:var(--tx-4)}
 
 /* 加载更早 */

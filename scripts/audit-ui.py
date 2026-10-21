@@ -48,6 +48,37 @@ for f in glob.glob('internal/service/*.go'):
 for u in sorted(go_icons - icons):
     problems.append(f'场景用的图标 "{u}" 在 icons.js 里没有（会静默 fallback 成 sparkles）')
 
+
+# 5) 几条「坏一次就再也看不出来」的 CSS 契约。
+#    这些都是实测出来的：出错时页面能渲染、测试能过，只是看着不对。
+css = open('web/app/app.css', encoding='utf-8').read()
+
+def rule(selector):
+    """取出某个选择器的规则体（粗略但够用）。"""
+    m = re.search(re.escape(selector) + r'\s*\{([^}]*)\}', css)
+    return m.group(1) if m else None
+
+# 5a 会话列表必须能收缩，否则会话一多就撑破容器压到新手引导卡上
+body = rule('.conv-list')
+if body is None:
+    problems.append('.conv-list 规则不见了')
+elif 'min-height:0' not in body.replace(' ', ''):
+    problems.append('.conv-list 缺 min-height:0——会话多了会压到引导卡上')
+
+# 5b 产物卡正文要两行截断带省略号，不能靠 JS slice 硬切
+body = rule('.artifact .ad')
+if body is None:
+    problems.append('.artifact .ad 规则不见了')
+elif 'line-clamp' not in body:
+    problems.append('.artifact .ad 缺 line-clamp——长文案会被硬切，没有省略号')
+
+# 5c 消息区顶部要有渐隐，滚动时最上面那条不该被硬切一半
+body = rule('.msgs')
+if body is None:
+    problems.append('.msgs 规则不见了')
+elif 'mask-image' not in body:
+    problems.append('.msgs 缺 mask-image——滚动时顶部消息会被硬切')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:

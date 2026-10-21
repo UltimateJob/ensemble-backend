@@ -10,3 +10,6 @@ data/
 backups/
 data.before-restore/
 data.bak/
+
+# UI 视觉闭环截图
+.ui-shots/

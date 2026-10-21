@@ -82,9 +82,10 @@ export async function openConv(id) {
       // 有产物定义的角色，历史里也补一张文件卡
       if (agent && agent.artifact && m.role === 'assistant') {
         addArtifact(agent.name, agent.artifact, m.content);
-        appendArtifactCard(agent.artifact, m.content.slice(0, 28));
+        appendArtifactCard(agent.artifact, m.content);
       }
     });
+    scheduleDedupeTimes();
     if (!msgs.length) {
       addSysNote('群已建好，说第一句话试试');
     } else if (msgs.length > 1) {
@@ -212,6 +213,7 @@ export function buildMsgEl(o) {
   const el = document.createElement('div');
   el.className = 'msg' + (o.me ? ' me' : '');
   if (o.id) el.dataset.mid = o.id;   // 搜索结果跳转时靠它定位
+  if (o.time) el.dataset.t = String(new Date(o.time).getTime() || 0);
   el.innerHTML = `
     ${o.me ? '' : makeAv(o.name, o.color)}
     <div class="msg-body">
@@ -231,7 +233,40 @@ export function addMsg(o) {
   maybeTimeDivider(wrap, o.time);
   const { el } = buildMsgEl(o);
   wrap.appendChild(el);
+  scheduleDedupeTimes();
   return el;
+}
+
+// 同一分钟里连发五条，每条都标一个 23:06 是纯噪音。
+// 只保留「和上一条相差 5 分钟以上」的那条时间戳——
+// 时间信息没丢，但不再是满屏重复数字。
+const TIME_GAP_MS = 5 * 60 * 1000;
+let dedupePending = false;
+
+function scheduleDedupeTimes() {
+  if (dedupePending) return;
+  dedupePending = true;
+  requestAnimationFrame(() => {
+    dedupePending = false;
+    dedupeMsgTimes();
+  });
+}
+
+export function dedupeMsgTimes() {
+  const wrap = $('#msgWrap');
+  if (!wrap) return;
+  let lastShown = 0;
+  wrap.querySelectorAll('.msg').forEach(el => {
+    const t = el.querySelector('.msg-time');
+    if (!t) return;
+    if (!t.textContent.trim()) return;
+    const ms = Number(el.dataset.t || 0);
+    if (ms && lastShown && ms - lastShown < TIME_GAP_MS) {
+      t.textContent = '';
+    } else if (ms) {
+      lastShown = ms;
+    }
+  });
 }
 
 export function addSysNote(text) {
@@ -354,7 +389,7 @@ function buildArtifactCard(title, detail) {
   card.className = 'artifact';
   card.innerHTML = `
     <span class="fi">${icon('file-text', 16)}</span>
-    <div>
+    <div class="art-txt">
       <div class="an">${esc(title)}</div>
       <div class="ad">${esc(detail || '')}</div>
     </div>

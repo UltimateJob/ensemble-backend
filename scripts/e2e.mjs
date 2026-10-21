@@ -345,6 +345,28 @@ async function run() {
     }
     ok(`成员面板高亮正在说话的角色（${talkingNow || '无'}）`, !!talkingNow);
 
+    // 会话列表不能溢出压到新手引导卡上。
+    // flex 子项默认 min-height:auto，会话多了列表不收缩，会盖住下面的卡片。
+    const overlap = await cdp.eval(`(() => {
+      const list = document.querySelector('.conv-list');
+      const ob = document.querySelector('.onboard');
+      if (!list || !ob || !ob.offsetHeight) return 'skip';
+      const a = list.getBoundingClientRect();
+      const b = ob.getBoundingClientRect();
+      return a.bottom <= b.top + 1 ? 'ok' : ('overlap ' + Math.round(a.bottom - b.top));
+    })()`);
+    ok(`会话列表没有压到引导卡（${overlap}）`, overlap === 'ok' || overlap === 'skip');
+
+    // 产物卡正文两行截断要带省略号，不能是 JS 硬切
+    const clamp = await cdp.eval(`(() => {
+      const ad = document.querySelector('.artifact .ad');
+      if (!ad) return 'none';
+      return getComputedStyle(ad).webkitLineClamp || '-1';
+    })()`);
+    // 这个群用的是随机朋友场景，没有产物卡；有卡片时必须两行截断
+    ok(`产物卡正文按两行截断（clamp=${clamp}）`, clamp === '2' || clamp === 'none');
+
+
     // 产物列表按「角色 + 名称」去重——六轮对话下来不该列十几次「合规点对表」
     const artInfo = await cdp.eval(`(() => {
       const items = [...document.querySelectorAll('#artifactList .art-item .art-n')].map(e => e.textContent);
