@@ -80,8 +80,12 @@ e2e:
 	@node scripts/multi-tab.mjs
 	@node scripts/keyboard.mjs
 
+# 清掉构建产物、本地数据和测试留下的临时文件
+# （Chrome 的 profile 每个几百 MB，跑几十次浏览器测试就能把磁盘占满）
 clean:
-	rm -rf bin data
+	@rm -rf bin data 2>/dev/null || true
+	@rm -rf /tmp/ens-e2e-* /tmp/ens-tabs-* /tmp/kb-* /tmp/walk-* /tmp/dg*-* /tmp/nt-* /tmp/ul-* 2>/dev/null || true
+	@echo "已清理：bin/ data/ 和临时 profile"
 
 # 清空本地数据
 reset:

@@ -9,7 +9,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const PORT=9392,BASE='http://localhost:8080';
@@ -104,4 +104,9 @@ ok('Esc 关闭说明', await ev(`!document.querySelector('.ui-mask-demo')`));
 // 这条没法在这里稳定验证——真实浏览器没问题，E2E 里输入框一直可用。
 
 console.log(`\n${pass} 通过, ${fail} 失败`);
-ws.close();proc.kill();
+ws.close();
+proc.kill();
+// Chrome 的 profile 目录每个几百 MB，不清会越积越多
+await sleep(300);
+try { rmSync(profile, { recursive: true, force: true }); } catch {}
+
