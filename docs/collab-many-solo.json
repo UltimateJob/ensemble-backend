@@ -1,0 +1,128 @@
+{
+ "case": "many-solo-solo",
+ "task": "按 README 把 16 个文件的改动全部做完：8 个 handler 加 X-Request-Id 头（每个文件都要改，别漏），8 个 page*.html 加统一页脚。最后跑 go test ./... 确认绿。",
+ "root": "/tmp/dsh-many-solo",
+ "mode": "solo",
+ "wallSeconds": 12.1,
+ "quotaUsed": 5,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_37d3953cc99a4f1e",
+   "status": "done",
+   "steps": 9,
+   "tokensIn": 39354,
+   "tokensOut": 2483,
+   "seconds": 12.1,
+   "toolCalls": 34,
+   "diffFiles": [
+    [
+     "handlers/h1.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "handlers/h2.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "handlers/h3.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "handlers/h4.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "handlers/h5.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "handlers/h6.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "handlers/h7.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "handlers/h8.go",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page1.html",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page2.html",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page3.html",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page4.html",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page5.html",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page6.html",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page7.html",
+     "modified",
+     12,
+     1
+    ],
+    [
+     "web/page8.html",
+     "modified",
+     12,
+     1
+    ]
+   ],
+   "summary": "16 个文件全部改完并验证通过：\n\n- **8 个 handler**（`handlers/h1.go` … `h8.go`）：在 `Content-Type` 之后各加了一行 `w.Header().Set(\"X-Request-Id\", \"many\")`；grep 确认 8 个文件各命中 1 处，无遗漏。\n- **8 个页面**（`web/page1.html` … `page8.html`）：在 `</script>` 之后、`</body>` 之前插入了 `<footer>many · 2026</footer>`；grep 确认 8 个页面各命中 1 处。`web/index.html` 不在任务范围内，未改动。\n- **验证**：`go vet ./...` 退出码 0；`go test ./...` 退出码 0（`ok many 0.329s`，`many/handlers` 无测试文件）。\n\n没有遗留项：任务要求的 16 个文件改动已完成，测试通过。",
+   "error": ""
+  }
+ ],
+ "review": null,
+ "at": "2026-10-22 02:59:24"
+}
