@@ -5,8 +5,7 @@
    ============================================================ */
 
 import {
-  $, $$, api, state, toast, esc, makeAv, agoStr, setDocTitle,
-} from './core.js';
+  $, $$, api, state, toast, esc, makeAv, agoStr, setDocTitle, humanError } from './core.js';
 import { uiPrompt, uiConfirm } from './dialog.js';
 
 // 点会话时要打开它——但「打开」的逻辑在 chat.js。
@@ -139,7 +138,7 @@ $$('#ctxMenu button').forEach(btn => {
           $('#crumbName').textContent = name;
         }
         toast('已重命名');
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
       return;
     }
 
@@ -160,7 +159,7 @@ $$('#ctxMenu button').forEach(btn => {
           state.scenarios = await api('/v1/scenarios');
         } catch (e) { /* 忽略 */ }
         if (window.__refreshOnboard) window.__refreshOnboard();
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
       return;
     }
 
@@ -177,7 +176,7 @@ $$('#ctxMenu button').forEach(btn => {
         });
         toast('已邀请 ' + (r.invitee ? r.invitee.name : target));
         await loadConvs();
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
       return;
     }
 
@@ -209,7 +208,7 @@ async function UI_confirm_delete(conv) {
       await loadConvs();
       toast('已删除');
     })
-    .catch(e => toast(e.message));
+    .catch(e => toast(humanError(e)));
 }
 
 

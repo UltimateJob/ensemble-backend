@@ -71,6 +71,26 @@ export function toast(msg, ms) {
   t._t = setTimeout(() => t.classList.remove('on'), ms || 1800);
 }
 
+// 把各种错误翻成用户能看懂、知道下一步做什么的话。
+// 原生 fetch 抛的是「Failed to fetch」，对用户没有任何信息量。
+export function humanError(e) {
+  const msg = String((e && e.message) || '');
+  const status = (e && e.status) || 0;
+  const code = (e && e.code) || '';
+
+  if (/Failed to fetch|NetworkError|load failed|network error/i.test(msg)) {
+    return '网络断了，没连上服务器。检查一下网络再试。';
+  }
+  if (status === 401 || code === 'unauthorized') return '登录状态过期了，刷新页面重新登录。';
+  if (status === 403) return '没有权限做这件事。';
+  if (status === 404) return '东西已经不在了，可能被删掉了。';
+  if (status === 429) return '操作太频繁了，等几秒再试。';
+  if (status >= 500) return '服务端出错了，稍后再试。';
+  if (/timeout|timed out/i.test(msg)) return '服务器没响应，稍等一下再试。';
+  // 业务错误本身就是人话（「消息不能为空」「额度用完了」），原样放出去
+  return msg || '出了点问题，再试一次。';
+}
+
 export function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

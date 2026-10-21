@@ -5,8 +5,7 @@
 
 import {
   $, $$, api, state, toast, esc, icon, makeAv, timeStr, hydrateIcons, shift,
-  isOnline, onNetChange,
-} from './core.js';
+  isOnline, onNetChange, humanError } from './core.js';
 
 import {
   openConv, loadEarlier, buildMsgEl, addMsg,
@@ -515,7 +514,7 @@ $('#sceneCreate').addEventListener('click', async () => {
     // 建完就让角色自己聊起来，用户进来时群里是活的
     setTimeout(() => kickoff(conv.id), 400);
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   }
 });
 
@@ -623,7 +622,7 @@ async function searchChars(q) {
           renderForge();
           toast(name + ' 已加入，可以继续找下一个');
         } catch (e) {
-          toast(e.message);
+          toast(humanError(e));
           b.disabled = false;
         }
       });
@@ -659,7 +658,7 @@ $('#fMake').addEventListener('click', async () => {
     $('#fKeys').value = '';
     toast(a.name + ' 已生成');
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   } finally {
     making = false;
     btn.disabled = false;
@@ -728,7 +727,7 @@ $('#forgeDone').addEventListener('click', async () => {
     toast('群聊已创建');
     setTimeout(() => kickoff(conv.id), 400);
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   }
 });
 

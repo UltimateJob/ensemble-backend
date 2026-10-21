@@ -4,8 +4,7 @@
    ============================================================ */
 
 import {
-  $, $$, API, api, state, toast, esc, timeStr, agoStr, makeAv, icon, setDocTitle,
-} from './core.js';
+  $, $$, API, api, state, toast, esc, timeStr, agoStr, makeAv, icon, setDocTitle, humanError } from './core.js';
 import { uiPrompt, uiConfirm } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
 
@@ -105,7 +104,7 @@ export async function openConv(id) {
     renderLoadMore();
   } catch (e) {
     hideMsgSkeleton();
-    toast(e.message);
+    toast(humanError(e));
   } finally {
     if (openingConvId === id) openingConvId = null;
   }
@@ -169,7 +168,7 @@ export async function loadEarlier() {
     // 恢复视觉位置，避免跳
     box.scrollTop = box.scrollHeight - prevHeight + prevTop;
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   } finally {
     state.loadingMore = false;
     if (bar) bar.remove();
@@ -395,7 +394,7 @@ export function renderMembers() {
         conv.collaborators = conv.collaborators.filter(x => x !== uid);
         renderMembers();
         toast('已移除');
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
     });
   });
 }

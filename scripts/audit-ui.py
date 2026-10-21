@@ -196,6 +196,15 @@ if 'onFail' not in chatjs2:
 elif 'msg.me.failed' not in open('web/app/app.css', encoding='utf-8').read():
     problems.append('缺少 .msg.me.failed 样式——发送失败的消息看起来像发成功了')
 
+
+# 12) 错误提示必须经过 humanError 翻译。
+#     裸的 toast(e.message) 会把「Failed to fetch」直接甩给用户。
+for f in ['web/app/js/app.js', 'web/app/js/chat.js', 'web/app/js/convs.js']:
+    src = open(f, encoding='utf-8').read()
+    bare = len(re.findall(r'toast\(\s*[a-z]+\.message\s*\)', src))
+    if bare:
+        problems.append(f'{f} 有 {bare} 处直接把 e.message 弹出去——要用 humanError')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:
