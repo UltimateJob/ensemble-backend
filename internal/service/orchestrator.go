@@ -404,12 +404,20 @@ func stripSpeakerPrefix(text string, sc Scenario, self Agent) string {
 	for _, a := range sc.Agents {
 		names = append(names, a.Name)
 	}
-	for _, n := range names {
-		for _, sep := range []string{"：", ":"} {
-			p := n + sep
-			if strings.HasPrefix(text, p) {
-				return strings.TrimSpace(strings.TrimPrefix(text, p))
+	// 循环清理：模型偶尔会连写两层（"小苏：小苏：…"）
+	for i := 0; i < 3; i++ {
+		trimmed := false
+		for _, n := range names {
+			for _, sep := range []string{"：", ":"} {
+				prefix := n + sep
+				if strings.HasPrefix(text, prefix) {
+					text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
+					trimmed = true
+				}
 			}
+		}
+		if !trimmed {
+			break
 		}
 	}
 	return text

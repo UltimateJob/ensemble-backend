@@ -76,3 +76,20 @@ func TestCharacterPrompt(t *testing.T) {
 		t.Fatal("人设里没写说话方式")
 	}
 }
+
+func TestStripSpeakerPrefixTwice(t *testing.T) {
+	sc := Scenario{Agents: []Agent{{Key: "a", Name: "小苏"}, {Key: "b", Name: "林"}}}
+	self := Agent{Key: "a", Name: "小苏"}
+	// 模型偶尔连写两层
+	cases := map[string]string{
+		"小苏：小苏：没头绪就先别硬熬": "没头绪就先别硬熬",
+		"小苏：没头绪":         "没头绪",
+		"小苏: 小苏: 来了":     "来了",
+		"没头绪就先别硬熬":       "没头绪就先别硬熬",
+	}
+	for in, want := range cases {
+		if got := stripSpeakerPrefix(in, sc, self); got != want {
+			t.Fatalf("stripSpeakerPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

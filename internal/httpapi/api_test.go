@@ -466,8 +466,10 @@ func TestAgentLibrary(t *testing.T) {
 	}
 
 	// 拉进群
+	// 用 custom 而不是 companion——后者会自动生成随机朋友，
+	// 会让「群里应有 1 个自定义角色」这个断言失真
 	_, out = doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
-		"title": "带角色的群", "studio": "companion",
+		"title": "带角色的群", "studio": "custom",
 	})
 	convID := out["data"].(map[string]interface{})["id"].(string)
 
@@ -578,9 +580,10 @@ func TestSavedStudio(t *testing.T) {
 		t.Fatalf("内置 5 个 + 自定义 1 个，应至少 6 条，得到 %d", len(list))
 	}
 
-	// 没有自定义角色的群不能存
+	// 没有自定义角色的群不能存。
+	// 注意不能用 companion——那个场景会自动生成随机朋友，永远有自定义角色。
 	_, out = doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
-		"title": "纯预设群", "studio": "companion",
+		"title": "纯预设群", "studio": "anime",
 	})
 	emptyConv := out["data"].(map[string]interface{})["id"].(string)
 	rec, _ = doJSON(t, h, "POST", "/v1/studios", token, map[string]interface{}{
