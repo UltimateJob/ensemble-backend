@@ -109,12 +109,15 @@ type SavedStudio struct {
 
 // ConvAgent 会话内的自定义角色，带完整设定。
 type ConvAgent struct {
-	Key    string `json:"key"`
-	Name   string `json:"name"`
-	Title  string `json:"title"`
-	Emoji  string `json:"emoji,omitempty"`
-	Color  string `json:"color,omitempty"`
-	Prompt string `json:"prompt"`
+	Key string `json:"key"`
+	// CharacterID 是跨群记忆的身份。同一个角色被复制到不同群时保持不变；
+	// 旧数据没有这个字段，读取时按名字派生。
+	CharacterID string `json:"characterId,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Emoji       string `json:"emoji,omitempty"`
+	Color       string `json:"color,omitempty"`
+	Prompt      string `json:"prompt"`
 }
 
 // Message 一条消息。Agent 消息带产物引用。

@@ -112,7 +112,8 @@ func (s *Server) handleAgentToConversation(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	conv.Agents = append(conv.Agents, domain.ConvAgent{
-		Key: "lib_" + agent.ID, Name: agent.Name, Title: agent.Title,
+		Key: "lib_" + agent.ID, CharacterID: "lib:" + agent.ID,
+		Name: agent.Name, Title: agent.Title,
 		Emoji: agent.Emoji, Color: agent.Color, Prompt: agent.Prompt,
 	})
 	if err := s.chat.Update(conv); err != nil {

@@ -37,10 +37,16 @@ type Orchestrator struct {
 	gw    *gateway.Gateway
 	locks *convLocks
 	slow  *SlowLog
+	mem   *MemoryService
 }
 
-func NewOrchestrator(s store.Store, gw *gateway.Gateway, slow *SlowLog) *Orchestrator {
-	return &Orchestrator{store: s, gw: gw, locks: newConvLocks(), slow: slow}
+// NewOrchestrator 创建编排器。mem 可选，不传时行为与之前一致（无长期记忆）。
+func NewOrchestrator(s store.Store, gw *gateway.Gateway, slow *SlowLog, mem ...*MemoryService) *Orchestrator {
+	o := &Orchestrator{store: s, gw: gw, locks: newConvLocks(), slow: slow}
+	if len(mem) > 0 {
+		o.mem = mem[0]
+	}
+	return o
 }
 
 // Slow 暴露给运维台。
@@ -97,12 +103,106 @@ func agentsFromConversation(conv *domain.Conversation) []Agent {
 			key += "_"
 		}
 		used[key] = true
+		cid := strings.TrimSpace(a.CharacterID)
+		if cid == "" {
+			switch {
+			case strings.HasPrefix(key, "lib_"):
+				cid = "lib:" + strings.TrimPrefix(key, "lib_")
+			case strings.HasPrefix(key, "char_"):
+				cid = key
+			default:
+				cid = CharacterKey(a.Name)
+			}
+		}
 		out = append(out, Agent{
-			Key: key, Name: a.Name, Title: a.Title,
+			Key: key, CharacterID: cid, Name: a.Name, Title: a.Title,
 			Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt,
 		})
 	}
 	return out
+}
+
+// ResolveAgents 返回会话最终使用的场景与角色（含稳定的 CharacterID）。
+// 内置场景用「场景:角色」作为身份；自定义角色用库 ID / 名字 hash。
+func ResolveAgents(conv *domain.Conversation) (Scenario, []Agent) {
+	sc, ok := FindScenario(conv.Studio)
+	if !ok {
+		sc = Scenario{Key: "custom", Name: conv.Title, Opening: "", Round: 3}
+	}
+	agents := sc.Agents
+	if custom := agentsFromConversation(conv); len(custom) > 0 {
+		agents = custom
+	}
+	out := make([]Agent, len(agents))
+	copy(out, agents)
+	for i := range out {
+		if out[i].CharacterID != "" {
+			continue
+		}
+		if sc.Key != "custom" && out[i].Key != "" {
+			out[i].CharacterID = sc.Key + ":" + out[i].Key
+		} else {
+			out[i].CharacterID = CharacterKey(out[i].Name)
+		}
+	}
+	return sc, out
+}
+
+// ConversationAgents 给 HTTP 层用：拿到当前会话的角色与跨群身份。
+func ConversationAgents(conv *domain.Conversation) []Agent {
+	_, agents := ResolveAgents(conv)
+	return agents
+}
+
+// trimHistory 按字符预算保留最近的消息。固定 16 条会丢掉太多上下文；
+// 但也不能无限塞，按预算裁剪更稳。
+func trimHistory(msgs []*domain.Message, maxRunes int) []*domain.Message {
+	if len(msgs) == 0 {
+		return nil
+	}
+	total, start := 0, len(msgs)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		n := len([]rune(msgs[i].Content)) + 24
+		if start < len(msgs) && total+n > maxRunes {
+			break
+		}
+		total += n
+		start = i
+	}
+	if len(msgs)-start > 200 {
+		start = len(msgs) - 200
+	}
+	return msgs[start:]
+}
+
+func humanGap(d time.Duration) string {
+	if d < 2*time.Minute {
+		return ""
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%d 分钟", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%d 小时", int(d.Hours()))
+	}
+	days := int(d.Hours() / 24)
+	if days == 1 {
+		return "1 天"
+	}
+	return fmt.Sprintf("%d 天", days)
+}
+
+func memoryCardLine(card, timeLine string) string {
+	parts := make([]string, 0, 2)
+	if strings.TrimSpace(card) != "" {
+		parts = append(parts, "[记得的事]\n"+card)
+	} else {
+		parts = append(parts, "[记得的事]\n暂无长期记忆。不要假装记得用户以前说过的事；需要就请对方提醒。")
+	}
+	if strings.TrimSpace(timeLine) != "" {
+		parts = append(parts, timeLine)
+	}
+	return strings.Join(parts, "\n")
 }
 
 // loop 核心循环：最多让 N 个人开口，其余可以沉默。
@@ -116,17 +216,7 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	}
 	defer o.locks.Unlock(conv.ID)
 
-	sc, ok := FindScenario(conv.Studio)
-	if !ok {
-		// 自定义群没有预设场景，用中性上下文，避免被别的场景带偏
-		sc = Scenario{Key: "custom", Name: conv.Title, Opening: "", Round: 3}
-	}
-
-	// 会话里有自定义角色时，以它们为准
-	agents := sc.Agents
-	if custom := agentsFromConversation(conv); len(custom) > 0 {
-		agents = custom
-	}
+	sc, agents := ResolveAgents(conv)
 	if sc.Round <= 0 || len(agents) < sc.Round {
 		sc.Round = len(agents)
 	}
@@ -143,7 +233,18 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	promptSc := sc
 	promptSc.Agents = agents
 
-	history := o.store.ListMessages(conv.ID, 16)
+	allMessages := o.store.ListMessages(conv.ID, 0)
+	history := trimHistory(allMessages, 6000)
+	now := time.Now()
+	gap := ""
+	if len(history) >= 2 {
+		gap = humanGap(now.Sub(history[len(history)-2].CreatedAt))
+	}
+	timeLine := "现在是 " + now.Format("2006-01-02 15:04") + "。"
+	if gap != "" {
+		timeLine += "距离上一条消息 " + gap + "。"
+	}
+
 	maxSpeakers := sc.Round
 	if maxSpeakers <= 0 {
 		maxSpeakers = 3
@@ -179,12 +280,16 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		}
 
 		agent := pickSpeaker(agents, spoken, lastKey, speakers == 0 && !casual)
-		if agent.Key == "" {
+		if agent == nil || agent.Key == "" {
 			break
 		}
 
 		force := forceFirst && speakers == 0
-		res, err := o.ask(ctx, conv, promptSc, *agent, history, anchor, emit, force, addressAll, casual)
+		memoryCard := ""
+		if o.mem != nil {
+			memoryCard = o.mem.Context(conv.ID, agent.CharacterID, user.ID, anchor)
+		}
+		res, err := o.ask(ctx, conv, promptSc, *agent, history, anchor, emit, force, addressAll, casual, memoryCard, timeLine)
 		if err != nil {
 			logx.Req(ctx).Warn("agent speak failed", "agent", agent.Name, "err", err.Error())
 			spoken[agent.Key] = true
@@ -228,6 +333,11 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 
 	_ = o.store.UpdateConv(conv)
 	emit(Event{Type: "done"})
+
+	// 异步整理长期记忆；不阻塞本轮，也不消耗用户额度。
+	if o.mem != nil {
+		o.mem.MaybeExtract(conv, user, agents, o.store.ListMessages(conv.ID, 0))
+	}
 }
 
 // pickSpeaker 选择下一个发言者。
@@ -265,7 +375,7 @@ type speakResult struct {
 }
 
 // ask 让一个角色自己决定要不要说话、说什么。
-func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Scenario, agent Agent, history []*domain.Message, anchor string, emit func(Event), force, addressAll, casual bool) (speakResult, error) {
+func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Scenario, agent Agent, history []*domain.Message, anchor string, emit func(Event), force, addressAll, casual bool, memoryCard, timeLine string) (speakResult, error) {
 	emit(Event{Type: "start", Agent: agent.Key, Name: agent.Name, Color: agent.Color})
 
 	mode := "这是工作群：先确认目标，再给结论；必要时问一句。"
@@ -279,7 +389,7 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 群里还有：%s。
 
 %s
-
+%s
 这是真实群聊，不是客服，也不是评审会。规则：
 1. 先接住对方：如果对方在讲自己的处境或情绪，先用一句回应（理解、关心或追问），再表达看法。不要只评判对错。
 2. 结合前面的聊天和群成员，不要每次从零开始；相关的事可以带一句。
@@ -287,17 +397,29 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 4. 想说话就直接说，不要写自己的名字，也不要写旁白。
 5. 如果缺关键信息、必须问用户才能继续，就直接问，用「@用户」开头。
 6. 一句话到三句话，像真人在群里打字。不要用 markdown、不要列点、不要客服腔。
-7. 不要复述别人刚说过的话，也不要只点评上一位；接着话题往下说，或者直接回应用户。%s`,
+7. 不要复述别人刚说过的话，也不要只点评上一位；接着话题往下说，或者直接回应用户。
+8. 如果上面有「记得的事」，自然接一句，不要逐条背；群里有其他人时，不要主动说出用户的私事，用户自己提起时可以接。
+9. 记忆卡里没有的事就是不知道。不要假装记得，也不要编造；需要就请用户提醒。
+10. 历史行首的「[时间] 角色名：」只是记录格式，不是你要模仿的内容；回复时不要带时间和自己的名字。
+11. 引用记忆时用记忆卡上的日期；不确定就说「之前」，不要自己编「昨天/上周」。
+%s`,
 		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key), mode,
-		forceLine(force))
+		memoryCardLine(memoryCard, timeLine), forceLine(force))
 
 	msgs := []domain.ChatMessage{{Role: "system", Content: sys}}
 	for _, m := range history {
-		content := m.Content
+		who := "用户"
 		if m.Role == domain.RoleAssistant && m.Agent != "" {
-			content = m.Agent + "：" + content
+			who = m.Agent
 		}
-		msgs = append(msgs, domain.ChatMessage{Role: string(m.Role), Content: content})
+		stamp := ""
+		if !m.CreatedAt.IsZero() {
+			stamp = "[" + m.CreatedAt.Format("01-02 15:04") + "] "
+		}
+		msgs = append(msgs, domain.ChatMessage{
+			Role:    string(m.Role),
+			Content: fmt.Sprintf("%s%s：%s", stamp, who, m.Content),
+		})
 	}
 	instruction := "现在轮到你判断：要不要说话？说就直说，不说就回 [PASS]。"
 	if force {
@@ -333,10 +455,11 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 			if flushed {
 				emit(Event{Type: "delta", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: chunk.Content})
 			} else {
-				// 先缓冲开头：既要确认不是 [PASS]，也要等够长度把「角色名：」前缀剥掉。
-				// 只等 2 个字符就推流的话，名字会先闪一下，用户看到的是「雪之下雪乃：」。
+				// 先缓冲开头：既要确认不是 [PASS]，也要等够长度把
+				// 「[10-21 21:58] 角色名：」这类历史格式前缀剥掉。
+				// 只等 2 个字符就推流的话，用户会先看到时间和名字。
 				pending.WriteString(chunk.Content)
-				if pending.Len() >= 24 {
+				if pending.Len() >= 96 {
 					if !looksLikePass(pending.String()) {
 						flushed = true
 						out := stripSpeakerPrefix(strings.TrimSpace(pending.String()), sc, agent)
@@ -464,9 +587,18 @@ func stripSpeakerPrefix(text string, sc Scenario, self Agent) string {
 	for _, a := range sc.Agents {
 		names = append(names, a.Name)
 	}
-	// 循环清理：模型偶尔会连写两层（"小苏：小苏：…"）
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		trimmed := false
+		// 历史格式：[10-21 21:58] 角色名：正文
+		if strings.HasPrefix(text, "[") {
+			if idx := strings.Index(text, "]"); idx > 0 && idx < 24 {
+				inner := text[1:idx]
+				if strings.ContainsAny(inner, "0123456789") && (strings.Contains(inner, ":") || strings.Contains(inner, "-")) {
+					text = strings.TrimSpace(text[idx+1:])
+					trimmed = true
+				}
+			}
+		}
 		for _, n := range names {
 			for _, sep := range []string{"：", ":"} {
 				prefix := n + sep

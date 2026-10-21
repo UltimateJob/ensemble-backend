@@ -125,6 +125,9 @@
           <i data-ic="sparkles" data-size="14"></i>
           继续聊
         </button>
+        <button class="icon-btn" id="memoryBtn" title="他们记得">
+          <i data-ic="brain" data-size="16"></i>
+        </button>
         <button class="icon-btn" id="clearBtn" title="清空对话">
           <i data-ic="trash" data-size="16"></i>
         </button>
@@ -259,6 +262,22 @@
       <button class="btn btn-line" id="forgeSave" disabled>存入角色库</button>
       <button class="btn btn-grad" id="forgeDone" disabled>用这些角色开群</button>
     </div>
+  </div>
+</div>
+
+<!-- 长期记忆 -->
+<div class="memory" id="memory">
+  <div class="memory-card">
+    <div class="memory-head">
+      <div style="min-width:0;flex:1">
+        <h3>他们记得</h3>
+        <p class="memory-sub">群记忆只属于这个群；角色记得和你有关的事，换群也会保留。</p>
+      </div>
+      <button class="icon-btn" id="memoryClose" title="关闭">
+        <i data-ic="x" data-size="16"></i>
+      </button>
+    </div>
+    <div class="memory-body" id="memoryBody"></div>
   </div>
 </div>
 

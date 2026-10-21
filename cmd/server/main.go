@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
 	"github.com/UltimateJob/ensemble-backend/internal/httpapi"
+	"github.com/UltimateJob/ensemble-backend/internal/memory"
 	"github.com/UltimateJob/ensemble-backend/internal/pkg/logx"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
 	"github.com/UltimateJob/ensemble-backend/internal/store"
@@ -80,7 +82,15 @@ func main() {
 	auth := service.NewAuth(st, cfg.JWTSecret, sender, cfg.DevBypass)
 	chat := service.NewChat(st, gw)
 	slow := service.NewSlowLog(200, int64(cfg.SlowThresholdMS))
-	orch := service.NewOrchestrator(st, gw, slow)
+
+	var memStore memory.Store
+	if ms, err := memory.NewFileStore(filepath.Join(dataDir, "memories.json")); err != nil {
+		log.Warn("记忆存储初始化失败，先以无记忆模式运行", "err", err.Error())
+	} else {
+		memStore = ms
+	}
+	memSvc := service.NewMemoryService(memStore, gw)
+	orch := service.NewOrchestrator(st, gw, slow, memSvc)
 	drafter := service.NewDrafter(gw)
 	shared := &service.Shared{
 		Limiter: gateway.NewLimiter(cfg.RatePerMinute, cfg.Burst),
@@ -90,7 +100,7 @@ func main() {
 	admin := service.NewAdmin(st, gw, shared)
 
 	// ---- HTTP ----
-	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter)
+	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc)
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Handler(),

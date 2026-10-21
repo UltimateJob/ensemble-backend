@@ -339,3 +339,39 @@ func TestWantsEveryone(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveAgentsCharacterIDs(t *testing.T) {
+	bid := &domain.Conversation{Studio: "bid"}
+	_, agents := ResolveAgents(bid)
+	if len(agents) == 0 {
+		t.Fatal("竞标场景应至少有一个角色")
+	}
+	if agents[0].CharacterID != "bid:conductor" {
+		t.Fatalf("内置角色身份应是 场景:key，得到 %q", agents[0].CharacterID)
+	}
+
+	custom := &domain.Conversation{
+		Studio: "custom",
+		Agents: []domain.ConvAgent{{Key: "char_abc", Name: "雪之下雪乃"}},
+	}
+	_, agents = ResolveAgents(custom)
+	if len(agents) != 1 || agents[0].CharacterID != "char_abc" {
+		t.Fatalf("自定义角色应沿用 key 作为身份，得到 %+v", agents)
+	}
+}
+
+func TestTrimHistory(t *testing.T) {
+	msgs := []*domain.Message{
+		{Content: "一"},
+		{Content: "二"},
+		{Content: "三"},
+	}
+	got := trimHistory(msgs, 80)
+	if len(got) != 3 {
+		t.Fatalf("预算足够时应保留全部，得到 %d", len(got))
+	}
+	got = trimHistory(msgs, 30)
+	if len(got) == 0 || got[len(got)-1].Content != "三" {
+		t.Fatalf("裁剪后必须保留最后一条，得到 %+v", got)
+	}
+}

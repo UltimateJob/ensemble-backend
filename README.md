@@ -137,6 +137,29 @@ make reset    # 清空本地数据
 
 ---
 
+## 长期记忆
+
+![他们记得](docs/memory.png)
+
+群聊之间互相独立：A 群的记忆不会出现在 B 群。
+但同一个角色被拉进别的群，会保留和这个用户的记忆。
+
+- **群记忆**：按 `conversation_id` 存，只在本群检索。
+- **角色记忆**：按 `(character_id, user_id)` 存，可以跨群；只记角色自己与用户本人的内容，不把旧群其他人的私事带进新群。
+- **多人群**：角色仍然知道当前说话用户的记忆，但提示词要求它不要主动公开；用户自己提起时可以接。
+- **手动清空**：群聊顶栏「他们记得」面板里，可以清空群记忆，也可以清空某个角色和你的全部记忆（跨群）。
+
+实现上不是按固定轮数压缩成一段摘要：
+
+- 消息照常落盘；后台每积累 8 条做一次**事件级整理**，把话题、情绪、承诺、没聊完的事、关系变化分别记下来。
+- 群记忆和角色记忆分开存；原始消息仍然保留，检索时按相关度、重要度、时间和情绪取回。
+- 记忆会去重、合并；清空群记忆不会重置处理游标，避免把旧消息重新学一遍。
+- 记忆整理失败会保留游标，下一轮重试；不会阻塞聊天，也不消耗用户额度。
+
+完整设计见 [docs/memory-architecture.md](docs/memory-architecture.md)。
+
+---
+
 ## 五个内置场景
 
 | 场景 | 角色 | 用来干什么 |
@@ -266,6 +289,9 @@ node scripts/walk.mjs
 | GET | `/v1/conversations/{id}/messages` | 历史消息（`?page=1&before=<id>&limit=30` 走游标分页） |
 | POST | `/v1/conversations/{id}/orchestrate` | **用户发言**，角色自主决定接不接 |
 | POST | `/v1/conversations/{id}/kickoff` | **无人触发**，让群里自己聊 |
+| GET | `/v1/memories?conversationId=` | 「他们记得」：群记忆 + 当前用户的角色记忆 |
+| DELETE | `/v1/memories?conversationId=` | 清空这个群的群记忆（角色记忆保留） |
+| DELETE | `/v1/memories?characterId=` | 清空该角色对当前用户的全部记忆（跨群） |
 | GET | `/v1/conversations/{id}/collaborators` | 协作者列表 |
 | POST | `/v1/conversations/{id}/collaborators` | 邀请协作者（仅创建者） |
 | DELETE | `/v1/conversations/{id}/collaborators/{uid}` | 移出协作者（仅创建者） |
@@ -450,6 +476,7 @@ data/
   conversations.json   会话
   audits.json          审计
   events.json          行为事件
+  memories.json        长期记忆（群 + 角色×用户）
   messages/
     c_xxx.json         每个会话的消息独立一个文件
 ```
@@ -804,7 +831,10 @@ type CodeSender interface {
 1. **单实例** —— 已加文件锁防止并发写，但也就意味着不能水平扩展。要么换 PostgreSQL，要么做读写分离
 2. **限流与熔断是进程内状态** —— 多实例需接 Redis 共享
 3. **没有鉴权分级** —— 所有登录用户权限相同，没有团队/空间概念
-5. **真实上游没有自动化测试** —— E2E 跑 mock，避免 CI 烧额度
+4. **记忆整理按 8 条批次触发** —— 批次只是调用频率，不是记忆边界；但极短对话可能要等下一轮才会被整理
+5. **记忆检索是关键词 + 权重，不是向量检索** —— 首版够用，长对话后期需要换 BM25/embedding
+6. **关系摘要由模型生成** —— 偶有偏差，用户可以查看并清空，后续再做人工修正入口
+7. **真实上游没有自动化测试** —— E2E 跑 mock，避免 CI 烧额度
 
 ---
 
@@ -815,7 +845,8 @@ cmd/server          入口、依赖装配、优雅关闭
 internal/config     环境变量
 internal/domain     数据结构
 internal/gateway    Provider / 熔断 / 限流 / 模型表
-internal/service    auth / chat / orchestrator / scenario / draft
+internal/service    auth / chat / orchestrator / scenario / draft / memory
+internal/memory     长期记忆存储（群 / 角色×用户）
 internal/store      接口 + 内存 + 文件持久化
 internal/httpapi    路由 / 中间件 / handler
 web/app             客户端（单页，无构建）

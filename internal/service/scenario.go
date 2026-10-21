@@ -20,12 +20,14 @@ type Scenario struct {
 
 // Agent 群里的一个角色。
 type Agent struct {
-	Key    string `json:"key"`
-	Name   string `json:"name"`
-	Title  string `json:"title"`
-	Emoji  string `json:"emoji"`
-	Color  string `json:"color"`
-	Prompt string `json:"-"`
+	Key string `json:"key"`
+	// CharacterID 跨群身份；内置场景在运行时派生，自定义角色从 ConvAgent 带过来。
+	CharacterID string `json:"characterId,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Emoji       string `json:"emoji"`
+	Color       string `json:"color"`
+	Prompt      string `json:"-"`
 	// Artifact 该角色是否产出文件
 	Artifact string `json:"artifact,omitempty"`
 }

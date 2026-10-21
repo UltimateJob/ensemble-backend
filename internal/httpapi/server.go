@@ -19,6 +19,7 @@ type Server struct {
 	gw           *gateway.Gateway
 	orchestrator *service.Orchestrator
 	drafter      *service.Drafter
+	mem          *service.MemoryService
 }
 
 func NewServer(
@@ -30,8 +31,13 @@ func NewServer(
 	gw *gateway.Gateway,
 	orch *service.Orchestrator,
 	drafter *service.Drafter,
+	mem ...*service.MemoryService,
 ) *Server {
-	return &Server{cfg: cfg, store: st, auth: auth, chat: chat, admin: admin, gw: gw, orchestrator: orch, drafter: drafter}
+	s := &Server{cfg: cfg, store: st, auth: auth, chat: chat, admin: admin, gw: gw, orchestrator: orch, drafter: drafter}
+	if len(mem) > 0 {
+		s.mem = mem[0]
+	}
+	return s
 }
 
 // Handler 构建完整路由。
@@ -85,10 +91,13 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("POST /v1/conversations/{id}/orchestrate", s.handleOrchestrate)
 	userMux.HandleFunc("POST /v1/conversations/{id}/kickoff", s.handleKickoff)
 
+	userMux.HandleFunc("GET /v1/memories", s.handleMemorySnapshot)
+	userMux.HandleFunc("DELETE /v1/memories", s.handleClearMemory)
+
 	authMW := Auth(s.auth.Verify)
 	for _, p := range []string{
 		"/v1/me", "/v1/me/", "/v1/scenarios", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
-		"/v1/conversations", "/v1/conversations/",
+		"/v1/conversations", "/v1/conversations/", "/v1/memories",
 	} {
 		mux.Handle(p, authMW(userMux))
 	}

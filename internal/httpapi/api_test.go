@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/UltimateJob/ensemble-backend/internal/config"
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
+	"github.com/UltimateJob/ensemble-backend/internal/memory"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
 	"github.com/UltimateJob/ensemble-backend/internal/store"
 )
@@ -733,5 +735,63 @@ func TestCharacterLibrary(t *testing.T) {
 	}
 	if agent["prompt"] == "" || agent["prompt"] == nil {
 		t.Fatal("角色转 Agent 应带完整人设")
+	}
+}
+
+func TestMemorySnapshotAndClear(t *testing.T) {
+	srv, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	// 当前用户 ID
+	_, me := doJSON(t, h, "GET", "/v1/me", token, nil)
+	uid := me["data"].(map[string]interface{})["user"].(map[string]interface{})["id"].(string)
+
+	// 建一个群，挂上记忆服务
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "记忆接口测试", "studio": "bid",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	ms, err := memory.NewFileStore(filepath.Join(t.TempDir(), "memories.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.mem = service.NewMemoryService(ms, nil)
+	_ = ms.AddConversation(convID, []*domain.Memory{
+		{Kind: domain.KindFact, Text: "用户下周三要交标书"},
+	})
+	_ = ms.AddAgent("bid:conductor", "工头", uid, []*domain.Memory{
+		{Kind: domain.KindFact, Text: "用户最近压力很大"},
+		{Kind: domain.KindRelation, Text: "你们一起扛过一个截止日期"},
+	})
+
+	rec, out := doJSON(t, h, "GET", "/v1/memories?conversationId="+convID, token, nil)
+	if rec.Code != 200 {
+		t.Fatalf("读取记忆失败：%d %s", rec.Code, rec.Body.String())
+	}
+	data := out["data"].(map[string]interface{})
+	if n := len(data["conversation"].([]interface{})); n != 1 {
+		t.Fatalf("群记忆应为 1 条，得到 %d", n)
+	}
+	agents := data["agents"].([]interface{})
+	if len(agents) != 1 {
+		t.Fatalf("应有 1 个角色记忆，得到 %d", len(agents))
+	}
+	if agents[0].(map[string]interface{})["relation"] == nil {
+		t.Fatal("关系记忆应被单独返回")
+	}
+
+	rec, out = doJSON(t, h, "DELETE", "/v1/memories?characterId=bid:conductor", token, nil)
+	if rec.Code != 200 || out["data"].(map[string]interface{})["cleared"].(float64) != 2 {
+		t.Fatalf("清空角色记忆应返回 2，得到 %d %v", rec.Code, out)
+	}
+	_, out = doJSON(t, h, "GET", "/v1/memories?conversationId="+convID, token, nil)
+	if n := len(out["data"].(map[string]interface{})["agents"].([]interface{})); n != 0 {
+		t.Fatalf("清空后角色记忆应为空，得到 %d", n)
+	}
+
+	rec, out = doJSON(t, h, "DELETE", "/v1/memories?conversationId="+convID, token, nil)
+	if rec.Code != 200 || out["data"].(map[string]interface{})["cleared"].(float64) != 1 {
+		t.Fatalf("清空群记忆应返回 1，得到 %d %v", rec.Code, out)
 	}
 }

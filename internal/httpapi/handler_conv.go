@@ -45,7 +45,8 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 			for i, c := range service.PickRandomCharacters(3) {
 				title, prompt := service.CharacterPrompt(c)
 				req.Agents = append(req.Agents, domain.ConvAgent{
-					Key: c.Name, Name: c.Name, Title: title,
+					Key: c.Name, CharacterID: service.CharacterKey(c.Name),
+					Name: c.Name, Title: title,
 					Emoji: string([]rune(c.Name)[0]), Color: colors[i%len(colors)], Prompt: prompt,
 				})
 			}
@@ -115,6 +116,10 @@ func (s *Server) handleDeleteConv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.store.DeleteConv(r.PathValue("id"))
+	if s.mem != nil {
+		// 群记忆随群删除；角色记忆默认保留，由用户手动清空。
+		s.mem.ClearConversation(r.PathValue("id"))
+	}
 	_ = s.store.AppendEvent(&domain.Event{UserID: u.ID, Kind: "conv_delete", Target: r.PathValue("id")})
 	ok(w, map[string]string{"deleted": "true"})
 }

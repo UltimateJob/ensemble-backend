@@ -15,6 +15,7 @@ import {
 } from './chat.js';
 import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
 import { uiPrompt } from './dialog.js';
+import { initMemory } from './memory.js';
 
 /* ---------------- 登录 ---------------- */
 let segKind = 'phone';
@@ -881,6 +882,8 @@ window.addEventListener('beforeunload', e => {
 });
 
 // 供 chat.js 反向刷新引导清单
+initMemory();
+
 window.__refreshOnboard = renderOnboard;
 window.__openScenes = openScenes;
 
