@@ -138,3 +138,30 @@ func TestSearchScanCap(t *testing.T) {
 		t.Fatal("搜索缺少单会话扫描上限")
 	}
 }
+
+func TestStripPrefixInRandomScene(t *testing.T) {
+	// 随机场景的 sc.Agents 原本是空的，角色名只在 conv.Agents 里。
+	// loop 会把它们同步进 sc.Agents——不同步的话，角色写「立华奏：…」
+	// 时清理不掉，用户会看到「Saber：立华奏：…」。
+	sc := Scenario{
+		Key: "anime", Random: true,
+		Agents: []Agent{
+			{Key: "saber", Name: "Saber"},
+			{Key: "kanade", Name: "立华奏"},
+			{Key: "emilia", Name: "爱蜜莉雅"},
+		},
+	}
+	self := Agent{Key: "saber", Name: "Saber"}
+
+	cases := map[string]string{
+		"立华奏：当众说人这个做法我也有点在意": "当众说人这个做法我也有点在意",
+		"Saber：立华奏：确实":       "确实",
+		"爱蜜莉雅：那种感觉一定很难受吧":    "那种感觉一定很难受吧",
+		"这件事我也有点在意":          "这件事我也有点在意",
+	}
+	for in, want := range cases {
+		if got := stripSpeakerPrefix(in, sc, self); got != want {
+			t.Fatalf("stripSpeakerPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

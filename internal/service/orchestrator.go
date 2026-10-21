@@ -105,6 +105,11 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 			})
 		}
 	}
+	// 把实际的角色列表放回 sc——stripSpeakerPrefix 和 otherAgents 都从
+	// sc.Agents 取名字。随机场景的 sc.Agents 是空的，不同步的话
+	// 角色会「替别人说话」（模型写「立华奏：…」，清理时认不出来）。
+	sc.Agents = agents
+
 	if sc.Round <= 0 || len(agents) < sc.Round {
 		sc.Round = len(agents)
 	}
