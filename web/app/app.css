@@ -467,6 +467,36 @@ a{color:inherit;text-decoration:none}
   to{opacity:1;transform:none}
 }
 
+/* 场景详情 */
+.scene-detail{
+  margin-top:16px; padding:18px 20px;
+  background:var(--card); border:1px solid var(--line); border-radius:var(--r-md);
+  box-shadow:var(--sh-1);
+  animation:detailIn .3s cubic-bezier(.2,.8,.2,1) both;
+}
+.scene-detail:empty{ display:none }
+@keyframes detailIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.sd-head{
+  display:flex; align-items:center; gap:9px; margin-bottom:14px;
+  font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--tx-4);
+}
+.sd-head b{ font-size:12px; font-weight:600; letter-spacing:0; color:var(--tx-2); text-transform:none }
+.sd-agents{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+.sd-agent{ display:flex; gap:10px; align-items:flex-start }
+.sd-agent .av{ width:28px; height:28px; flex:0 0 28px }
+.sd-agent .av b{ font-size:11px }
+.sd-an{ font-size:12.5px; font-weight:600 }
+.sd-at{ font-size:11px; color:var(--tx-4); margin-top:1px }
+.sd-try{ margin-top:16px; padding-top:14px; border-top:1px solid var(--line) }
+.sd-try-h{ font-size:11px; color:var(--tx-4); margin-bottom:8px }
+.sd-chips{ display:flex; gap:7px; flex-wrap:wrap }
+.sd-chip{
+  padding:7px 12px; border-radius:99px; font-size:12px;
+  border:1px solid var(--line-2); background:#fff; color:var(--tx-2);
+  transition:all .16s;
+}
+.sd-chip:hover{ border-color:var(--pri); color:var(--pri); background:rgba(79,70,229,.04) }
+
 /* ---------- 角色编辑器 ---------- */
 .forge{
   position:fixed;inset:0;z-index:95;display:none;place-items:center;

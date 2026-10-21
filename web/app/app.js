@@ -779,8 +779,14 @@
         el.classList.add('on');
         state.pick = el.dataset.k;
         $('#sceneCreate').disabled = false;
+        renderSceneDetail(state.pick);
       });
     });
+    // 默认展开第一个，避免用户不知道能干什么
+    if (state.scenarios[0]) {
+      const first = document.querySelector('.scene');
+      if (first) first.click();
+    }
     $('#scenes').classList.add('on');
   }
 
@@ -791,6 +797,44 @@
   $('#drawerBtn').addEventListener('click', openDrawer);
   drawerMask.addEventListener('click', closeDrawer);
   $('#drawerNew').addEventListener('click', () => { closeDrawer(); openScenes(); });
+
+  // 场景详情：角色 + 示例输入
+  const TRY = {
+    bid: ['华东医院数据中心投标，15 天截止，要 ISO 27001', '帮我把这份招标文件拆成条目表', '这个标有没有废标风险？'],
+    code: ['做个功能：上传 Excel 自动生成图表并导出 PNG', '这个模块该怎么拆？', '帮我看看这段逻辑的边界情况'],
+    research: ['分析 2024 年国内储能行业的装机量和增速', '这个数字的来源可靠吗？', '帮我搭一个分析框架'],
+    anime: ['今天好无聊，来点有意思的', '你们觉得加班值得吗？', '介绍下你们自己'],
+    companion: ['今天加班到十点，有点累', '最近有点迷茫', '周末干点什么好'],
+  };
+
+  function renderSceneDetail(key) {
+    const sc = state.scenarios.find(s => s.key === key);
+    const box = $('#sceneDetail');
+    if (!sc) { box.innerHTML = ''; return; }
+    const chips = (TRY[key] || []).map(t =>
+      `<button class="sd-chip" data-try="${esc(t)}">${esc(t)}</button>`).join('');
+    box.innerHTML = `
+      <div class="sd-head"><b>${esc(sc.name)}</b>${esc(sc.tagline)}</div>
+      <div class="sd-agents">
+        ${(sc.agents || []).map(a => `
+          <div class="sd-agent">
+            ${makeAv(a.name, a.color)}
+            <div>
+              <div class="sd-an">${esc(a.name)}</div>
+              <div class="sd-at">${esc(a.title)}</div>
+            </div>
+          </div>`).join('')}
+      </div>
+      ${chips ? `<div class="sd-try"><div class="sd-try-h">可以这样开场 · 点一下直接建群后填进输入框</div>
+        <div class="sd-chips">${chips}</div></div>` : ''}`;
+
+    box.querySelectorAll('[data-try]').forEach(b => {
+      b.addEventListener('click', () => {
+        state.pendingText = b.dataset.try;
+        $('#sceneCreate').click();
+      });
+    });
+  }
 
   $('#newConvBtn').addEventListener('click', openScenes);
   $('#newConvBtn2').addEventListener('click', openScenes);
@@ -811,6 +855,13 @@
       await loadConvs();
       await openConv(conv.id);
       toast('群聊已创建');
+      if (state.pendingText) {
+        const ta2 = $('#ta');
+        ta2.value = state.pendingText;
+        ta2.dispatchEvent(new Event('input', { bubbles: true }));
+        state.pendingText = null;
+        ta2.focus();
+      }
       // 建完就让角色自己聊起来，用户进来时群里是活的
       setTimeout(() => kickoff(conv.id), 400);
     } catch (e) {
