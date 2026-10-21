@@ -31,6 +31,8 @@ type Config struct {
 	DeepSeekBaseURL string
 	DeepSeekAPIKey  string
 	DeepSeekModel   string
+	// DeepSeek Search API（同一个 Key）。默认开启；DEEPSEEK_SEARCH=false 可关。
+	SearchEnabled bool
 
 	// 是否允许无 Key 时使用 mock 上游（本地演示）
 	AllowMock bool
@@ -73,6 +75,7 @@ func Load() Config {
 		DeepSeekBaseURL: env("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
 		DeepSeekAPIKey:  env("DEEPSEEK_API_KEY", ""),
 		DeepSeekModel:   env("DEEPSEEK_MODEL", "deepseek-chat"),
+		SearchEnabled:   boolEnv("DEEPSEEK_SEARCH", true),
 
 		AllowMock: boolEnv("ALLOW_MOCK", true),
 		DataDir:   env("DATA_DIR", "data"),

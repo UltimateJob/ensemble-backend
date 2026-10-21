@@ -887,6 +887,10 @@ a{color:inherit;text-decoration:none}
 .polish-note.info{background:rgba(79,70,229,.06);border:1px solid rgba(79,70,229,.16);color:var(--tx-2)}
 .polish-note.ok{background:rgba(4,120,87,.07);border:1px solid rgba(4,120,87,.18);color:#047857}
 .polish-note.err{background:rgba(220,38,38,.07);border:1px solid rgba(220,38,38,.18);color:#B91C1C}
+.polish-sources{display:none;margin-top:8px;font-size:11px;line-height:1.5;color:var(--tx-4)}
+.polish-sources.on{display:flex;flex-wrap:wrap;gap:5px 10px;align-items:center}
+.polish-sources b{font-weight:600;color:var(--tx-3);margin-right:2px}
+.polish-sources a{color:var(--pri);border-bottom:1px solid rgba(79,70,229,.2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .forge-foot{
   margin-top:18px;padding-top:14px;border-top:1px solid var(--line);
   display:flex;align-items:center;gap:10px;font-size:12px;color:var(--tx-4);

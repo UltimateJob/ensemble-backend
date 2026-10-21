@@ -642,6 +642,21 @@ function showPolishNote(msg, kind = 'info') {
   el.className = 'polish-note on ' + kind;
 }
 
+function showPolishSources(sources) {
+  const el = $('#polishSources');
+  if (!el) return;
+  const list = (sources || []).filter(s => s && /^https?:\/\//i.test(s.url || ''));
+  if (!list.length) {
+    el.innerHTML = '';
+    el.classList.remove('on');
+    return;
+  }
+  el.innerHTML = '<b>联网来源</b>' + list.slice(0, 5).map(s =>
+    `<a href="${esc(s.url)}" target="_blank" rel="noreferrer" title="${esc(s.title || s.url)}">${esc(s.siteName || s.title || '来源')}</a>`
+  ).join('');
+  el.classList.add('on');
+}
+
 let polishing = false;
 $('#fPolish').addEventListener('click', async () => {
   if (polishing) return;
@@ -659,13 +674,15 @@ $('#fPolish').addEventListener('click', async () => {
   polishing = true;
   btn.disabled = true;
   btn.textContent = '检索中…';
-  showPolishNote('正在检索角色资料，并写成能直接进群的人设…', 'info');
+  showPolishNote('正在联网检索并写成能直接进群的人设…', 'info');
+  showPolishSources([]);
   try {
     const res = await api('/v1/agents/polish', {
       method: 'POST',
       body: { name, source, kind, note },
     });
     if (!res.found || !res.agent || !res.agent.prompt) {
+      showPolishSources(res.sources);
       showPolishNote(res.message || '没有找到足够可靠的资料。补充作品/来源，或者换用全名再试。', 'err');
       return;
     }
@@ -681,7 +698,9 @@ $('#fPolish').addEventListener('click', async () => {
     renderForge();
     const from = a.source ? `《${a.source}》` : '原作';
     const conf = a.confidence === 'medium' ? '（置信度中等，建议核对）' : '';
-    showPolishNote(`已润色：${a.name} · ${a.title}，来源 ${from}${conf}`, 'ok');
+    const web = res.searchUsed ? ` · 联网检索 ${ (res.sources || []).length } 个来源` : '';
+    showPolishSources(res.sources);
+    showPolishNote(`已润色：${a.name} · ${a.title}，来源 ${from}${web}${conf}`, 'ok');
     toast(a.name + ' 已润色');
     $('#pName').value = '';
     $('#pSource').value = '';

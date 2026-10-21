@@ -12,10 +12,18 @@ import (
 
 // Drafter 用模型把一个名字/关键词扩写成完整角色设定。
 type Drafter struct {
-	gw *gateway.Gateway
+	gw     *gateway.Gateway
+	search *SearchClient
 }
 
-func NewDrafter(gw *gateway.Gateway) *Drafter { return &Drafter{gw: gw} }
+// NewDrafter 创建角色生成器。search 可选；不传时只使用模型知识。
+func NewDrafter(gw *gateway.Gateway, search ...*SearchClient) *Drafter {
+	d := &Drafter{gw: gw}
+	if len(search) > 0 {
+		d.search = search[0]
+	}
+	return d
+}
 
 // Draft 生成角色。返回可直接加入场景的 Agent。
 func (d *Drafter) Draft(ctx context.Context, name, keywords string) (Agent, error) {

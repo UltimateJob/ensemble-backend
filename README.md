@@ -148,7 +148,7 @@ make reset    # 清空本地数据
 3. 选类型（动漫、电视剧、电影、明星、游戏、其他）；
 4. 可选补充时期/版本，比如「疾风传时期」「只保留剧版人设」。
 
-系统先查本地角色库，再让模型做考据，输出身份、性格、说话方式、关系、能力、关键经历、情感核心、边界和语气示例，最后写成能直接进群的角色提示词。
+系统先查本地角色库，再调用 **DeepSeek Search API** 真联网检索，把网页摘要/正文和来源一起交给模型；模型输出身份、性格、说话方式、关系、能力、关键经历、情感核心、边界和语气示例，最后写成能直接进群的角色提示词。结果下方会列出「联网来源」，可以直接点开核对。
 
 找不到时不会硬编，会明确告诉用户「无法确认」，并建议补充规范全名、作品名或版本。实测：
 
@@ -478,7 +478,8 @@ node scripts/walk.mjs
 | `ADDR` | `:8080` | 监听地址 |
 | `ADMIN_TOKEN` | `admin-dev-token` | 运维台令牌 |
 | `JWT_SECRET` | `change-me-in-production` | 会话签名 |
-| `DEEPSEEK_API_KEY` | 空 | 留空启用 mock |
+| `DEEPSEEK_API_KEY` | 空 | 留空启用 mock；Search API 也用这把 Key |
+| `DEEPSEEK_SEARCH` | `true` | 角色润色是否调用 DeepSeek Search API；`false` 退回纯模型知识 |
 | `DATA_DIR` | `data` | 数据目录 |
 | `SMS_PROVIDER` | `log` | 验证码通道：`log` 写日志回显，`aliyun`/`tencent` 接真短信 |
 | `DEV_BYPASS` | `true` | 演示账号免验证码，**生产必须 false** |

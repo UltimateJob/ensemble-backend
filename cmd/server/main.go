@@ -91,7 +91,11 @@ func main() {
 	}
 	memSvc := service.NewMemoryService(memStore, gw)
 	orch := service.NewOrchestrator(st, gw, slow, memSvc)
-	drafter := service.NewDrafter(gw)
+	var searcher *service.SearchClient
+	if cfg.SearchEnabled && cfg.UpstreamConfigured() {
+		searcher = service.NewSearchClient(cfg.DeepSeekBaseURL, cfg.DeepSeekAPIKey, cfg.UpstreamTimeout)
+	}
+	drafter := service.NewDrafter(gw, searcher)
 	shared := &service.Shared{
 		Limiter: gateway.NewLimiter(cfg.RatePerMinute, cfg.Burst),
 		Started: time.Now(),

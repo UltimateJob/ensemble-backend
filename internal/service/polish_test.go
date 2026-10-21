@@ -42,8 +42,8 @@ func TestBuildPromptFromProfile(t *testing.T) {
 }
 
 func TestPolishPromptIncludesSource(t *testing.T) {
-	got := polishUserPrompt("漩涡鸣人", "火影忍者", "anime", "疾风传时期", "本地库无")
-	for _, want := range []string{"漩涡鸣人", "火影忍者", "疾风传时期"} {
+	got := polishUserPrompt("漩涡鸣人", "火影忍者", "anime", "疾风传时期", "本地库无", "[联网检索结果]\n百度百科")
+	for _, want := range []string{"漩涡鸣人", "火影忍者", "疾风传时期", "联网检索结果", "百度百科"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("检索输入缺少 %q：\n%s", want, got)
 		}
