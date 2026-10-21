@@ -617,6 +617,15 @@ func looksLikePass(s string) bool {
 
 // wantsEveryone 判断用户是不是在问「你们每一个人」。
 // 只做很轻的启发式：明确要意见，或者同时点名群体 + 提问。
+func wantsAll(text string) bool {
+	for _, w := range []string{"每个人", "所有人", "全员", "一个一个", "各自", "每位"} {
+		if strings.Contains(text, w) {
+			return true
+		}
+	}
+	return false
+}
+
 func wantsEveryone(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {

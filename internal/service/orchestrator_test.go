@@ -375,3 +375,12 @@ func TestTrimHistory(t *testing.T) {
 		t.Fatalf("裁剪后必须保留最后一条，得到 %+v", got)
 	}
 }
+
+func TestWantsAll(t *testing.T) {
+	if !wantsAll("你们每个人分别怎么看？") {
+		t.Fatal("「每个人」应触发全员")
+	}
+	if wantsAll("你们怎么看？") {
+		t.Fatal("普通群问不应触发全员")
+	}
+}
