@@ -368,13 +368,24 @@ export function appendArtifactCard(title, detail) {
 }
 
 export function addArtifact(name, title, detail) {
-  artifacts.push({ name, title, detail });
+  // 同一个角色 + 同一个产物名，只保留一份（内容更新为最新的）。
+  // 不加这个的话，六轮对话下来右栏会列十几个「合规点对表」——
+  // 那是历史记录，不是产物清单。
+  const key = name + '/' + title;
+  const idx = artifacts.findIndex(a => a.key === key);
+  const item = { key, name, title, detail, at: Date.now() };
+  if (idx >= 0) {
+    artifacts[idx] = item;
+  } else {
+    artifacts.push(item);
+  }
+
   $('#artifactCount').textContent = artifacts.length;
   const box = $('#artifactList');
   box.innerHTML = artifacts.map(a => `
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;color:var(--tx-2)">
-      <span style="color:var(--pri);display:inline-flex">${icon('file-text', 13)}</span>
-      <span style="font-size:12px">${esc(a.title)}</span>
+    <div class="art-item" title="${esc((a.detail || '').slice(0, 80))}">
+      <span class="art-ic">${icon('file-text', 13)}</span>
+      <span class="art-n">${esc(a.title)}</span>
     </div>`).join('');
 }
 

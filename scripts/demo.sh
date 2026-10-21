@@ -36,7 +36,7 @@ fi
 
 echo ""
 echo "  演示账号   13800000000（验证码随便填）"
-echo "  群         华东医院数据中心投标 / 深夜茶话会 / 楼下那几个"
+echo "  群         华东医院数据中心投标（6 轮完整对话）/ 深夜茶话会 / 楼下那几个"
 if [ -n "$FIRST_ID" ]; then
   echo "  直达       http://localhost${ADDR:-:8080}/app/?c=${FIRST_ID}"
 fi

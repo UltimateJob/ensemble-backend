@@ -345,6 +345,14 @@ async function run() {
     }
     ok(`成员面板高亮正在说话的角色（${talkingNow || '无'}）`, !!talkingNow);
 
+    // 产物列表按「角色 + 名称」去重——六轮对话下来不该列十几次「合规点对表」
+    const artInfo = await cdp.eval(`(() => {
+      const items = [...document.querySelectorAll('#artifactList .art-item .art-n')].map(e => e.textContent);
+      return JSON.stringify({ n: items.length, uniq: new Set(items).size });
+    })()`);
+    const art = JSON.parse(artInfo);
+    ok(`产物列表没有重复（${art.n} 个，去重后 ${art.uniq}）`, art.n === art.uniq);
+
     await cdp.waitFor(
       '[...document.querySelectorAll(".msg:not(.me) .msg-text")].some(t => t.textContent.length > 5)',
       30000,
