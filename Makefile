@@ -28,6 +28,10 @@ test-live:
 quality:
 	@node scripts/quality.mjs
 
+# prompt 注入防御（需要真实 Key）
+injection:
+	@node scripts/injection.mjs
+
 # 长时间运行 / 并发
 soak:
 	@ROUNDS=100 node scripts/soak.mjs

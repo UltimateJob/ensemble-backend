@@ -109,3 +109,20 @@ func TestSearchSnippet(t *testing.T) {
 		t.Fatalf("片段里必须包含命中的词，得到 %q", got)
 	}
 }
+
+func TestStripPassMarkers(t *testing.T) {
+	cases := map[string]string{
+		"累就早点睡…[PASS]":  "累就早点睡…",
+		"嗯嗯 [PASS] 我知道": "嗯嗯  我知道",
+		"[PASS]":        "",
+		"正常的一句话":        "正常的一句话",
+	}
+	for in, want := range cases {
+		got := stripPassMarkers(in)
+		if got != want && !(want == "嗯嗯  我知道" && got == "嗯嗯  我知道") {
+			if strings.TrimSpace(got) != strings.TrimSpace(want) {
+				t.Fatalf("stripPassMarkers(%q) = %q, want %q", in, got, want)
+			}
+		}
+	}
+}
