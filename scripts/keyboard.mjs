@@ -15,7 +15,10 @@ import { join } from 'node:path';
 const PORT=9392,BASE='http://localhost:8080';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const profile=mkdtempSync(join(tmpdir(),'kb-'));
-const proc=spawn('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',['--headless=new',`--remote-debugging-port=${PORT}`,'--disable-gpu','--hide-scrollbars',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
+const proc=spawn('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',['--headless=new',
+    // CI 的 runner 以 root 运行，不加这个 Chrome 起不来
+    '--no-sandbox',
+    '--disable-dev-shm-usage',`--remote-debugging-port=${PORT}`,'--disable-gpu','--hide-scrollbars',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
 for(let i=0;i<60;i++){try{if((await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok)break}catch{}await sleep(200)}
 const list=await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
 const ws=new WebSocket(list.find(t=>t.type==='page').webSocketDebuggerUrl);

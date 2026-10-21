@@ -106,6 +106,9 @@ async function launch() {
     EDGE,
     [
       '--headless=new',
+    // CI 的 runner 以 root 运行，不加这个 Chrome 起不来
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
       `--remote-debugging-port=${PORT}`,
       '--disable-gpu',
       '--no-first-run',
