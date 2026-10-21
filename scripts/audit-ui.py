@@ -79,6 +79,19 @@ if body is None:
 elif 'mask-image' not in body:
     problems.append('.msgs 缺 mask-image——滚动时顶部消息会被硬切')
 
+
+# 6) 后台也要有移动适配。
+#    之前 390 下顶栏导航和卡片标签被逐字换行（「总览」变成两行），
+#    因为整页没有一条 max-width 媒体查询。
+admin = open('web/admin/index.html', encoding='utf-8').read()
+if '@media' not in admin:
+    problems.append('web/admin/index.html 没有移动端媒体查询——窄屏下会逐字换行')
+else:
+    for sel in ['.g4', '.tabs']:
+        m = re.search(r'@media[^{]*\{[\s\S]*?' + re.escape(sel) + r'\s*\{', admin)
+        if not m:
+            problems.append(f'后台媒体查询里没有针对 {sel} 的规则')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:

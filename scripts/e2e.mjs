@@ -419,6 +419,11 @@ async function run() {
     ok(`有 ${spoke} 个角色发言`, spoke >= 1);
 
     // ---- 「继续聊」：不发言也能让群里自己找话题 ----
+    // 先等上一轮真的结束。busy 为真时点「继续聊」会被静默忽略
+    // （按钮的 handler 第一行就是 if (state.busy) return），
+    // 然后这里死等 30 秒超时——看起来像功能坏了，其实是测试抢跑。
+    await cdp.waitFor('window.__ens && !window.__ens.state.busy', 30000, '上一轮结束');
+
     const before = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
     await cdp.eval('document.querySelector("#nudgeBtn").click()');
     await cdp.waitFor(
