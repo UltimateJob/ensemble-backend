@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -11,7 +12,373 @@ import (
 	"github.com/UltimateJob/ensemble-backend/internal/pkg/logx"
 )
 
-// Snapshot 可序列化的全量状态。
+// FileStore 在 Memory 之上做分片落盘。
+//
+// 目录结构：
+//
+//	data/
+//	  users.json          用户
+//	  conversations.json  会话
+//	  audits.json         审计
+//	  events.json         行为事件
+//	  messages/
+//	    <convID>.json     每个会话的消息单独一个文件
+//
+// 相比「全部塞进一个 JSON」：
+//   - 写一条消息只重写这个会话的文件，不是整库
+//   - 会话再多也不会让单次写入变慢
+//   - 出问题只影响一个会话
+type FileStore struct {
+	*Memory
+	dir string
+
+	mu          sync.Mutex
+	dirtyUsers  bool
+	dirtyConvs  bool
+	dirtyAudits bool
+	dirtyEvents bool
+	dirtyMsgs   map[string]bool // convID → 需要重写
+
+	dirty chan struct{}
+	stop  chan struct{}
+	once  sync.Once
+}
+
+const (
+	fileUsers  = "users.json"
+	fileConvs  = "conversations.json"
+	fileAudits = "audits.json"
+	fileEvents = "events.json"
+	dirMsgs    = "messages"
+)
+
+// legacyFile 早期版本把全部状态放在一个文件里。
+const legacyFile = "ensemble.json"
+
+// NewFileStore 打开或新建一个分片存储。dir 是数据目录。
+func NewFileStore(dir string) (*FileStore, error) {
+	if err := os.MkdirAll(filepath.Join(dir, dirMsgs), 0o755); err != nil {
+		return nil, err
+	}
+	fs := &FileStore{
+		Memory:    NewMemory(),
+		dir:       dir,
+		dirtyMsgs: make(map[string]bool),
+		dirty:     make(chan struct{}, 1),
+		stop:      make(chan struct{}),
+	}
+	if err := fs.load(); err != nil {
+		logx.L().Warn("读取历史数据时出错，从空库继续", "err", err.Error())
+	}
+	go fs.loop()
+	return fs, nil
+}
+
+/* ---------------- 加载 ---------------- */
+
+func (fs *FileStore) load() error {
+	// 兼容旧版单文件格式
+	legacy := filepath.Join(fs.dir, legacyFile)
+	if _, err := os.Stat(legacy); err == nil {
+		if err := fs.loadLegacy(legacy); err != nil {
+			return err
+		}
+		logx.L().Info("已从旧版单文件迁移", "file", legacy)
+		_ = os.Rename(legacy, legacy+".migrated")
+
+		// 迁移进来的数据全部标脏，立刻写成新格式
+		fs.mu.Lock()
+		fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents = true, true, true, true
+		fs.Memory.mu.RLock()
+		for _, m := range fs.Memory.msgs {
+			fs.dirtyMsgs[m.ConversationID] = true
+		}
+		fs.Memory.mu.RUnlock()
+		fs.mu.Unlock()
+		return fs.Flush()
+	}
+
+	var users []*domain.User
+	if err := readJSON(filepath.Join(fs.dir, fileUsers), &users); err != nil {
+		return err
+	}
+	var convs []*domain.Conversation
+	if err := readJSON(filepath.Join(fs.dir, fileConvs), &convs); err != nil {
+		return err
+	}
+	var audits []*domain.AuditLog
+	if err := readJSON(filepath.Join(fs.dir, fileAudits), &audits); err != nil {
+		return err
+	}
+	var events []*domain.Event
+	if err := readJSON(filepath.Join(fs.dir, fileEvents), &events); err != nil {
+		return err
+	}
+
+	fs.Memory.mu.Lock()
+	for _, u := range users {
+		fs.Memory.users[u.ID] = u
+	}
+	for _, c := range convs {
+		fs.Memory.convs[c.ID] = c
+	}
+	fs.Memory.audits = audits
+	fs.Memory.events = events
+	fs.Memory.mu.Unlock()
+
+	// 逐个会话读消息
+	entries, err := os.ReadDir(filepath.Join(fs.dir, dirMsgs))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	total := 0
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		var msgs []*domain.Message
+		if err := readJSON(filepath.Join(fs.dir, dirMsgs, e.Name()), &msgs); err != nil {
+			logx.L().Warn("会话消息文件损坏，已跳过", "file", e.Name(), "err", err.Error())
+			continue
+		}
+		fs.Memory.mu.Lock()
+		fs.Memory.msgs = append(fs.Memory.msgs, msgs...)
+		fs.Memory.mu.Unlock()
+		total += len(msgs)
+	}
+
+	logx.L().Info("已加载历史数据",
+		"users", len(users), "convs", len(convs), "msgs", total)
+	return nil
+}
+
+func (fs *FileStore) loadLegacy(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var s Snapshot
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	fs.Memory.Load(s)
+	return nil
+}
+
+func readJSON(path string, v interface{}) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(b) == 0 {
+		return nil
+	}
+	return json.Unmarshal(b, v)
+}
+
+/* ---------------- 写入 ---------------- */
+
+func (fs *FileStore) mark(what string) {
+	fs.mu.Lock()
+	switch what {
+	case "users":
+		fs.dirtyUsers = true
+	case "convs":
+		fs.dirtyConvs = true
+	case "audits":
+		fs.dirtyAudits = true
+	case "events":
+		fs.dirtyEvents = true
+	default: // 视为 convID
+		fs.dirtyMsgs[what] = true
+	}
+	fs.mu.Unlock()
+
+	select {
+	case fs.dirty <- struct{}{}:
+	default:
+	}
+}
+
+func (fs *FileStore) loop() {
+	t := time.NewTicker(400 * time.Millisecond)
+	defer t.Stop()
+	for {
+		select {
+		case <-fs.stop:
+			return
+		case <-t.C:
+			select {
+			case <-fs.dirty:
+				if err := fs.Flush(); err != nil {
+					logx.L().Error("落盘失败", "err", err.Error())
+				}
+			default:
+			}
+		}
+	}
+}
+
+// Flush 把脏的部分写盘。原子替换，避免半截文件。
+func (fs *FileStore) Flush() error {
+	fs.mu.Lock()
+	dUsers, dConvs, dAudits, dEvents := fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents
+	msgs := make([]string, 0, len(fs.dirtyMsgs))
+	for id := range fs.dirtyMsgs {
+		msgs = append(msgs, id)
+	}
+	fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents = false, false, false, false
+	fs.dirtyMsgs = make(map[string]bool)
+	fs.mu.Unlock()
+
+	sort.Strings(msgs)
+
+	if dUsers {
+		fs.Memory.mu.RLock()
+		list := make([]*domain.User, 0, len(fs.Memory.users))
+		for _, u := range fs.Memory.users {
+			list = append(list, u)
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileUsers), list); err != nil {
+			return err
+		}
+	}
+	if dConvs {
+		fs.Memory.mu.RLock()
+		list := make([]*domain.Conversation, 0, len(fs.Memory.convs))
+		for _, c := range fs.Memory.convs {
+			list = append(list, c)
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileConvs), list); err != nil {
+			return err
+		}
+	}
+	if dAudits {
+		fs.Memory.mu.RLock()
+		list := append([]*domain.AuditLog(nil), fs.Memory.audits...)
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileAudits), list); err != nil {
+			return err
+		}
+	}
+	if dEvents {
+		fs.Memory.mu.RLock()
+		list := append([]*domain.Event(nil), fs.Memory.events...)
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileEvents), list); err != nil {
+			return err
+		}
+	}
+	for _, convID := range msgs {
+		fs.Memory.mu.RLock()
+		var list []*domain.Message
+		for _, m := range fs.Memory.msgs {
+			if m.ConversationID == convID {
+				list = append(list, m)
+			}
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, dirMsgs, safeName(convID)+".json"), list); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeJSON(path string, v interface{}) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// safeName 防止 convID 里出现路径分隔符。
+func safeName(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '_' || r == '-' {
+			out = append(out, r)
+		} else {
+			out = append(out, '_')
+		}
+	}
+	if len(out) == 0 {
+		return "unknown"
+	}
+	return string(out)
+}
+
+// Close 停止后台协程并做最后一次落盘。
+func (fs *FileStore) Close() error {
+	fs.once.Do(func() { close(fs.stop) })
+	return fs.Flush()
+}
+
+/* ---------------- 写操作打标记 ---------------- */
+
+func (fs *FileStore) CreateUser(u *domain.User) error {
+	err := fs.Memory.CreateUser(u)
+	fs.mark("users")
+	return err
+}
+
+func (fs *FileStore) UpdateUser(u *domain.User) error {
+	err := fs.Memory.UpdateUser(u)
+	fs.mark("users")
+	return err
+}
+
+func (fs *FileStore) CreateConv(c *domain.Conversation) error {
+	err := fs.Memory.CreateConv(c)
+	fs.mark("convs")
+	return err
+}
+
+func (fs *FileStore) UpdateConv(c *domain.Conversation) error {
+	err := fs.Memory.UpdateConv(c)
+	fs.mark("convs")
+	return err
+}
+
+func (fs *FileStore) DeleteConv(id string) error {
+	err := fs.Memory.DeleteConv(id)
+	fs.mark("convs")
+	fs.mark(id) // 消息文件也重写（变成空）
+	return err
+}
+
+func (fs *FileStore) AppendMessage(m *domain.Message) error {
+	err := fs.Memory.AppendMessage(m)
+	fs.mark(m.ConversationID)
+	return err
+}
+
+func (fs *FileStore) AppendAudit(a *domain.AuditLog) error {
+	err := fs.Memory.AppendAudit(a)
+	fs.mark("audits")
+	return err
+}
+
+func (fs *FileStore) AppendEvent(e *domain.Event) error {
+	err := fs.Memory.AppendEvent(e)
+	fs.mark("events")
+	return err
+}
+
+/* ---------------- 旧格式兼容 ---------------- */
+
+// Snapshot 早期单文件格式的结构，仅用于迁移。
 type Snapshot struct {
 	Version int                    `json:"version"`
 	SavedAt time.Time              `json:"savedAt"`
@@ -22,36 +389,7 @@ type Snapshot struct {
 	Events  []*domain.Event        `json:"events"`
 }
 
-// Dump 导出内存状态。
-func (m *Memory) Dump() Snapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	s := Snapshot{Version: 1, SavedAt: time.Now()}
-	for _, u := range m.users {
-		cp := *u
-		s.Users = append(s.Users, &cp)
-	}
-	for _, c := range m.convs {
-		cp := *c
-		s.Convs = append(s.Convs, &cp)
-	}
-	for _, msg := range m.msgs {
-		cp := *msg
-		s.Msgs = append(s.Msgs, &cp)
-	}
-	for _, a := range m.audits {
-		cp := *a
-		s.Audits = append(s.Audits, &cp)
-	}
-	for _, e := range m.events {
-		cp := *e
-		s.Events = append(s.Events, &cp)
-	}
-	return s
-}
-
-// Load 用快照覆盖内存状态。
+// Load 用快照覆盖内存状态（迁移用）。
 func (m *Memory) Load(s Snapshot) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -67,137 +405,4 @@ func (m *Memory) Load(s Snapshot) {
 	m.msgs = s.Msgs
 	m.audits = s.Audits
 	m.events = s.Events
-}
-
-// FileStore 在 Memory 之上做异步落盘。
-// 写操作标记 dirty，后台每 400ms 合并写一次；进程退出前 Flush。
-type FileStore struct {
-	*Memory
-	path  string
-	dirty chan struct{}
-	stop  chan struct{}
-	once  sync.Once
-}
-
-// NewFile 打开（或新建）一个持久化存储。
-func NewFile(path string) (*FileStore, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	fs := &FileStore{
-		Memory: NewMemory(),
-		path:   path,
-		dirty:  make(chan struct{}, 1),
-		stop:   make(chan struct{}),
-	}
-	if err := fs.load(); err != nil && !os.IsNotExist(err) {
-		logx.L().Warn("历史数据读取失败，从空库开始", "err", err.Error())
-	}
-	go fs.loop()
-	return fs, nil
-}
-
-func (f *FileStore) load() error {
-	b, err := os.ReadFile(f.path)
-	if err != nil {
-		return err
-	}
-	var s Snapshot
-	if err := json.Unmarshal(b, &s); err != nil {
-		return err
-	}
-	f.Memory.Load(s)
-	logx.L().Info("已加载历史数据",
-		"users", len(s.Users), "convs", len(s.Convs),
-		"msgs", len(s.Msgs), "savedAt", s.SavedAt.Format(time.RFC3339))
-	return nil
-}
-
-func (f *FileStore) markDirty() {
-	select {
-	case f.dirty <- struct{}{}:
-	default:
-	}
-}
-
-func (f *FileStore) loop() {
-	t := time.NewTicker(400 * time.Millisecond)
-	defer t.Stop()
-	for {
-		select {
-		case <-f.stop:
-			return
-		case <-t.C:
-			select {
-			case <-f.dirty:
-				if err := f.Flush(); err != nil {
-					logx.L().Error("落盘失败", "err", err.Error())
-				}
-			default:
-			}
-		}
-	}
-}
-
-// Flush 立即写盘。先写临时文件再 rename，避免半截文件。
-func (f *FileStore) Flush() error {
-	snap := f.Memory.Dump()
-	b, err := json.Marshal(snap)
-	if err != nil {
-		return err
-	}
-	tmp := f.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, f.path)
-}
-
-// Close 停止后台协程并做最后一次落盘。
-func (f *FileStore) Close() error {
-	f.once.Do(func() { close(f.stop) })
-	return f.Flush()
-}
-
-// ---- 写操作全部打标记 ----
-
-func (f *FileStore) CreateUser(u *domain.User) error {
-	err := f.Memory.CreateUser(u)
-	f.markDirty()
-	return err
-}
-func (f *FileStore) UpdateUser(u *domain.User) error {
-	err := f.Memory.UpdateUser(u)
-	f.markDirty()
-	return err
-}
-func (f *FileStore) CreateConv(c *domain.Conversation) error {
-	err := f.Memory.CreateConv(c)
-	f.markDirty()
-	return err
-}
-func (f *FileStore) UpdateConv(c *domain.Conversation) error {
-	err := f.Memory.UpdateConv(c)
-	f.markDirty()
-	return err
-}
-func (f *FileStore) DeleteConv(id string) error {
-	err := f.Memory.DeleteConv(id)
-	f.markDirty()
-	return err
-}
-func (f *FileStore) AppendMessage(m *domain.Message) error {
-	err := f.Memory.AppendMessage(m)
-	f.markDirty()
-	return err
-}
-func (f *FileStore) AppendAudit(a *domain.AuditLog) error {
-	err := f.Memory.AppendAudit(a)
-	f.markDirty()
-	return err
-}
-func (f *FileStore) AppendEvent(e *domain.Event) error {
-	err := f.Memory.AppendEvent(e)
-	f.markDirty()
-	return err
 }

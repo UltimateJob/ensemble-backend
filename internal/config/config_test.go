@@ -6,7 +6,7 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	for _, k := range []string{"ADDR", "ADMIN_TOKEN", "DEEPSEEK_API_KEY", "DATA_FILE", "RATE_PER_MINUTE"} {
+	for _, k := range []string{"ADDR", "ADMIN_TOKEN", "DEEPSEEK_API_KEY", "DATA_DIR", "RATE_PER_MINUTE"} {
 		t.Setenv(k, "")
 	}
 	c := Load()
@@ -16,8 +16,8 @@ func TestLoadDefaults(t *testing.T) {
 	if c.AllowMock != true {
 		t.Fatal("默认应允许 mock 上游，否则没有 Key 时起不来")
 	}
-	if c.DataFile == "" {
-		t.Fatal("数据文件路径不能为空")
+	if c.DataDir == "" {
+		t.Fatal("数据目录不能为空")
 	}
 	if c.ShutdownGrace <= 0 {
 		t.Fatal("优雅关闭时长必须为正")

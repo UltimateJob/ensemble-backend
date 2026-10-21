@@ -31,8 +31,8 @@ func main() {
 	log := logx.L()
 
 	// ---- 存储 ----
-	dataPath := cfg.DataFile
-	fs, err := store.NewFile(dataPath)
+	dataDir := cfg.DataDir
+	fs, err := store.NewFileStore(dataDir)
 	if err != nil {
 		log.Error("存储初始化失败", "err", err.Error())
 		os.Exit(1)

@@ -225,7 +225,7 @@ type Provider interface {
 | `ADMIN_TOKEN` | `admin-dev-token` | 运维台令牌 |
 | `JWT_SECRET` | `change-me-in-production` | 会话签名 |
 | `DEEPSEEK_API_KEY` | 空 | 留空启用 mock |
-| `DATA_FILE` | `data/ensemble.json` | 落盘路径 |
+| `DATA_DIR` | `data` | 数据目录 |
 | `RATE_PER_MINUTE` | `120` | 每用户每分钟请求 |
 | `MAX_RETRIES` | `2` | 上游重试 |
 | `BREAKER_ERRORS` | `5` | 熔断阈值 |
@@ -235,10 +235,31 @@ type Provider interface {
 
 ## 数据
 
-写操作标脏，每 400ms 合并落盘一次；先写 `.tmp` 再 `rename`，避免半截文件；优雅关闭时最后 Flush 一次。
+按实体分片，不是一个巨型 JSON：
+
+```
+data/
+  users.json           用户
+  conversations.json   会话
+  audits.json          审计
+  events.json          行为事件
+  messages/
+    c_xxx.json         每个会话的消息独立一个文件
+```
+
+为什么分片：写一条消息只重写**这一个会话**的文件。整库单文件的话，聊到第 500 条时每发一句都要序列化全部历史。
+
+写入策略：
+
+- 写操作标脏，400ms 合并落盘
+- 先写 `.tmp` 再 `rename`，避免进程被杀时留下半截文件
+- 优雅关闭时最后 Flush
+- 会话 ID 会过 `safeName` 过滤，防止路径穿越
+
+从旧版单文件（`data/ensemble.json`）升级时会自动迁移，迁移完把原文件改名成 `.migrated` 留底。
 
 ```bash
-make reset   # 清空
+make reset   # 清空全部数据
 ```
 
 ---

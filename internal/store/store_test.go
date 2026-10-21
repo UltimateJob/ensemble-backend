@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -93,9 +94,8 @@ func TestListMessagesLimit(t *testing.T) {
 
 func TestFileStorePersist(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "test.json")
 
-	fs, err := NewFile(path)
+	fs, err := NewFileStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,12 +106,15 @@ func TestFileStorePersist(t *testing.T) {
 	if err := fs.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("落盘文件不存在：%v", err)
+	if _, err := os.Stat(filepath.Join(dir, "users.json")); err != nil {
+		t.Fatalf("用户分片不存在：%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "messages", "c1.json")); err != nil {
+		t.Fatalf("消息分片不存在：%v", err)
 	}
 
 	// 重新打开
-	fs2, err := NewFile(path)
+	fs2, err := NewFileStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +133,7 @@ func TestFileStorePersist(t *testing.T) {
 
 func TestFileStoreConcurrent(t *testing.T) {
 	dir := t.TempDir()
-	fs, err := NewFile(filepath.Join(dir, "c.json"))
+	fs, err := NewFileStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +147,7 @@ func TestFileStoreConcurrent(t *testing.T) {
 			_ = fs.CreateUser(newUser("u"+string(rune('a'+n)), ""))
 			_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "并发"})
 			_, _ = fs.GetUser("u1")
-			fs.Dump()
+			_ = fs.Flush()
 		}(i)
 	}
 	wg.Wait()
@@ -167,5 +170,141 @@ func TestListAuditOrder(t *testing.T) {
 	}
 	if got[0].Target != "c" {
 		t.Fatalf("审计应按时间倒序，首条应是 c，得到 %q", got[0].Target)
+	}
+}
+
+func TestFileStoreSharding(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = fs.CreateUser(newUser("u1", "13800000000"))
+	_ = fs.CreateConv(&domain.Conversation{ID: "c1", UserID: "u1", Title: "甲"})
+	_ = fs.CreateConv(&domain.Conversation{ID: "c2", UserID: "u1", Title: "乙"})
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "给 c1"})
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c2", Role: domain.RoleUser, Content: "给 c2"})
+	if err := fs.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 每个会话应该有独立的消息文件
+	for _, id := range []string{"c1", "c2"} {
+		p := filepath.Join(dir, "messages", id+".json")
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("会话 %s 的消息分片不存在：%v", id, err)
+		}
+		var msgs []*domain.Message
+		if err := json.Unmarshal(b, &msgs); err != nil {
+			t.Fatalf("会话 %s 分片不是合法 JSON：%v", id, err)
+		}
+		if len(msgs) != 1 || msgs[0].ConversationID != id {
+			t.Fatalf("会话 %s 分片内容不对：%+v", id, msgs)
+		}
+	}
+
+	// 重开后应能读回
+	fs2, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs2.Close()
+
+	if len(fs2.ListConvs("")) != 2 {
+		t.Fatal("重开后会话数不对")
+	}
+	if got := fs2.ListMessages("c1", 0); len(got) != 1 || got[0].Content != "给 c1" {
+		t.Fatalf("重开后 c1 消息不对：%+v", got)
+	}
+	if got := fs2.ListMessages("c2", 0); len(got) != 1 || got[0].Content != "给 c2" {
+		t.Fatalf("重开后 c2 消息不对：%+v", got)
+	}
+}
+
+func TestFileStoreDeleteConvClearsShard(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	_ = fs.CreateConv(&domain.Conversation{ID: "c1", UserID: "u1"})
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "x"})
+	_ = fs.Flush()
+
+	if _, err := os.Stat(filepath.Join(dir, "messages", "c1.json")); err != nil {
+		t.Fatal("删除前分片应存在")
+	}
+
+	_ = fs.DeleteConv("c1")
+	_ = fs.Flush()
+
+	// 分片应被重写为空数组，而不是残留旧消息
+	b, err := os.ReadFile(filepath.Join(dir, "messages", "c1.json"))
+	if err != nil {
+		t.Fatalf("分片文件应保留但为空：%v", err)
+	}
+	var msgs []*domain.Message
+	_ = json.Unmarshal(b, &msgs)
+	if len(msgs) != 0 {
+		t.Fatalf("删会话后分片应清空，还剩 %d 条", len(msgs))
+	}
+}
+
+func TestFileStoreMigratesLegacy(t *testing.T) {
+	dir := t.TempDir()
+
+	// 写一个旧版单文件
+	snap := Snapshot{
+		Version: 1,
+		Users:   []*domain.User{{ID: "u1", Phone: "13800000000", Name: "老用户"}},
+		Convs:   []*domain.Conversation{{ID: "c1", UserID: "u1", Title: "老群"}},
+		Msgs:    []*domain.Message{{ConversationID: "c1", Role: domain.RoleUser, Content: "旧消息"}},
+	}
+	b, _ := json.Marshal(snap)
+	if err := os.WriteFile(filepath.Join(dir, "ensemble.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+
+	if u, ok := fs.GetUser("u1"); !ok || u.Name != "老用户" {
+		t.Fatal("旧版用户未迁移")
+	}
+	if got := fs.ListMessages("c1", 0); len(got) != 1 || got[0].Content != "旧消息" {
+		t.Fatal("旧版消息未迁移")
+	}
+
+	// 旧文件应被改名，避免下次重复迁移
+	if _, err := os.Stat(filepath.Join(dir, "ensemble.json")); err == nil {
+		t.Fatal("旧文件应已改名")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ensemble.json.migrated")); err != nil {
+		t.Fatal("应留下 .migrated 备份")
+	}
+	// 新格式文件应已生成
+	if _, err := os.Stat(filepath.Join(dir, "users.json")); err != nil {
+		t.Fatal("迁移后应写出新格式")
+	}
+}
+
+func TestSafeName(t *testing.T) {
+	cases := map[string]string{
+		"c_abc123": "c_abc123",
+		"../evil":  "___evil",
+		"":         "unknown",
+		"中文":       "__",
+	}
+	for in, want := range cases {
+		if got := safeName(in); got != want {
+			t.Fatalf("safeName(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
