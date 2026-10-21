@@ -134,6 +134,7 @@ func main() {
 		}
 	})
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc)
+	agentMgr.SetModel(gw)
 	srv.SetAgentManager(agentMgr)
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,

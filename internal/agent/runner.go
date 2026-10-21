@@ -28,10 +28,12 @@ type StartRequest struct {
 	OperatorName   string
 	Permission     Permission
 	// Scope 该 agent 允许写的路径（空表示不限）
-	Scope    []string
-	Task     string
-	Model    string
-	MaxSteps int
+	Scope []string
+	// AutoReview 成功后自动起一轮只读复审
+	AutoReview bool
+	Task       string
+	Model      string
+	MaxSteps   int
 	// SystemPrompt 由会话层注入角色人设与协作规则；为空时用默认 operator 提示。
 	SystemPrompt string
 }
@@ -166,6 +168,7 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		OperatorKey:    req.OperatorKey,
 		Permission:     req.Permission,
 		Scope:          Scope(req.Scope),
+		AutoReview:     req.AutoReview,
 		Task:           req.Task,
 		Model:          req.Model,
 		Status:         StatusRunning,
@@ -350,6 +353,9 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		r.Summary = fmt.Sprintf("完成 %d 步，改动 %d 个文件", r.Step, total)
 	}
 	finish(StatusDone, "")
+	if r.AutoReview {
+		go m.startReview(r, w)
+	}
 }
 
 // finishRun 收尾：清理快照目录（保留到 revert 之后由调用方触发 DeleteSnapshot）。
@@ -777,4 +783,62 @@ func argPath(raw string) string {
 		return ""
 	}
 	return a.Path
+}
+
+// startReview 在主 Run 成功后起一轮只读复审。
+//
+// 关键点：这是**新上下文**，不是让它在同一个对话里检查自己。
+// 实测里同一上下文的自查等于自我批准；换一轮才看得出问题。
+func (m *Manager) startReview(main *Run, w *Workspace) {
+	m.mu.Lock()
+	if main.Status != StatusDone {
+		m.mu.Unlock()
+		return
+	}
+	lines := make([]string, 0, len(main.Diffs))
+	for _, d := range main.Diffs {
+		lines = append(lines, "- "+d.Path+" ("+d.Status+")")
+	}
+	model := main.Model
+	convID := main.ConversationID
+	userID := main.UserID
+	operator := main.OperatorKey
+	m.mu.Unlock()
+
+	task := "请只读复审刚才的改动。改动清单：\n" + strings.Join(lines, "\n") +
+		"\n\n重点：测试是否真的验证了需求（而不是恒真断言/空转）、能否编译并通过、" +
+		"并发与边界是否覆盖、有没有引入新问题。" +
+		"必须实际执行测试（go test / go vet 等）来验证，不要只读代码下结论。" +
+		"按严重度列出真实问题并给出文件与行号；没有问题就明确说没有，不要凑数。"
+
+	m.mu.Lock()
+	md := m.model
+	m.mu.Unlock()
+	if md == nil {
+		return
+	}
+
+	review, err := m.Start(context.Background(), md, StartRequest{
+		WorkspaceID:    w.ID,
+		ConversationID: convID,
+		UserID:         userID,
+		OperatorKey:    operator + "-review",
+		OperatorName:   "复审",
+		Permission:     PermissionAudit,
+		Task:           task,
+		Model:          model,
+		MaxSteps:       6,
+		SystemPrompt: "你是一个独立的复审者。你不负责实现，只负责找出「看起来对但其实没验证」的地方。" +
+			"做法：读改动文件 → 跑现有测试（go test / go vet）→ 给结论。三步之内完成。" +
+			"不要做变异测试、不要复制或修改任何文件、不要新建文件——你只有 6 步预算。" +
+			"优先怀疑测试：断言是否恒真、是否真的覆盖了新逻辑、测试能否编译通过。" +
+			"检查完必须用一段话给出结论（按严重度列问题，或明确说没有问题），不要只调工具就结束。",
+	})
+	if err != nil {
+		return
+	}
+	m.mu.Lock()
+	main.ReviewRunID = review.ID
+	m.mu.Unlock()
+	m.emit(main, "review.started", map[string]any{"reviewRunId": review.ID})
 }

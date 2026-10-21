@@ -32,12 +32,16 @@ const (
 	PermissionApproval Permission = "approval"
 	// PermissionFull 完全访问：文件工具受工作区约束，命令等同当前系统用户权限。
 	PermissionFull Permission = "full"
+	// PermissionAudit 复审：能读、能跑命令（验证测试），但不能写文件。
+	// 专给「跑完复审一遍」那一轮用——它必须能真的执行 go test，
+	// 又绝不能顺手改代码（否则复审就变成了第二次施工）。
+	PermissionAudit Permission = "audit"
 )
 
 // ValidPermission 校验权限字符串。
 func ValidPermission(p Permission) bool {
 	switch p {
-	case PermissionReadonly, PermissionApproval, PermissionFull:
+	case PermissionReadonly, PermissionApproval, PermissionFull, PermissionAudit:
 		return true
 	}
 	return false
@@ -121,21 +125,25 @@ type Run struct {
 	OperatorKey    string     `json:"operatorKey"`
 	Permission     Permission `json:"permission"`
 	// Scope 写入边界（相对路径/glob）。空表示不限。
-	Scope      Scope                `json:"scope,omitempty"`
-	Task       string               `json:"task"`
-	Model      string               `json:"model,omitempty"`
-	Status     Status               `json:"status"`
-	Step       int                  `json:"step"`
-	MaxSteps   int                  `json:"maxSteps"`
-	TokensIn   int                  `json:"tokensIn"`
-	TokensOut  int                  `json:"tokensOut"`
-	CostUSD    float64              `json:"costUsd"`
-	StartedAt  time.Time            `json:"startedAt"`
-	EndedAt    time.Time            `json:"endedAt"`
-	SnapshotID string               `json:"snapshotId,omitempty"`
-	Diffs      []workspace.FileDiff `json:"diffs,omitempty"`
-	DiffTotal  int                  `json:"diffTotal"`
-	ToolCalls  []*ToolCall          `json:"toolCalls,omitempty"`
+	Scope Scope `json:"scope,omitempty"`
+	// AutoReview 成功后自动起一轮只读复审
+	AutoReview bool `json:"autoReview,omitempty"`
+	// ReviewRunID 指向自动复审的 Run
+	ReviewRunID string               `json:"reviewRunId,omitempty"`
+	Task        string               `json:"task"`
+	Model       string               `json:"model,omitempty"`
+	Status      Status               `json:"status"`
+	Step        int                  `json:"step"`
+	MaxSteps    int                  `json:"maxSteps"`
+	TokensIn    int                  `json:"tokensIn"`
+	TokensOut   int                  `json:"tokensOut"`
+	CostUSD     float64              `json:"costUsd"`
+	StartedAt   time.Time            `json:"startedAt"`
+	EndedAt     time.Time            `json:"endedAt"`
+	SnapshotID  string               `json:"snapshotId,omitempty"`
+	Diffs       []workspace.FileDiff `json:"diffs,omitempty"`
+	DiffTotal   int                  `json:"diffTotal"`
+	ToolCalls   []*ToolCall          `json:"toolCalls,omitempty"`
 	// approved 本次 Run 内已批准的同类命令（scope=run），避免每条命令都打扰用户
 	approved map[string]bool
 	Summary  string  `json:"summary,omitempty"`
@@ -200,6 +208,8 @@ type Manager struct {
 	seq     int
 	// usage 可选的用量上报
 	usage UsageRecorder
+	// model 主模型引用（复审 Run 复用同一个网关）
+	model Model
 }
 
 // NewManager 创建管理器。
@@ -221,6 +231,13 @@ func newID(prefix string) string {
 		return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 	}
 	return prefix + "_" + hex.EncodeToString(b)
+}
+
+// SetModel 注入模型（复审轮复用）。
+func (m *Manager) SetModel(md Model) {
+	m.mu.Lock()
+	m.model = md
+	m.mu.Unlock()
 }
 
 // SetUsageRecorder 注入用量上报。
@@ -447,6 +464,14 @@ func permissionFor(p Permission, tool string, risk string) (allowed bool, needAp
 	case PermissionFull:
 		if risk == workspace.RiskCritical {
 			return false, false, "命中不可逆命令黑名单"
+		}
+		return true, false, ""
+	case PermissionAudit:
+		if risk == workspace.RiskCritical {
+			return false, false, "命中不可逆命令黑名单"
+		}
+		if isWriteTool(tool) {
+			return false, false, "复审轮不能改文件"
 		}
 		return true, false, ""
 	}

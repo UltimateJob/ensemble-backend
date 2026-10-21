@@ -145,6 +145,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Scope        []string `json:"scope"`
 		Model        string   `json:"model"`
 		MaxSteps     int      `json:"maxSteps"`
+		AutoReview   bool     `json:"autoReview"`
 		SystemPrompt string   `json:"systemPrompt"`
 	}
 	if err := decode(r, &req); err != nil || strings.TrimSpace(req.Task) == "" {
@@ -192,6 +193,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		Task:           req.Task,
 		Model:          req.Model,
 		MaxSteps:       req.MaxSteps,
+		AutoReview:     req.AutoReview,
 		SystemPrompt:   req.SystemPrompt,
 	})
 	if err != nil {
