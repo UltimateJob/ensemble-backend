@@ -36,8 +36,13 @@ concurrent:
 resilience:
 	@node scripts/resilience.mjs
 
+# 界面完整性：按钮/菜单项/图标都有活的逻辑
+audit:
+	@python3 scripts/audit-ui.py
+
 # 浏览器端到端
 e2e:
+	@python3 scripts/audit-ui.py
 	@node scripts/e2e.mjs
 	@node scripts/e2e-mobile.mjs
 	@node scripts/multi-tab.mjs

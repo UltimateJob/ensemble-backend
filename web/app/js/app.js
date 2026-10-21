@@ -461,6 +461,8 @@ function renderForge() {
   }
   $('#forgeCount').textContent = forged.length ? forged.length + ' 个角色' : '还没有角色';
   $('#forgeDone').disabled = forged.length < 1;
+  const sv = $('#forgeSave');
+  if (sv) sv.disabled = forged.length < 1;
 }
 
 $('#openForge').addEventListener('click', () => {
@@ -507,6 +509,34 @@ $('#fMake').addEventListener('click', async () => {
   $(sel).addEventListener('keydown', e => {
     if (e.key === 'Enter') $('#fMake').click();
   });
+});
+
+// 存入角色库：之后建群可以直接勾选，不用再造一遍
+$('#forgeSave').addEventListener('click', async () => {
+  if (!forged.length) return;
+  const btn = $('#forgeSave');
+  btn.disabled = true;
+  btn.textContent = '存入中…';
+  let saved = 0;
+  for (const a of forged) {
+    try {
+      await api('/v1/agents', {
+        method: 'POST',
+        body: {
+          name: a.name, title: a.title, prompt: a.prompt,
+          emoji: a.emoji, color: a.color, source: 'draft',
+        },
+      });
+      saved++;
+    } catch (e) { /* 单个失败不影响其他 */ }
+  }
+  await loadLibrary();
+  renderLibPick();
+  renderOnboard();
+  btn.disabled = false;
+  btn.textContent = '存入角色库';
+  toast(saved ? `已存入 ${saved} 个，下次建群能直接勾选` : '存入失败');
+  if (saved) $('#forge').classList.remove('on');
 });
 
 $('#forgeDone').addEventListener('click', async () => {

@@ -64,9 +64,13 @@ func (d *Drafter) Draft(ctx context.Context, name, keywords string) (Agent, erro
 		Emoji  string `json:"emoji"`
 	}
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		// 模型偶尔不按格式，退化成把原文当性格描述
-		out.Prompt = truncate(raw, 120)
+		// 模型偶尔不按格式（演示上游就是），给一段能用的兜底人设。
+		// 这里不能太短——存进角色库有 10 字门槛，太短会被拒。
+		out.Prompt = fallbackPrompt(name, keywords)
 		out.Title = "自定义角色"
+	}
+	if len([]rune(out.Prompt)) < 10 {
+		out.Prompt = fallbackPrompt(name, keywords)
 	}
 
 	key := "custom_" + fmt.Sprint(len(name)) + "_" + name
@@ -94,6 +98,20 @@ func pickColor(seed string) string {
 		h = -h
 	}
 	return palette[h%len(palette)]
+}
+
+// fallbackPrompt 演示上游（以及模型不按格式时）用的兜底人设。
+// 必须够长够具体：要有语气、句子长短、口头习惯，
+// 否则存进角色库时会被 10 字门槛拒掉。
+func fallbackPrompt(name, keywords string) string {
+	kw := strings.TrimSpace(keywords)
+	if kw == "" {
+		kw = "日常琐事"
+	}
+	return fmt.Sprintf(
+		"你是%s，说话简短直接，不绕弯子。话题围绕%s展开，回答常在一两句内，偶尔反问一句。不主动说教，也不长篇大论。",
+		name, kw,
+	)
 }
 
 func truncate(s string, n int) string {
