@@ -14,7 +14,7 @@ import {
   addArtifact, appendArtifactCard, send, kickoff,
 } from './chat.js';
 import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
-import { uiPrompt } from './dialog.js';
+import { uiConfirm, uiPrompt } from './dialog.js';
 
 /* ---------------- 登录 ---------------- */
 let segKind = 'phone';
@@ -177,8 +177,17 @@ $('#nudgeBtn').addEventListener('click', async () => {
   }
 });
 
-$('#clearBtn').addEventListener('click', () => {
+// 清空当前显示：这是破坏性的（消息从屏幕上消失），
+// 之前单击就执行、没有确认，图标还是垃圾桶——看起来像删群。
+// 加确认，并把文案说清楚：只影响这一屏，服务端记录还在。
+$('#clearBtn').addEventListener('click', async () => {
   if (!state.cur) return;
+  const yes = await uiConfirm(
+    '清空当前显示？',
+    '只是把这一屏清干净，服务端的记录还在——重新打开这个群就能看到。',
+    { okText: '清空显示', danger: true }
+  );
+  if (!yes) return;
   $('#msgWrap').innerHTML = '';
   addSysNote('显示已清空（服务端记录保留）');
 });

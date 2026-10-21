@@ -611,6 +611,27 @@ async function run() {
     const afterReload = await cdp.eval('document.querySelectorAll(".msg").length');
     ok(`刷新后历史消息恢复（${afterReload} 条）`, afterReload >= 2);
 
+    // ---- 清空显示要二次确认 ----
+    // 这是破坏性操作（消息从屏幕上消失）。之前单击就执行，
+    // 图标还是垃圾桶，看起来像删群。
+    const beforeClear = await cdp.eval('document.querySelectorAll(".msg").length');
+    await cdp.eval(`document.querySelector('#clearBtn').click()`);
+    await sleep(400);
+    const dlgUp = await cdp.eval(`!!document.querySelector('.ui-dlg')`);
+    ok('清空显示前弹确认', dlgUp);
+    const stillThere = await cdp.eval('document.querySelectorAll(".msg").length');
+    ok(`确认框出现时消息还在（${stillThere} 条）`, stillThere === beforeClear);
+
+    // 点「取消」，消息不能被清掉
+    await cdp.eval(`(() => {
+      const btns = [...document.querySelectorAll('.ui-dlg-act button')];
+      const cancel = btns.find(b => b.textContent.trim() === '取消');
+      if (cancel) cancel.click();
+    })()`);
+    await sleep(300);
+    const afterCancel = await cdp.eval('document.querySelectorAll(".msg").length');
+    ok(`取消后消息还在（${afterCancel} 条）`, afterCancel === beforeClear);
+
     // ---- 重置数据 ----
     const me = await cdp.eval(
       `fetch('/v1/conversations/${convId}', {method:'DELETE', headers:{'Authorization':'Bearer '+localStorage.getItem('ens_token')}}).then(r=>r.status)`
