@@ -153,6 +153,7 @@ def main():
     ap.add_argument("--solo", action="store_true", help="跳过群聊，单个 agent 直接做（基线对照）")
     ap.add_argument("--review", action="store_true", help="执行后让 QA 做一轮只读审查（闭环）")
     ap.add_argument("--serial", action="store_true", help="强制串行执行（默认并行，scope 不相交时）")
+    ap.add_argument("--selfreview", action="store_true", help="执行后让同一个 operator 只读复审自己的改动")
     args = ap.parse_args()
 
     task = args.task or "给这个项目补一个小功能，具体看 README。"
@@ -215,6 +216,20 @@ def main():
         print(f"\n=== QA 审查 {review['seconds']}s / {review['toolCalls']} 次工具 ===")
         print((review["summary"] or "")[:700])
 
+    selfrev = None
+    if args.selfreview and runs:
+        lines = []
+        for r in runs:
+            for f in r["diffFiles"]:
+                lines.append(f"- {f[0]} ({f[1]}, +{f[2]}/-{f[3]})")
+        rt = ("请只读复审刚才的改动。改动清单：\n" + "\n".join(lines) +
+              f"\n原始需求：{task}\n"
+              "重点看：测试是否真的验证了需求（而不是空转）、并发/边界是否覆盖、"
+              "有没有引入新问题。按严重度列出真实问题并给出文件行号；没有问题就明确说没有，不要凑数。")
+        selfrev = run_agent(token, ws, rt, "readonly", "自查", max_steps=8)
+        print(f"\n=== 自查 {selfrev['seconds']}s / {selfrev['toolCalls']} 次工具 ===")
+        print((selfrev["summary"] or "")[:700])
+
     after = api("/v1/me", token=token)["data"]
     report = {
         "case": args.case + ("-solo" if args.solo else ""),
@@ -226,6 +241,7 @@ def main():
         "discussion": disc,
         "runs": runs,
         "review": review,
+        "selfReview": selfrev,
         "at": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
     out = args.out or f"docs/collab-{args.case}.json"

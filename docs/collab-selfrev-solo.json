@@ -1,0 +1,58 @@
+{
+ "case": "selfrev-solo-solo",
+ "task": "给 tinysrv 加 GET /api/health 返回 {\"ok\":true,\"version\":\"1.0\"}，并加 5 秒结果缓存（并发安全），补测试验证缓存行为。跑 go test ./... 确认绿。",
+ "root": "/tmp/dsh-selfrev2",
+ "mode": "solo",
+ "wallSeconds": 38.2,
+ "quotaUsed": 10,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_6abfde2e87c00d43",
+   "status": "done",
+   "steps": 12,
+   "tokensIn": 56504,
+   "tokensOut": 4607,
+   "seconds": 22.1,
+   "toolCalls": 16,
+   "diffFiles": [
+    [
+     "main.go",
+     "modified",
+     27,
+     74
+    ],
+    [
+     "main_test.go",
+     "modified",
+     14,
+     196
+    ]
+   ],
+   "summary": "完成 12 步，改动 2 个文件",
+   "error": ""
+  }
+ ],
+ "review": null,
+ "selfReview": {
+  "approvals": 0,
+  "agent": "自查",
+  "runId": "run_e00920d24bccd2c4",
+  "status": "done",
+  "steps": 6,
+  "tokensIn": 25338,
+  "tokensOut": 2435,
+  "seconds": 16.1,
+  "toolCalls": 9,
+  "diffFiles": [],
+  "summary": "## 复审结论\n\n先说清楚一个前提：**我是只读复审，本轮没有跑 `go test ./...`**（`run` 被拒：`只读权限不能写文件或执行命令`）。所以\"go test 是否绿\"我无法复核，只做静态审查。以下按严重度列真实问题。\n\n---\n\n### 🔴 严重：测试文件在 Go 1.21 下根本编译不过，测试是空转的\n\n`go.mod:3` 是 `go 1.21`，而 `main_test.go:9` 引入了 `testing/synctest`——该包 **Go 1.24 才出现（1.25 才正式 GA）**。包级 import 失败意味着 `main_test.go` 整体编译失败，**文件里所有 5 个测试一个都不会跑**。\n\n也就是说：\n- `TestHealthBody`（唯一真正验需求的用例）、`TestHealthCacheTTL`、`TestHealthCacheConcurrent`、`TestHealthCacheConcurrentRefresh` 全部不会执行；\n- 如果某人跑的是 `go build` 或只跑 `go vet ./...` 之外的东西，容易误以为\"绿\"；\n- 反过来，如果 CI 真的报绿，那说明实际 toolchain ≠ `go.mod` 声明的 1.21，`go.mod` 声明与实际环境已漂移。\n\n顺带：`synctest` 在这里也**没有起到任何作用**（见下条）。**需要你确认实际 `go version`**；若确为 ≥1.24，应把 `go.mod` 的 `go` 行升上去；若为 1.21，`synctest` 必须在 `main_test.go:9` 和 `main_test.go:176` 一起删掉。\n\n---\n\n### 🟠 高：`TestHealthCacheConcurrentRefresh` 名义测并发刷新，实际测不到并发（空转）\n\n`main_test.go:170-208`。问题有三层：\n\n1. `main_test.go:195` 的 `<-start` 只是起跑栅栏，8 个/32 个 goroutine 抢 `close(start)` 后仍是**由调度器串行化**地进 `mu.Lock()`。第一个拿到锁的做完 `build`（`main.go:64-65`）就写好了 `expires`，其余 goroutine 必然命中缓存。此时断言 `builds == 1` **恒真，不依赖互斥逻辑正确性**——即使把 `main.go:56` 的 `mu.Lock()` 挪到 `build()` 之后，这条测试照样过。\n2. `main_test.go:193-203` 用了 `synctest.Test`，但**全程没有 `time.Sleep`、没有 `synctest.Wait`**，函数体是纯同步逻辑，`synctest` 的假时钟对它无任何影响——纯装饰。反过来，如果 `synctest.Test` 真生效，`main_test.go:158` 外层 goroutine 里跑 `httptest.NewRecorder` 也仍在 fake bubble 里，语义更容易让人误读。\n3. `main_test.go:195` 的 `offset.Store(int64(10 * time.Second))` 是在 goroutine 启动**之后**才写，`now()` 读到 10s 还是 0 取决于调度，属于**依赖时序的隐式竞态**（虽然 `atomic` 不报 race）。\n\n真正能验证\"缓存失效瞬间只有一个 goroutine 执行 build\"的做法是：在注入的 `build` 里加 `time.Sleep` 或 channel 阻塞，让第一个 goroutine 持锁滞留，再放其余并发进来数 `builds`。当前实现下 `builds` 必为 1，测了个寂寞。\n\n---\n\n### 🟡 中：并发测试对 `-race` 的实际保护有限，且没覆盖\"过期瞬间\"这条最关键路径\n\n- `main_test.go:155-174`（`TestHealthCacheConcurrent`）：`h := newMux()` 用的是**真实 `time.Now`**（`main.go:75`），所以 64 个 goroutine 全部落在**同一缓存窗口的命中路径**上，只压了 `main.go:56-60` 的读分支。`build` 分支的并发（`main.go:63-67`）一次都没被并发压过。这是缓存最该测的地方。\n- `main_test.go:168-170` 只比对了 `bodies[i] != bodies[0]` 和状态码，**没有断言 body 具体内容**（不检查 `ok:true` / `version:1.0`），也没断言 `Content-Type`。跨窗口时若 `build` 返回脏数据，加上 `bodies[0]` 自己也是脏的，这条测试仍会过。\n- `main_test.go:156`：`bodies`/`codes` 用切片下标写入，各 goroutine 写不同元素，本身没问题；但**依赖 `wg.Wait()` 建 happens-before** 才安全，这一点写对了。可 `codes[i] != http.StatusOK` 用 `t.Fatalf` 在循环里，一旦出错循环中断，后续 goroutine 的断言不再检查——小问题，`t.Errorf` 更合适。\n\n---\n\n### 🟢 低：代码层面的真实小问题\n\n1. **`main.go:20-35` + `main.go:39` 的双层缓存是冗余的**。`healthHandler(now)` 用 `sync.Once` 把 payload 永久缓存，再套一层 5 秒 TTL 缓存。语义上没错（payload 是常量，TTL 只是控制\"重新生成\"的时机），但 `mustJSON` 对固定结构体永远不可能失败，`build` 的返回值恒定，导致**TTL 过期后\"重新生成\"在可观测行为上完全等价于复用**。这让 TTL 测试只能靠数 `builds` 计数器（`main_test.go:68,128,187`）来验证，而不是靠响应内容变化——测试与实现互为镜像，弱化了测试价值。若需求真的只要\"5 秒结果缓存\"，`healthHandler` 那层 `sync.Once` 可以删掉，`main.go:28-35` 的间接层也就没了。\n2. **`main.go:85-88` `writeCachedJSON` 未设置 `Content-Length`、未处理 `Write` 错误**。对固定小 body 无害，但和 `main.go:98-101` 的 `writeJSON` 存在两份几乎相同的写出逻辑，命名 `writeCachedJSON` 也名不副实（它不感知\"cache\"）。建议合并为一个 `writeRawJSON`。\n3. **`main.go:57` 的空行**：`if` 条件后紧跟一个空行再接注释，`gofmt` 不报错但属于格式噪声，`gofmt -l` 可能仍过，只是可读性瑕疵。\n4. **`main.go:57` 的边界语义**：`!now().After(expires)` 让**恰好等于 5 秒这一刻仍命中缓存**，`main_test.go:86-93` 显式断言了这一点（`builds` 保持 1）。这与\"5 秒缓存\"的常见理解（`>=` 即过期）不同，属于**需要确认的产品语义**——代码与测试自洽，但注释 `main.go:41-43` 也把\"含恰好 5 秒\"写死了。如果需求方期望 `>=5s` 过期，`main.go:57` 应改成 `now().Before(expires)`，同时改 `main_test.go:92-95`。**这一条是唯一可能被判定为\"需求偏差\"的点，请你拍板。**\n5. **未覆盖的边界**：非 GET 方法（`POST /api/health` 会照常返回 200，`main.go:75` 未做方法校验）、`now` 返回零值时间（`main.go:57` 的 `expires.IsZero()` 挡住了，正确）、`build` 返回 `nil`。前两项中方法校验需求里没提，可不管；`build` 返回 nil 属注入接口的健壮性，低优先。\n\n---\n\n### 汇总：改动清单里声称的 \"+14/-196\" 意味着原测试被删了 196 行\n\n`main_test.go` 现在只剩 210 行、5 个测试。**我没有 git diff 能力（`run` 被拒）**，无法核实被删的 196 行里有没有仍然需要的用例（比如原 `/api/time` 的断言现在只剩 `TestTime` 查了个状态码，`main_test.go:12-18`，连 body 都没验）。这点需要你在有执行权限的环境里 `git diff main_test.go` 自查。\n\n**最需要立刻处理的**：`testing/synctest` 与 `go 1.21` 的冲突（🔴）。你确认下实际 `go version`，我再决定是升 `go.mod` 还是删 `synctest`。要不要我按上面的方案给出具体 patch（含阻塞式 `build` 的并发刷新测试）？",
+  "error": ""
+ },
+ "at": "2026-10-22 03:41:23"
+}
