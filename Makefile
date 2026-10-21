@@ -48,6 +48,18 @@ walk:
 audit:
 	@python3 scripts/audit-ui.py
 
+# 备份 data/ 到 backups/（只保留最近 20 份）
+backup:
+	@./scripts/backup.sh 20
+
+# 从备份恢复
+restore:
+	@./scripts/restore.sh $(FILE)
+
+# 备份/恢复往返测试
+test-backup:
+	@./scripts/backup_test.sh
+
 # 装一份可以直接看的演示数据（3 个群，真实对话）然后启动
 demo:
 	@./scripts/demo.sh

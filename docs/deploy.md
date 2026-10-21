@@ -59,9 +59,34 @@ ERROR   4. 没有配置 DEEPSEEK_API_KEY——对外服务会一直返回演示�
 | **短信通道** | `SmsSender` 是骨架，没接真实服务商。现在验证码只回显在响应里（`devCode`），生产环境必须接真实短信 |
 | **HTTPS** | 服务本身只跑 HTTP。要放在 Nginx/Caddy 后面终止 TLS |
 | **`data/` 目录权限** | 里面有所有用户和消息。`chmod 700`，别放在 web 根目录下 |
-| **备份** | 没有自动备份。`data/` 是唯一的数据源，丢了就没了 |
+| **备份** | `make backup` 可以手动备份，但**没有自动执行**——自己加一个 cron |
 | **单实例** | `flock` 保证只有一个进程写。不能开两个副本，不能滚动更新 |
 | **反向代理的 `X-Forwarded-For`** | 审计日志记的 IP 会是代理的地址，除非代理正确设置这个头 |
+
+---
+
+## 备份
+
+`data/` 是唯一的数据源，没有第二份。
+
+```bash
+make backup                                  # 打包到 backups/，只留最近 20 份
+make restore FILE=backups/ensemble-xxx.tar.gz # 恢复（会先挪走现有数据）
+make test-backup                             # 往返测试：备份 → 改数据 → 恢复 → 一致
+```
+
+备份前会自动跳过 `.lock`（那是运行时文件，不是数据）。
+
+**恢复不会直接覆盖**：现有的 `data/` 会被挪到 `data.before-restore`，不满意可以换回来。
+
+自动备份要自己加：
+
+```bash
+crontab -e
+0 3 * * * cd /path/to/ensemble && ./scripts/backup.sh >> backups/backup.log 2>&1
+```
+
+`backups/` 已经在 `.gitignore` 里——里面可能有真实用户数据，不该进仓库。
 
 ---
 
