@@ -93,6 +93,20 @@ type SavedAgent struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// SavedStudio 用户自己保存的工作室模板。
+// 内置场景是官方给的，这个是用户调的——一组角色 + 一句开场，可以反复开群。
+type SavedStudio struct {
+	ID        string      `json:"id"`
+	UserID    string      `json:"userId"`
+	Name      string      `json:"name"`
+	Tagline   string      `json:"tagline"`
+	Accent    string      `json:"accent"`
+	Icon      string      `json:"icon"`
+	Opening   string      `json:"opening,omitempty"`
+	Agents    []ConvAgent `json:"agents"`
+	CreatedAt time.Time   `json:"createdAt"`
+}
+
 // ConvAgent 会话内的自定义角色，带完整设定。
 type ConvAgent struct {
 	Key    string `json:"key"`

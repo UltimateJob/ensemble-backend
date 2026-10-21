@@ -49,6 +49,12 @@ type Store interface {
 	UpdateAgent(a *domain.SavedAgent) error
 	DeleteAgent(userID, id string) error
 
+	// 工作室模板
+	CreateStudio(s *domain.SavedStudio) error
+	ListStudios(userID string) []*domain.SavedStudio
+	GetStudio(id string) (*domain.SavedStudio, bool)
+	DeleteStudio(userID, id string) error
+
 	// 审计
 	AppendAudit(a *domain.AuditLog) error
 	ListAudit(limit int) []*domain.AuditLog
@@ -60,20 +66,22 @@ type Store interface {
 
 // Memory 进程内实现，带读写锁。重启即清空，用于首版与本地演示。
 type Memory struct {
-	mu     sync.RWMutex
-	users  map[string]*domain.User
-	convs  map[string]*domain.Conversation
-	agents map[string]*domain.SavedAgent
-	msgs   []*domain.Message
-	audits []*domain.AuditLog
-	events []*domain.Event
+	mu      sync.RWMutex
+	users   map[string]*domain.User
+	convs   map[string]*domain.Conversation
+	agents  map[string]*domain.SavedAgent
+	studios map[string]*domain.SavedStudio
+	msgs    []*domain.Message
+	audits  []*domain.AuditLog
+	events  []*domain.Event
 }
 
 func NewMemory() *Memory {
 	return &Memory{
-		users:  make(map[string]*domain.User),
-		convs:  make(map[string]*domain.Conversation),
-		agents: make(map[string]*domain.SavedAgent),
+		users:   make(map[string]*domain.User),
+		convs:   make(map[string]*domain.Conversation),
+		agents:  make(map[string]*domain.SavedAgent),
+		studios: make(map[string]*domain.SavedStudio),
 	}
 }
 
@@ -392,6 +400,58 @@ func (m *Memory) DeleteAgent(userID, id string) error {
 		return ErrUserNotFound
 	}
 	delete(m.agents, id)
+	return nil
+}
+
+/* ---------------- 工作室模板 ---------------- */
+
+func (m *Memory) CreateStudio(st *domain.SavedStudio) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if st.ID == "" {
+		st.ID = NewID("ws")
+	}
+	if st.CreatedAt.IsZero() {
+		st.CreatedAt = time.Now()
+	}
+	cp := *st
+	m.studios[st.ID] = &cp
+	return nil
+}
+
+func (m *Memory) ListStudios(userID string) []*domain.SavedStudio {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*domain.SavedStudio, 0)
+	for _, st := range m.studios {
+		if userID == "" || st.UserID == userID {
+			cp := *st
+			out = append(out, &cp)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+func (m *Memory) GetStudio(id string) (*domain.SavedStudio, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	st, ok := m.studios[id]
+	if !ok {
+		return nil, false
+	}
+	cp := *st
+	return &cp, true
+}
+
+func (m *Memory) DeleteStudio(userID, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st, ok := m.studios[id]
+	if !ok || st.UserID != userID {
+		return ErrUserNotFound
+	}
+	delete(m.studios, id)
 	return nil
 }
 

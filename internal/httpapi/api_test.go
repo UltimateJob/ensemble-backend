@@ -230,7 +230,8 @@ func TestConversationIsolation(t *testing.T) {
 
 func TestScenariosEndpoint(t *testing.T) {
 	_, h := newTestServer(t)
-	rec, out := doJSON(t, h, "GET", "/v1/scenarios", "", nil)
+	token := login(t, h, "13800000000")
+	rec, out := doJSON(t, h, "GET", "/v1/scenarios", token, nil)
 	if rec.Code != 200 {
 		t.Fatalf("场景接口失败：%d", rec.Code)
 	}
@@ -519,5 +520,86 @@ func TestAgentLibrary(t *testing.T) {
 	_, out = doJSON(t, h, "GET", "/v1/agents", token, nil)
 	if len(out["data"].([]interface{})) != 0 {
 		t.Fatal("删除后角色库应为空")
+	}
+}
+
+// 我的工作室：把调好的组合存成模板，像内置场景一样复用
+func TestSavedStudio(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	// 用自定义角色建一个群
+	rec, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title":  "老街口",
+		"studio": "custom",
+		"agents": []map[string]string{
+			{"key": "a1", "name": "夜岚", "title": "冷面剑客", "prompt": "你话极少，一句不超过五个字。"},
+			{"key": "a2", "name": "林小满", "title": "小卖部老板娘", "prompt": "你话多爱笑，五点半进货。"},
+		},
+	})
+	if rec.Code != 201 {
+		t.Fatalf("建群失败：%d", rec.Code)
+	}
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	// 从这个群存成模板
+	rec, out = doJSON(t, h, "POST", "/v1/studios", token, map[string]interface{}{
+		"fromConvId": convID,
+		"tagline":    "楼下几个邻居，随时能唠两句",
+	})
+	if rec.Code != 201 {
+		t.Fatalf("存模板失败：%d %s", rec.Code, rec.Body.String())
+	}
+	st := out["data"].(map[string]interface{})
+	if st["name"] != "老街口" {
+		t.Fatalf("没指定名字时应沿用群名，得到 %v", st["name"])
+	}
+	if n := len(st["agents"].([]interface{})); n != 2 {
+		t.Fatalf("模板应含 2 个角色，得到 %d", n)
+	}
+
+	// 场景列表里应该出现它，并标记为自定义
+	_, out = doJSON(t, h, "GET", "/v1/scenarios", token, nil)
+	list := out["data"].([]interface{})
+	var found bool
+	for _, raw := range list {
+		s := raw.(map[string]interface{})
+		if s["name"] == "老街口" {
+			found = true
+			if s["custom"] != true {
+				t.Fatal("自定义模板应标记 custom=true")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("存的模板应出现在场景列表里")
+	}
+	if len(list) < 6 {
+		t.Fatalf("内置 5 个 + 自定义 1 个，应至少 6 条，得到 %d", len(list))
+	}
+
+	// 没有自定义角色的群不能存
+	_, out = doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "纯预设群", "studio": "companion",
+	})
+	emptyConv := out["data"].(map[string]interface{})["id"].(string)
+	rec, _ = doJSON(t, h, "POST", "/v1/studios", token, map[string]interface{}{
+		"fromConvId": emptyConv,
+	})
+	if rec.Code != 400 {
+		t.Fatalf("没有自定义角色时应拒绝，得到 %d", rec.Code)
+	}
+
+	// 删除
+	studioID := st["id"].(string)
+	rec, _ = doJSON(t, h, "DELETE", "/v1/studios/"+studioID, token, nil)
+	if rec.Code != 200 {
+		t.Fatalf("删模板失败：%d", rec.Code)
+	}
+	_, out = doJSON(t, h, "GET", "/v1/scenarios", token, nil)
+	for _, raw := range out["data"].([]interface{}) {
+		if raw.(map[string]interface{})["name"] == "老街口" {
+			t.Fatal("删除后不应再出现在列表里")
+		}
 	}
 }

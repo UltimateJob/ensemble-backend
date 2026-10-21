@@ -106,6 +106,9 @@ var Scenarios = []Scenario{
 	},
 }
 
+// AllScenarios 返回内置场景的副本（外部只读）。
+func AllScenarios() []Scenario { return Scenarios }
+
 // FindScenario 按 key 查找。
 func FindScenario(key string) (Scenario, bool) {
 	for _, s := range Scenarios {

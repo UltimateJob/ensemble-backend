@@ -32,13 +32,14 @@ type FileStore struct {
 	*Memory
 	dir string
 
-	mu          sync.Mutex
-	dirtyUsers  bool
-	dirtyAgents bool
-	dirtyConvs  bool
-	dirtyAudits bool
-	dirtyEvents bool
-	dirtyMsgs   map[string]bool // convID → 需要重写
+	mu           sync.Mutex
+	dirtyUsers   bool
+	dirtyAgents  bool
+	dirtyStudios bool
+	dirtyConvs   bool
+	dirtyAudits  bool
+	dirtyEvents  bool
+	dirtyMsgs    map[string]bool // convID → 需要重写
 
 	dirty chan struct{}
 	stop  chan struct{}
@@ -48,12 +49,13 @@ type FileStore struct {
 }
 
 const (
-	fileUsers  = "users.json"
-	fileAgents = "agents.json"
-	fileConvs  = "conversations.json"
-	fileAudits = "audits.json"
-	fileEvents = "events.json"
-	dirMsgs    = "messages"
+	fileUsers   = "users.json"
+	fileAgents  = "agents.json"
+	fileStudios = "studios.json"
+	fileConvs   = "conversations.json"
+	fileAudits  = "audits.json"
+	fileEvents  = "events.json"
+	dirMsgs     = "messages"
 )
 
 // legacyFile 早期版本把全部状态放在一个文件里。
@@ -121,6 +123,10 @@ func (fs *FileStore) load() error {
 	if err := readJSON(filepath.Join(fs.dir, fileAgents), &agents); err != nil {
 		return err
 	}
+	var studios []*domain.SavedStudio
+	if err := readJSON(filepath.Join(fs.dir, fileStudios), &studios); err != nil {
+		return err
+	}
 	var audits []*domain.AuditLog
 	if err := readJSON(filepath.Join(fs.dir, fileAudits), &audits); err != nil {
 		return err
@@ -139,6 +145,9 @@ func (fs *FileStore) load() error {
 	}
 	for _, a := range agents {
 		fs.Memory.agents[a.ID] = a
+	}
+	for _, st := range studios {
+		fs.Memory.studios[st.ID] = st
 	}
 	fs.Memory.audits = audits
 	fs.Memory.events = events
@@ -206,6 +215,8 @@ func (fs *FileStore) mark(what string) {
 		fs.dirtyUsers = true
 	case "agents":
 		fs.dirtyAgents = true
+	case "studios":
+		fs.dirtyStudios = true
 	case "convs":
 		fs.dirtyConvs = true
 	case "audits":
@@ -246,18 +257,29 @@ func (fs *FileStore) loop() {
 func (fs *FileStore) Flush() error {
 	fs.mu.Lock()
 	dUsers, dConvs, dAudits, dEvents := fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents
-	dAgents := fs.dirtyAgents
+	dAgents, dStudios := fs.dirtyAgents, fs.dirtyStudios
 	msgs := make([]string, 0, len(fs.dirtyMsgs))
 	for id := range fs.dirtyMsgs {
 		msgs = append(msgs, id)
 	}
 	fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents = false, false, false, false
-	fs.dirtyAgents = false
+	fs.dirtyAgents, fs.dirtyStudios = false, false
 	fs.dirtyMsgs = make(map[string]bool)
 	fs.mu.Unlock()
 
 	sort.Strings(msgs)
 
+	if dStudios {
+		fs.Memory.mu.RLock()
+		list := make([]*domain.SavedStudio, 0, len(fs.Memory.studios))
+		for _, st := range fs.Memory.studios {
+			list = append(list, st)
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileStudios), list); err != nil {
+			return err
+		}
+	}
 	if dAgents {
 		fs.Memory.mu.RLock()
 		list := make([]*domain.SavedAgent, 0, len(fs.Memory.agents))
@@ -431,6 +453,18 @@ func (fs *FileStore) UpdateAgent(a *domain.SavedAgent) error {
 func (fs *FileStore) DeleteAgent(userID, id string) error {
 	err := fs.Memory.DeleteAgent(userID, id)
 	fs.mark("agents")
+	return err
+}
+
+func (fs *FileStore) CreateStudio(st *domain.SavedStudio) error {
+	err := fs.Memory.CreateStudio(st)
+	fs.mark("studios")
+	return err
+}
+
+func (fs *FileStore) DeleteStudio(userID, id string) error {
+	err := fs.Memory.DeleteStudio(userID, id)
+	fs.mark("studios")
 	return err
 }
 
