@@ -226,6 +226,8 @@ type Provider interface {
 | `JWT_SECRET` | `change-me-in-production` | 会话签名 |
 | `DEEPSEEK_API_KEY` | 空 | 留空启用 mock |
 | `DATA_DIR` | `data` | 数据目录 |
+| `SMS_PROVIDER` | `log` | 验证码通道：`log` 写日志回显，`aliyun`/`tencent` 接真短信 |
+| `DEV_BYPASS` | `true` | 演示账号免验证码，**生产必须 false** |
 | `RATE_PER_MINUTE` | `120` | 每用户每分钟请求 |
 | `MAX_RETRIES` | `2` | 上游重试 |
 | `BREAKER_ERRORS` | `5` | 熔断阈值 |
@@ -331,16 +333,42 @@ CI 在 `.github/workflows/ci.yml`：格式检查 → vet → 竞态测试 → �
 
 写测试时抓到两个真 bug：带解释的 `[PASS] 这个话题我不懂` 被当成发言推给了用户；缓冲阶段 `[PA` 没被识别，用户会看到半截标记。都已修。
 
+## 验证码
+
+验证码走 `CodeSender` 接口，默认是 `LogSender`（写日志 + 把码回给前端，方便本地和 CI）。换真短信只需实现同一个接口：
+
+```go
+type CodeSender interface {
+    Name() string
+    Send(ctx context.Context, target, code string) (devCode string, err error)
+}
+```
+
+`SmsSender` 的骨架已经在 `internal/service/sender.go` 里，接阿里云/腾讯云时把 `Send` 换成对应 SDK 调用即可。**没配密钥时会明确报错，不会假装发送成功。**
+
+验证码本身是 `crypto/rand` 生成的 6 位数字，用一次立刻作废，防重放。
+
+`DEV_BYPASS=true` 时演示账号可以免除验证码——本地方便，**生产必须关掉**，启动日志会警告。
+
+## 单实例保护
+
+数据目录会加 `flock` 独占锁。第二个进程启动时直接失败：
+
+```
+存储初始化失败 err="数据目录已被另一个实例占用（data/.lock）：resource temporarily unavailable"
+```
+
+比两个进程互相覆盖数据好得多。
+
 ## 已知限制
 
 上生产前必须处理：
 
-1. **存储是单机 JSON 文件** —— 没并发控制，不能多实例。接 PostgreSQL 只需实现 `store.Store`
-2. **验证码固定 `123456` 并回显** —— 接短信网关后移除
-3. **限流与熔断是进程内状态** —— 多实例需接 Redis 共享
-4. **没有鉴权分级** —— 所有登录用户权限相同，没有团队/空间概念
-5. **P95 延迟是均值估算** —— 需要接入直方图
-6. **只覆盖了逻辑层** —— UI 和真实上游没有自动化测试
+1. **单实例** —— 已加文件锁防止并发写，但也就意味着不能水平扩展。要么换 PostgreSQL，要么做读写分离
+2. **限流与熔断是进程内状态** —— 多实例需接 Redis 共享
+3. **没有鉴权分级** —— 所有登录用户权限相同，没有团队/空间概念
+4. **P95 延迟是均值估算** —— 需要接入直方图
+5. **真实上游没有自动化测试** —— E2E 跑 mock，避免 CI 烧额度
 
 ---
 

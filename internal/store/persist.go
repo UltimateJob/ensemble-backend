@@ -42,6 +42,8 @@ type FileStore struct {
 	dirty chan struct{}
 	stop  chan struct{}
 	once  sync.Once
+
+	lock *lockFile
 }
 
 const (
@@ -60,12 +62,19 @@ func NewFileStore(dir string) (*FileStore, error) {
 	if err := os.MkdirAll(filepath.Join(dir, dirMsgs), 0o755); err != nil {
 		return nil, err
 	}
+	// 先抢锁再读数据：两个实例同时读到一半再写，会互相覆盖
+	lk, err := acquireLock(filepath.Join(dir, ".lock"))
+	if err != nil {
+		return nil, err
+	}
+
 	fs := &FileStore{
 		Memory:    NewMemory(),
 		dir:       dir,
 		dirtyMsgs: make(map[string]bool),
 		dirty:     make(chan struct{}, 1),
 		stop:      make(chan struct{}),
+		lock:      lk,
 	}
 	if err := fs.load(); err != nil {
 		logx.L().Warn("读取历史数据时出错，从空库继续", "err", err.Error())
@@ -319,10 +328,17 @@ func safeName(s string) string {
 	return string(out)
 }
 
-// Close 停止后台协程并做最后一次落盘。
+// Close 停止后台协程、做最后一次落盘，然后释放目录锁。
 func (fs *FileStore) Close() error {
 	fs.once.Do(func() { close(fs.stop) })
-	return fs.Flush()
+	err := fs.Flush()
+	if fs.lock != nil {
+		if lerr := fs.lock.release(); lerr != nil && err == nil {
+			err = lerr
+		}
+		fs.lock = nil
+	}
+	return err
 }
 
 /* ---------------- 写操作打标记 ---------------- */

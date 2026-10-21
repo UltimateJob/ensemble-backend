@@ -70,7 +70,14 @@ func main() {
 	gw := gateway.New(reg, table, cfg.MaxRetries, cfg.BreakerError, cfg.BreakerOpen)
 
 	// ---- 业务 ----
-	auth := service.NewAuth(st, cfg.JWTSecret)
+	sender := service.NewSender(cfg.SmsProvider, cfg.SmsSign, cfg.SmsTemplate, cfg.SmsKeyID, cfg.SmsSecret)
+	if cfg.SmsProvider != "log" && cfg.SmsProvider != "" {
+		log.Warn("短信通道已配置但未接入真实 SDK，发送会失败", "provider", cfg.SmsProvider)
+	}
+	if cfg.DevBypass {
+		log.Warn("DEV_BYPASS 已开启：演示账号免验证码，生产环境请设 DEV_BYPASS=false")
+	}
+	auth := service.NewAuth(st, cfg.JWTSecret, sender, cfg.DevBypass)
 	chat := service.NewChat(st, gw)
 	orch := service.NewOrchestrator(st, gw)
 	drafter := service.NewDrafter(gw)

@@ -38,7 +38,7 @@ func newTestServer(t *testing.T) (*Server, http.Handler) {
 	})
 	gw := gateway.New(reg, models, 1, 3, time.Second)
 
-	auth := service.NewAuth(st, cfg.JWTSecret)
+	auth := service.NewAuth(st, cfg.JWTSecret, service.LogSender{}, true)
 	chat := service.NewChat(st, gw)
 	orch := service.NewOrchestrator(st, gw)
 	drafter := service.NewDrafter(gw)

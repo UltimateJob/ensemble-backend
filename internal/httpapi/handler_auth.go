@@ -29,13 +29,17 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "请填写手机号或邮箱")
 		return
 	}
-	code, err := s.auth.SendCode(req.Target)
+	code, err := s.auth.SendCode(r.Context(), req.Target)
 	if err != nil {
 		serverErr(w, err.Error())
 		return
 	}
-	// 首版回显验证码，接入短信后移除
-	ok(w, map[string]string{"sent": "true", "devCode": code})
+	resp := map[string]string{"sent": "true", "channel": s.cfg.SmsProvider}
+	// 只有内置 log 通道才把验证码回给前端
+	if code != "" {
+		resp["devCode"] = code
+	}
+	ok(w, resp)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

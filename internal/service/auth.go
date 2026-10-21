@@ -2,6 +2,7 @@
 package service
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -26,6 +27,10 @@ type Auth struct {
 	store  store.Store
 	secret []byte
 	ttl    time.Duration
+	sender CodeSender
+
+	// bypass 为真时，演示账号可以跳过验证码（本地用）
+	bypass bool
 
 	mu    sync.Mutex
 	codes map[string]codeEntry
@@ -36,22 +41,28 @@ type codeEntry struct {
 	exp  time.Time
 }
 
-func NewAuth(s store.Store, secret string) *Auth {
+func NewAuth(s store.Store, secret string, sender CodeSender, bypass bool) *Auth {
+	if sender == nil {
+		sender = LogSender{}
+	}
 	return &Auth{
 		store:  s,
 		secret: []byte(secret),
 		ttl:    7 * 24 * time.Hour,
+		sender: sender,
+		bypass: bypass,
 		codes:  make(map[string]codeEntry),
 	}
 }
 
-// SendCode 发送验证码。首版固定 123456 并回显，接入短信网关后替换。
-func (a *Auth) SendCode(target string) (string, error) {
-	code := "123456"
+// SendCode 生成并发送验证码。
+// 返回的 devCode 只有在内置 LogSender 下非空，真短信通道返回空字符串。
+func (a *Auth) SendCode(ctx context.Context, target string) (string, error) {
+	code := randomCode()
 	a.mu.Lock()
 	a.codes[target] = codeEntry{code: code, exp: time.Now().Add(5 * time.Minute)}
 	a.mu.Unlock()
-	return code, nil
+	return a.sender.Send(ctx, target, code)
 }
 
 // Login 手机号或邮箱登录，不存在则自动建号。
@@ -60,12 +71,16 @@ func (a *Auth) Login(kind, target, code, name string) (*domain.User, string, err
 	entry, ok := a.codes[target]
 	a.mu.Unlock()
 
-	// 演示账号允许跳过验证码
-	demo := target == "13800000000" || target == "linmo@studio.com"
+	// 演示账号可跳过验证码（由配置控制，生产应关掉）
+	demo := a.bypass && (target == "13800000000" || target == "linmo@studio.com")
 	if !demo {
 		if !ok || entry.code != code || time.Now().After(entry.exp) {
 			return nil, "", ErrInvalidCode
 		}
+		// 用过的码立刻作废，避免重放
+		a.mu.Lock()
+		delete(a.codes, target)
+		a.mu.Unlock()
 	}
 
 	var (

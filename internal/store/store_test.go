@@ -383,3 +383,27 @@ func TestListMessagesPage(t *testing.T) {
 		t.Fatal("空会话应返回空且 hasMore=false")
 	}
 }
+
+func TestFileStoreLock(t *testing.T) {
+	dir := t.TempDir()
+
+	fs1, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 第二个实例抢同一个目录应失败
+	if _, err := NewFileStore(dir); err == nil {
+		t.Fatal("同一目录不应允许两个实例同时打开")
+	}
+
+	// 关掉之后可以重新打开
+	if err := fs1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fs2, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("释放锁后应能重新打开：%v", err)
+	}
+	fs2.Close()
+}

@@ -37,6 +37,16 @@ type Config struct {
 
 	// 数据目录（分片存储）
 	DataDir string
+
+	// 验证码通道：log（默认，写日志并回显） / aliyun / tencent …
+	SmsProvider string
+	SmsSign     string
+	SmsTemplate string
+	SmsKeyID    string
+	SmsSecret   string
+
+	// DevBypass 为真时演示账号可跳过验证码，生产必须关掉
+	DevBypass bool
 }
 
 func Load() Config {
@@ -63,6 +73,14 @@ func Load() Config {
 
 		AllowMock: boolEnv("ALLOW_MOCK", true),
 		DataDir:   env("DATA_DIR", "data"),
+
+		SmsProvider: env("SMS_PROVIDER", "log"),
+		SmsSign:     env("SMS_SIGN", ""),
+		SmsTemplate: env("SMS_TEMPLATE", ""),
+		SmsKeyID:    env("SMS_KEY_ID", ""),
+		SmsSecret:   env("SMS_SECRET", ""),
+
+		DevBypass: boolEnv("DEV_BYPASS", true),
 	}
 	return c
 }
