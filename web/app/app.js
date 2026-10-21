@@ -722,6 +722,8 @@
     } finally {
       state.busy = false;
       $('#sendBtn').disabled = !ta.value.trim();
+      const nb = $('#nudgeBtn');
+      if (nb) nb.disabled = false;
       scrollBottom();
       loadConvs();
     }
@@ -747,6 +749,18 @@
     ta.value += '@' + state.agents[0].name + ' ';
     ta.focus();
   });
+  // 让群里继续聊：不需要用户发言，角色自己找话题
+  $('#nudgeBtn').addEventListener('click', async () => {
+    if (state.busy || !state.cur) return;
+    const btn = $('#nudgeBtn');
+    btn.disabled = true;
+    try {
+      await kickoff(state.cur.id);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   $('#clearBtn').addEventListener('click', () => {
     if (!state.cur) return;
     $('#msgWrap').innerHTML = '';

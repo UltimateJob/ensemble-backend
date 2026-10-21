@@ -285,6 +285,24 @@ async function run() {
     const spoke = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
     ok(`有 ${spoke} 个角色发言`, spoke >= 1);
 
+    // ---- 「继续聊」：不发言也能让群里自己找话题 ----
+    const before = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
+    await cdp.eval('document.querySelector("#nudgeBtn").click()');
+    await cdp.waitFor(
+      'document.querySelectorAll(".msg.speaking").length > 0',
+      30000,
+      '点了继续聊之后有人开口'
+    );
+    await cdp.waitFor(
+      'document.querySelectorAll(".msg.speaking").length === 0',
+      60000,
+      '继续聊这一轮结束'
+    );
+    await sleep(500);
+    const after = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
+    ok(`继续聊新增了 ${after - before} 条发言`, after > before);
+    ok('按钮已恢复可点', await cdp.eval('!document.querySelector("#nudgeBtn").disabled'));
+
     // ---- 刷新后仍在（持久化 + 会话恢复）----
     const convId = await cdp.eval('window.__e2eConvId = document.querySelector(".conv").dataset.id; window.__e2eConvId');
     await cdp.send('Page.reload');
