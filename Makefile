@@ -44,6 +44,14 @@ walk:
 audit:
 	@python3 scripts/audit-ui.py
 
+# 装一份可以直接看的演示数据（3 个群，真实对话）然后启动
+demo:
+	@./scripts/demo.sh
+
+# 只装演示数据，不启动
+demo-data:
+	@./scripts/demo.sh --only
+
 # 浏览器端到端
 e2e:
 	@python3 scripts/audit-ui.py
