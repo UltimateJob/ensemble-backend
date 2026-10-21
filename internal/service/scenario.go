@@ -34,6 +34,8 @@ type Agent struct {
 	Aliases []string `json:"-"`
 	// Artifact 该角色是否产出文件
 	Artifact string `json:"artifact,omitempty"`
+	// Permission 执行权限（readonly / approval / full）；空表示按场景默认。
+	Permission string `json:"permission,omitempty"`
 }
 
 // Scenarios 全部内置场景。新增场景只需在这里加一项。

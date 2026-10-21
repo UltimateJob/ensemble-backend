@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/UltimateJob/ensemble-backend/internal/agent"
 	"github.com/UltimateJob/ensemble-backend/internal/config"
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
@@ -120,7 +121,10 @@ func main() {
 	admin := service.NewAdmin(st, gw, shared)
 
 	// ---- HTTP ----
+	// 工作层：本地工作区、Run、审批、回滚。
+	agentMgr := agent.NewManager()
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc)
+	srv.SetAgentManager(agentMgr)
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Handler(),

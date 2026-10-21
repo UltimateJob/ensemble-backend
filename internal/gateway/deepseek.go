@@ -45,17 +45,78 @@ func NewDeepSeek(base, key, model string, timeout time.Duration) *DeepSeek {
 func (d *DeepSeek) Name() string { return "deepseek" }
 
 type dsRequest struct {
-	Model       string               `json:"model"`
-	Messages    []domain.ChatMessage `json:"messages"`
-	Stream      bool                 `json:"stream"`
-	Temperature float64              `json:"temperature,omitempty"`
-	MaxTokens   int                  `json:"max_tokens,omitempty"`
+	Model       string      `json:"model"`
+	Messages    []dsMessage `json:"messages"`
+	Stream      bool        `json:"stream"`
+	Temperature float64     `json:"temperature,omitempty"`
+	MaxTokens   int         `json:"max_tokens,omitempty"`
+	Tools       []dsTool    `json:"tools,omitempty"`
+	ToolChoice  string      `json:"tool_choice,omitempty"`
+}
+
+// dsMessage 上游消息格式。
+//
+// 不能直接把 domain.ChatMessage 序列化发出去：OpenAI 的 tool_calls 要求
+// `{"id","type":"function","function":{"name","arguments"}}` 的嵌套结构，
+// 而内部结构是扁平的。DeepSeek 的反序列化器会直接报 422（missing field `type`）。
+type dsMessage struct {
+	Role       string       `json:"role"`
+	Content    string       `json:"content"`
+	ToolCalls  []dsToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string       `json:"tool_call_id,omitempty"`
+	Name       string       `json:"name,omitempty"`
+}
+
+type dsToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// toDSMessages 把内部消息转成上游格式。
+func toDSMessages(in []domain.ChatMessage) []dsMessage {
+	out := make([]dsMessage, 0, len(in))
+	for _, m := range in {
+		dm := dsMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Name: m.Name}
+		for _, tc := range m.ToolCalls {
+			var dt dsToolCall
+			dt.ID = tc.ID
+			dt.Type = "function"
+			dt.Function.Name = tc.Name
+			dt.Function.Arguments = tc.Arguments
+			dm.ToolCalls = append(dm.ToolCalls, dt)
+		}
+		out = append(out, dm)
+	}
+	return out
+}
+
+// dsTool OpenAI 兼容的工具声明。
+type dsTool struct {
+	Type     string `json:"type"`
+	Function struct {
+		Name        string          `json:"name"`
+		Description string          `json:"description,omitempty"`
+		Parameters  json.RawMessage `json:"parameters,omitempty"`
+	} `json:"function"`
 }
 
 type dsChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Index    int    `json:"index"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -71,12 +132,23 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 	if model == "" {
 		model = d.model
 	}
+	var tools []dsTool
+	for _, t := range req.Tools {
+		var dt dsTool
+		dt.Type = "function"
+		dt.Function.Name = t.Name
+		dt.Function.Description = t.Description
+		dt.Function.Parameters = t.Parameters
+		tools = append(tools, dt)
+	}
 	body, err := json.Marshal(dsRequest{
 		Model:       model,
-		Messages:    req.Messages,
+		Messages:    toDSMessages(req.Messages),
 		Stream:      true,
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,
+		Tools:       tools,
+		ToolChoice:  req.ToolChoice,
 	})
 	if err != nil {
 		return nil, err
@@ -105,6 +177,7 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 		defer close(ch)
 		defer resp.Body.Close()
 
+		finish := ""
 		sc := bufio.NewScanner(resp.Body)
 		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -115,7 +188,7 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 			}
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload == "[DONE]" {
-				ch <- domain.Chunk{Done: true}
+				ch <- domain.Chunk{Done: true, FinishReason: finish}
 				return
 			}
 			var c dsChunk
@@ -123,7 +196,7 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 				continue
 			}
 			if c.Usage != nil {
-				ch <- domain.Chunk{Done: true, Usage: &domain.Usage{
+				ch <- domain.Chunk{Done: true, FinishReason: finish, Usage: &domain.Usage{
 					PromptTokens:     c.Usage.PromptTokens,
 					CompletionTokens: c.Usage.CompletionTokens,
 					TotalTokens:      c.Usage.TotalTokens,
@@ -131,9 +204,25 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 				return
 			}
 			for _, pick := range c.Choices {
+				if pick.FinishReason != "" {
+					finish = pick.FinishReason
+				}
+				for _, tc := range pick.Delta.ToolCalls {
+					d := &domain.ToolCallDelta{
+						Index:     tc.Index,
+						ID:        tc.ID,
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					}
+					select {
+					case ch <- domain.Chunk{ToolCall: d, FinishReason: finish}:
+					case <-ctx.Done():
+						return
+					}
+				}
 				if pick.Delta.Content != "" {
 					select {
-					case ch <- domain.Chunk{Content: pick.Delta.Content}:
+					case ch <- domain.Chunk{Content: pick.Delta.Content, FinishReason: finish}:
 					case <-ctx.Done():
 						return
 					}

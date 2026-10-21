@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 
+	"github.com/UltimateJob/ensemble-backend/internal/agent"
 	"github.com/UltimateJob/ensemble-backend/internal/config"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
@@ -20,6 +21,7 @@ type Server struct {
 	orchestrator *service.Orchestrator
 	drafter      *service.Drafter
 	mem          *service.MemoryService
+	agents       *agent.Manager
 }
 
 func NewServer(
@@ -99,10 +101,27 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/memories", s.handleMemorySnapshot)
 	userMux.HandleFunc("DELETE /v1/memories", s.handleClearMemory)
 
+	// 工作层：工作区 / 任务 / 审批 / 回滚（需要注入 agent.Manager）
+	if s.agents != nil {
+		userMux.HandleFunc("GET /v1/workspaces", s.handleListWorkspaces)
+		userMux.HandleFunc("POST /v1/workspaces", s.handleBindWorkspace)
+		userMux.HandleFunc("DELETE /v1/workspaces/{id}", s.handleUnbindWorkspace)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/tree", s.handleWorkspaceTree)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/file", s.handleWorkspaceFile)
+		userMux.HandleFunc("POST /v1/workspaces/{id}/runs", s.handleStartRun)
+		userMux.HandleFunc("GET /v1/runs/{id}", s.handleGetRun)
+		userMux.HandleFunc("GET /v1/runs/{id}/events", s.handleRunEvents)
+		userMux.HandleFunc("POST /v1/runs/{id}/approve", s.handleApprove)
+		userMux.HandleFunc("POST /v1/runs/{id}/abort", s.handleAbort)
+		userMux.HandleFunc("GET /v1/runs/{id}/diff", s.handleRunDiff)
+		userMux.HandleFunc("POST /v1/runs/{id}/revert", s.handleRevert)
+	}
+
 	authMW := Auth(s.auth.Verify)
 	for _, p := range []string{
 		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
 		"/v1/conversations", "/v1/conversations/", "/v1/memories",
+		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/",
 	} {
 		mux.Handle(p, authMW(userMux))
 	}
