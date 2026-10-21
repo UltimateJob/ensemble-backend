@@ -61,6 +61,10 @@ a{color:inherit;text-decoration:none}
 .btn-line:hover{color:var(--tx)}
 .btn-sm{height:30px;padding:0 12px;border-radius:8px;font-size:12px}
 
+/* 焦点环：键盘导航要看得见。浏览器默认的 1px 黑框在浅色卡片上太弱。 */
+:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
+input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
+
 /* 布局 */
 .app{display:none}
 .app.on{display:block}

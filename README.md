@@ -322,6 +322,12 @@ make injection     # 需要真实 Key
 
 顺带修了个显示问题：模型偶尔「说了话又带个 `[PASS]`」，正文里的标记现在会被清掉。
 
+## 键盘焦点
+
+![焦点环](docs/shot-focus.png)
+
+Tab 走一遍，焦点环是 2px 紫色 + 2px 偏移——和设计系统一致，在浅色卡片上也看得清。输入框用自己的边框高亮，不叠 outline。
+
 ## 运维台
 
 ![运维台](docs/shot-admin.png)
@@ -584,6 +590,12 @@ node scripts/walk.mjs
 | `UPSTREAM_TIMEOUT` | `120s` | 上游超时 |
 
 ---
+
+## 键盘焦点
+
+![焦点环](docs/shot-focus.png)
+
+Tab 走一遍，焦点环是 2px 紫色 + 2px 偏移——和设计系统一致，在浅色卡片上也看得清。输入框用自己的边框高亮，不叠 outline。
 
 ## 运维台能做什么
 

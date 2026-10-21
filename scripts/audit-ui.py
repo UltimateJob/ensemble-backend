@@ -110,6 +110,22 @@ if bare:
     problems.append(f'后台有 {len(bare)} 个 td 缺 data-label——窄屏卡片里会是没有字段名的裸值：{bare[:3]}')
 
 
+
+# 7) 键盘焦点必须可见。
+#    之前只有浏览器默认的 1px 黑框，和紫色强调色不一致，
+#    在浅色卡片上也偏弱。checklist C14 要求 2px + offset。
+m = re.search(r':focus-visible\s*\{([^}]*)\}', css)
+if not m:
+    problems.append('app.css 没有 :focus-visible 规则——键盘导航看不到焦点')
+else:
+    body = m.group(1).replace(' ', '')
+    if 'outline' not in body or 'none' in body:
+        problems.append(':focus-visible 没有可见 outline')
+    elif '2px' not in body:
+        problems.append(':focus-visible 的 outline 不是 2px')
+    if 'outline-offset' not in body:
+        problems.append(':focus-visible 缺 outline-offset')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:

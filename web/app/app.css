@@ -28,6 +28,12 @@ button,a,[role="button"]{touch-action:manipulation}
   --sh-3:0 24px 60px -24px rgba(18,18,26,.28);
 }
 *{box-sizing:border-box;margin:0;padding:0}
+
+/* 焦点环：键盘导航要看得见。
+   之前只有浏览器默认的 1px 黑框，和紫色强调色不一致，
+   在浅色卡片上也不够明显。输入框有自己的 focus 样式，排除掉。 */
+:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
+input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
 html,body{height:100%}
 body{
   overflow-x:hidden;
