@@ -34,6 +34,9 @@ type Config struct {
 
 	// 是否允许无 Key 时使用 mock 上游（本地演示）
 	AllowMock bool
+
+	// 数据落盘路径
+	DataFile string
 }
 
 func Load() Config {
@@ -59,6 +62,7 @@ func Load() Config {
 		DeepSeekModel:   env("DEEPSEEK_MODEL", "deepseek-chat"),
 
 		AllowMock: boolEnv("ALLOW_MOCK", true),
+		DataFile:  env("DATA_FILE", "data/ensemble.json"),
 	}
 	return c
 }

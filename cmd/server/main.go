@@ -31,7 +31,13 @@ func main() {
 	log := logx.L()
 
 	// ---- 存储 ----
-	st := store.NewMemory()
+	dataPath := cfg.DataFile
+	fs, err := store.NewFile(dataPath)
+	if err != nil {
+		log.Error("存储初始化失败", "err", err.Error())
+		os.Exit(1)
+	}
+	st := store.Store(fs)
 
 	// ---- 上游注册 ----
 	reg := gateway.NewRegistry()
@@ -97,6 +103,9 @@ func main() {
 		defer cancel()
 		if err := httpServer.Shutdown(ctx); err != nil {
 			log.Error("关闭超时", "err", err.Error())
+		}
+		if err := fs.Close(); err != nil {
+			log.Error("落盘失败", "err", err.Error())
 		}
 		close(done)
 	}()
