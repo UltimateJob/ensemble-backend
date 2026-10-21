@@ -32,6 +32,8 @@ const key=async (k, code, mods=0, text) => {
   await send('Input.dispatchKeyEvent',{type:'keyUp',key:k,code,modifiers:mods});
 };
 await send('Page.enable');await send('Runtime.enable');
+// CI 的 headless 环境里页面可能不是活动的，按键会被丢
+await send('Page.bringToFront').catch(()=>{});
 const token=(await (await fetch(`${BASE}/v1/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'phone',target:'13800000000'})})).json()).data.token;
 // 键盘导航需要至少两个群才能测「下移」。
 // 不依赖外部数据，自己准备。
@@ -56,14 +58,14 @@ const ok=(n,c,d)=>{ if(c){pass++;console.log('  ✓',n)}else{fail++;console.log(
 // ↓ 选中第一个
 await send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
 await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
-await sleep(400);
+await sleep(700);
 ok('↓ 选中会话', await ev(`document.querySelectorAll('.conv.kb-on').length === 1`));
 
 // 再按一次移动
 const first = await ev(`document.querySelector('.conv.kb-on')?.dataset.id`);
 await send('Input.dispatchKeyEvent',{type:'rawKeyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
 await send('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40});
-await sleep(400);
+await sleep(700);
 const second = await ev(`document.querySelector('.conv.kb-on')?.dataset.id`);
 ok('再按继续下移', first && second && first !== second, `${first} vs ${second}`);
 
