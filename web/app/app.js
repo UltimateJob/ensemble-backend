@@ -706,6 +706,8 @@
             curEl.classList.remove('speaking');
             curEl.querySelector('.msg-text').classList.remove('caret');
             curEl.querySelector('.msg-time').textContent = timeStr(new Date());
+            pipeDone++;
+            renderPipeline(false);
           } else if (ev.type === 'pass') {
             const n = document.createElement('div');
             n.className = 'pass-note';
