@@ -104,3 +104,48 @@ func TestDeleteConvRemovesMessageFile(t *testing.T) {
 		t.Fatalf("删除会话后消息文件应该被删掉，实际还在")
 	}
 }
+
+// 写盘失败时要能被观察到。
+// 写不进磁盘的时候接口照样返回 200，数据只在内存里，重启就没了——
+// 这种状态必须让运维/监控看到，不能只写一条日志。
+func TestPersistHealthReflectsFlushFailure(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = os.Chmod(dir, 0o755)
+		fs.Close()
+	}()
+
+	if h := fs.PersistHealth(); !h.OK {
+		t.Fatalf("初始状态应该是健康的，得到 %+v", h)
+	}
+
+	// 让目录不可写，再触发一次落盘
+	_ = fs.CreateConv(&domain.Conversation{ID: "c_h", UserID: "u1", Title: "x"})
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Skip("改不了权限")
+	}
+	_ = fs.Flush() // 这次应该失败
+
+	h := fs.PersistHealth()
+	if h.OK {
+		t.Fatal("落盘失败后 PersistHealth 应该报不健康")
+	}
+	if h.Failures == 0 {
+		t.Fatal("应该记下失败次数")
+	}
+	if h.LastError == "" {
+		t.Fatal("应该带上最后一次错误信息")
+	}
+
+	// 恢复权限后，下一次成功的 Flush 应该清零
+	_ = os.Chmod(dir, 0o755)
+	if err := fs.Flush(); err == nil {
+		if h2 := fs.PersistHealth(); !h2.OK || h2.Failures != 0 {
+			t.Fatalf("恢复后应该健康，得到 %+v", h2)
+		}
+	}
+}

@@ -48,7 +48,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		m := s.gw.Metrics()
 		ready := len(m.Providers) > 0
-		ok(w, map[string]interface{}{"ready": ready, "providers": len(m.Providers)})
+
+		// 落盘状态也决定「能不能对外服务」。
+		// 写不进磁盘时接口照样返回 200，但数据只在内存里，重启就没了——
+		// 这种状态不该被当成 ready。
+		persist := map[string]interface{}{"ok": true}
+		if ph, has := s.store.(interface{ PersistHealth() store.PersistHealth }); has {
+			h := ph.PersistHealth()
+			persist = map[string]interface{}{
+				"ok": h.OK, "failures": h.Failures,
+				"lastError": h.LastError, "lastSuccessAt": h.LastSuccessAt,
+			}
+			if !h.OK {
+				ready = false
+			}
+		}
+		ok(w, map[string]interface{}{
+			"ready": ready, "providers": len(m.Providers), "persist": persist,
+		})
 	})
 
 	// ---- 鉴权 ----

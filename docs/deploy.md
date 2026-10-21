@@ -122,6 +122,32 @@ scrape_configs:
 
 ---
 
+## 磁盘写不进去的时候
+
+`/readyz` 会变红：
+
+```json
+{
+  "ready": false,
+  "persist": {
+    "ok": false,
+    "failures": 3,
+    "lastError": "open data/users.json.tmp: permission denied",
+    "lastSuccessAt": ""
+  }
+}
+```
+
+**为什么这很重要**：磁盘满或权限不对的时候，接口照样返回 200，对话照样能聊——但数据只在内存里，重启就没了。
+
+之前只有一条 ERROR 日志。现在监控能通过 `/readyz` 直接抓到，Kubernetes 的 liveness/readiness probe 也会把这种实例摘掉。
+
+指标里也能看：`curl -H "X-Admin-Token: ..." /metrics | grep slow` 不含持久化状态，但 `/readyz` 是专门给探针用的。
+
+**磁盘满不是「服务挂了」，是「服务在正常工作但什么都没存下来」——后者更难发现。**
+
+---
+
 ## 备份
 
 `data/` 是唯一的数据源，没有第二份。

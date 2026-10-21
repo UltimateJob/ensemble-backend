@@ -43,6 +43,13 @@ type FileStore struct {
 	dirtyEvents  bool
 	dirtyMsgs    map[string]bool // convID → 需要重写
 
+	// 落盘健康状态。写不进去的时候调用方（服务）该知道——
+	// 数据只在内存里，重启就没了。
+	flushMu       sync.Mutex
+	flushFailures int
+	lastFlushErr  string
+	lastFlushOK   time.Time
+
 	dirty chan struct{}
 	stop  chan struct{}
 	once  sync.Once
@@ -283,7 +290,22 @@ func (fs *FileStore) loop() {
 }
 
 // Flush 把脏的部分写盘。原子替换，避免半截文件。
-func (fs *FileStore) Flush() error {
+func (fs *FileStore) Flush() (err error) {
+	// 不管从哪条路径调进来（后台 loop、Close、启动迁移），
+	// 成功或失败都要记下来——PersistHealth 靠它判断能不能对外服务。
+	defer func() {
+		fs.flushMu.Lock()
+		if err != nil {
+			fs.flushFailures++
+			fs.lastFlushErr = err.Error()
+		} else {
+			fs.flushFailures = 0
+			fs.lastFlushErr = ""
+			fs.lastFlushOK = time.Now()
+		}
+		fs.flushMu.Unlock()
+	}()
+
 	fs.mu.Lock()
 	dUsers, dConvs, dAudits, dEvents := fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents
 	dAgents, dStudios := fs.dirtyAgents, fs.dirtyStudios
@@ -469,6 +491,25 @@ func (fs *FileStore) DeleteConv(id string) error {
 	fs.mark("convs")
 	fs.mark(id) // 消息文件也重写（变成空）
 	return err
+}
+
+// PersistHealth 落盘是否健康。连续失败说明磁盘满了或权限有问题——
+// 这时候服务还在跑、接口还返回 200，但数据只在内存里。
+type PersistHealth struct {
+	OK            bool   `json:"ok"`
+	Failures      int    `json:"failures"`
+	LastError     string `json:"lastError,omitempty"`
+	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
+}
+
+func (fs *FileStore) PersistHealth() PersistHealth {
+	fs.flushMu.Lock()
+	defer fs.flushMu.Unlock()
+	h := PersistHealth{OK: fs.flushFailures == 0, Failures: fs.flushFailures, LastError: fs.lastFlushErr}
+	if !fs.lastFlushOK.IsZero() {
+		h.LastSuccessAt = fs.lastFlushOK.Format(time.RFC3339)
+	}
+	return h
 }
 
 func (fs *FileStore) AppendMessage(m *domain.Message) error {
