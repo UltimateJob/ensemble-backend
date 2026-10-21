@@ -177,3 +177,66 @@ func TestLimiter(t *testing.T) {
 		t.Fatal("其他用户不应被限流")
 	}
 }
+
+func TestLatencyPercentile(t *testing.T) {
+	w := newLatWindow(100)
+	if got := w.percentile(0.95); got != 0 {
+		t.Fatalf("空窗口应返回 0，得到 %v", got)
+	}
+
+	// 1..100 ms
+	for i := int64(1); i <= 100; i++ {
+		w.record(i)
+	}
+	if c := w.count(); c != 100 {
+		t.Fatalf("样本数应为 100，得到 %d", c)
+	}
+
+	p50 := w.percentile(0.5)
+	p95 := w.percentile(0.95)
+	p100 := w.percentile(1.0)
+
+	if p50 < 49 || p50 > 51 {
+		t.Fatalf("P50 应接近 50，得到 %v", p50)
+	}
+	if p95 < 94 || p95 > 96 {
+		t.Fatalf("P95 应接近 95，得到 %v", p95)
+	}
+	if p100 != 100 {
+		t.Fatalf("最大值应为 100，得到 %v", p100)
+	}
+
+	// 环形覆盖：超过容量后只保留最近的
+	small := newLatWindow(10)
+	for i := int64(1); i <= 20; i++ {
+		small.record(i)
+	}
+	if c := small.count(); c != 10 {
+		t.Fatalf("环形窗口应只保留 10 个，得到 %d", c)
+	}
+	if max := small.percentile(1.0); max != 20 {
+		t.Fatalf("最后写入的应是最大值 20，得到 %v", max)
+	}
+}
+
+func TestMetricsP95NotEstimated(t *testing.T) {
+	// P95 不应该再是「均值 × 1.8」
+	reg := NewRegistry()
+	reg.Add(&Mock{})
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "m", Provider: "mock", Upstream: "mock", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, table, 1, 3, time.Second)
+
+	// 直接塞几个极端样本，验证 P95 走的是分位数而不是倍数估算
+	gw.latency.record(10)
+	gw.latency.record(20)
+	gw.latency.record(30)
+	gw.latency.record(900)
+	gw.latency.record(1000)
+
+	p95 := gw.latency.percentile(0.95)
+	if p95 < 900 {
+		t.Fatalf("P95 应反映尾部延迟（接近 1000），得到 %v", p95)
+	}
+}

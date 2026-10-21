@@ -30,6 +30,8 @@ type Gateway struct {
 	latCount atomic.Int64
 	usageMu  sync.RWMutex
 	modelUse map[string]int64
+
+	latency *latWindow
 }
 
 func New(reg *Registry, models *ModelTable, retries, threshold int, openFor time.Duration) *Gateway {
@@ -41,6 +43,7 @@ func New(reg *Registry, models *ModelTable, retries, threshold int, openFor time
 		openFor:   openFor,
 		started:   time.Now(),
 		modelUse:  make(map[string]int64),
+		latency:   newLatWindow(512),
 	}
 }
 
@@ -207,15 +210,19 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 					return
 				}
 				if chunk.Done {
-					g.latSum.Add(time.Since(start).Milliseconds())
+					ms := time.Since(start).Milliseconds()
+					g.latSum.Add(ms)
 					g.latCount.Add(1)
+					g.latency.record(ms)
 					return
 				}
 			}
 
 			if !broken {
-				g.latSum.Add(time.Since(start).Milliseconds())
+				ms := time.Since(start).Milliseconds()
+				g.latSum.Add(ms)
 				g.latCount.Add(1)
+				g.latency.record(ms)
 				return
 			}
 			g.registry.Report(providerName, false, time.Since(start), lastErr.Error(), g.threshold, g.openFor)
@@ -256,7 +263,7 @@ func (g *Gateway) Metrics() domain.Metrics {
 		InFlight:     g.inFlight.Load(),
 		TokensUsed:   g.tokens.Load(),
 		AvgLatencyMS: avg,
-		P95LatencyMS: avg * 1.8, // 首版用均值估算，接入直方图后替换
+		P95LatencyMS: g.latency.percentile(0.95),
 		Providers:    g.registry.Stats(),
 		ModelUsage:   usage,
 	}
