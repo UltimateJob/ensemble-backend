@@ -28,6 +28,17 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, "请求格式不正确")
 		return
 	}
+	// 日常陪聊：每次开群生成一组随机性格的朋友。
+	// 之前是三个写死的角色，每次都是同样三个人。
+	if req.Studio == "companion" && len(req.Agents) == 0 {
+		for _, a := range service.RandomFriends(3) {
+			req.Agents = append(req.Agents, domain.ConvAgent{
+				Key: a.Key, Name: a.Name, Title: a.Title,
+				Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt,
+			})
+		}
+	}
+
 	conv, err := s.chat.Create(u.ID, req.Title, req.Studio, req.Model, req.Members, req.Agents)
 	if err != nil {
 		serverErr(w, err.Error())

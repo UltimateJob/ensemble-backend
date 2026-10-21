@@ -470,7 +470,72 @@ function renderForge() {
 $('#openForge').addEventListener('click', () => {
   $('#forge').classList.add('on');
   renderForge();
+  if (!$('#charList').dataset.loaded) searchChars('');
 });
+
+/* ---------------- 角色库搜索 ---------------- */
+// 用户要的是「搜索之后丰富设定」，所以这里先搜再补全，
+// 不是让 AI 凭空编一个人。
+$$('.forge-tabs .ft').forEach(b => {
+  b.addEventListener('click', () => {
+    $$('.forge-tabs .ft').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    const isSearch = b.dataset.ft === 'search';
+    $('#paneSearch').style.display = isSearch ? '' : 'none';
+    $('#paneMake').style.display = isSearch ? 'none' : '';
+    if (isSearch && !$('#charList').dataset.loaded) searchChars('');
+  });
+});
+
+let charTimer = null;
+$('#fSearch').addEventListener('input', e => {
+  clearTimeout(charTimer);
+  const q = e.target.value.trim();
+  charTimer = setTimeout(() => searchChars(q), 220);
+});
+
+async function searchChars(q) {
+  const box = $('#charList');
+  if (!box) return;
+  box.innerHTML = '<div class="char-empty">搜索中…</div>';
+  try {
+    const list = await api('/v1/characters?q=' + encodeURIComponent(q));
+    box.dataset.loaded = '1';
+    if (!list.length) {
+      box.innerHTML = '<div class="char-empty">没找到。换个名字或性格试试，比如「毒舌」「傲娇」。</div>';
+      return;
+    }
+    box.innerHTML = list.map(c => `
+      <button class="char-item" data-char="${esc(c.name)}">
+        ${makeAv(c.name, '#7C3AED')}
+        <span>
+          <span class="ci-n">${esc(c.name)}</span>
+          <span class="ci-w">${esc(c.work)}</span>
+        </span>
+        <span class="ci-t">${(c.tags || []).slice(0, 2).map(t => `<span>${esc(t)}</span>`).join('')}</span>
+      </button>`).join('');
+
+    box.querySelectorAll('[data-char]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const name = b.dataset.char;
+        if (forged.some(a => a.name === name)) { toast('这个角色已经在列表里了'); return; }
+        b.disabled = true;
+        try {
+          // 用角色自带的标签生成完整人设
+          const a = await api('/v1/characters/to-agent', { method: 'POST', body: { name } });
+          forged.push(a);
+          renderForge();
+          toast(name + ' 已加入，可以继续找下一个');
+        } catch (e) {
+          toast(e.message);
+          b.disabled = false;
+        }
+      });
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="char-empty">' + esc(e.message) + '</div>';
+  }
+}
 $('#forgeClose').addEventListener('click', () => $('#forge').classList.remove('on'));
 $('#forge').addEventListener('click', e => {
   if (e.target.id === 'forge') $('#forge').classList.remove('on');

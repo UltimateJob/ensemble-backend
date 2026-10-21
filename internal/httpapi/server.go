@@ -55,6 +55,8 @@ func (s *Server) Handler() http.Handler {
 	// ---- 需要登录 ----
 	userMux := http.NewServeMux()
 	userMux.HandleFunc("GET /v1/scenarios", s.handleScenariosAll)
+	userMux.HandleFunc("GET /v1/characters", s.handleSearchCharacters)
+	userMux.HandleFunc("POST /v1/characters/to-agent", s.handleCharacterToAgent)
 	userMux.HandleFunc("GET /v1/me", s.handleMe)
 	userMux.HandleFunc("PATCH /v1/me", s.handleUpdateMe)
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
@@ -85,7 +87,7 @@ func (s *Server) Handler() http.Handler {
 
 	authMW := Auth(s.auth.Verify)
 	for _, p := range []string{
-		"/v1/me", "/v1/me/", "/v1/scenarios", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
+		"/v1/me", "/v1/me/", "/v1/scenarios", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
 		"/v1/conversations", "/v1/conversations/",
 	} {
 		mux.Handle(p, authMW(userMux))

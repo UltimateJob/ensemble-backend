@@ -377,6 +377,31 @@ async function run() {
       ok(`点了之后拉回更早的消息（${firstPage} → ${afterMore}）`, afterMore > firstPage);
     }
 
+    // ---- 角色库搜索 ----
+    // 用户要的是「搜索之后丰富设定」，不是让 AI 凭空编
+    await cdp.eval('document.querySelector("#newConvBtn").click()');
+    await sleep(900);
+    await cdp.eval('document.querySelector("#openForge").click()');
+    await sleep(1200);
+    const charCount = await cdp.eval('document.querySelectorAll(".char-item").length');
+    ok(`角色库有可搜的条目（${charCount}）`, charCount > 0);
+    await cdp.eval(`(() => {
+      const i = document.querySelector('#fSearch');
+      i.value = '毒舌';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await sleep(900);
+    const hits = await cdp.eval('document.querySelectorAll(".char-item").length');
+    ok(`按性格搜到 ${hits} 个角色`, hits >= 3);
+    await cdp.eval('document.querySelector(".char-item").click()');
+    await sleep(900);
+    const picked = await cdp.eval('document.querySelector("#forgeCount").textContent');
+    ok(`点选后加入列表（${picked}）`, picked.includes('1'));
+    await cdp.eval('document.querySelector("#forgeClose").click()');
+    await sleep(400);
+    await cdp.eval('document.querySelector("#sceneCancel").click()');
+    await sleep(400);
+
     // ---- 关页保护 ----
     // 只在「一轮正在说」时拦一下。空闲时拦人很烦。
     // 注意：CDP 的导航不触发 beforeunload（浏览器要求真实用户交互），
