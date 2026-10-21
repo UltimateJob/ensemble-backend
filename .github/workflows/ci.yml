@@ -70,8 +70,11 @@ jobs:
           sleep 3
           curl -sf localhost:8080/healthz
 
-      - name: 端到端
+      - name: 端到端 · 桌面
         run: EDGE_PATH="$(which chrome)" node scripts/e2e.mjs
+
+      - name: 端到端 · 移动端 390
+        run: EDGE_PATH="$(which chrome)" node scripts/e2e-mobile.mjs
 
       - name: 失败时打印后端日志
         if: failure()

@@ -270,7 +270,29 @@ go test ./... -coverpkg=./internal/...
 - **接口不泄露**：场景接口不能把角色的系统提示词返回给前端
 - **端到端**：orchestrate 的 SSE 事件序列完整，start/end 配对，不发散超过场景上限
 
-CI 在 `.github/workflows/ci.yml`，每次 push 跑格式检查、vet、竞态测试、构建和冒烟。
+### 浏览器端到端
+
+```bash
+node scripts/e2e.mjs          # 桌面 1440
+node scripts/e2e-mobile.mjs   # 移动 390
+```
+
+不依赖 Playwright：直接用 CDP 连 headless Chromium，Node 内置 WebSocket 就够。
+
+| 套件 | 断言 | 覆盖 |
+|---|---|---|
+| 桌面 | 22 | 登录 → 场景 → 建群 → 发消息 → 流式回复 → 刷新恢复 |
+| 移动 | 13 | 390 视口、三栏收敛、抽屉开关、无横向溢出、窄屏流式 |
+
+移动端那套用 `Emulation.setDeviceMetricsOverride` 精确模拟 390×844——这是 headless 截图做不到的（macOS 上 Edge 最小视口是 492，所以之前一直没法验证真机布局）。
+
+断言里有几条是硬指标：
+
+- `documentElement.scrollWidth - innerWidth <= 1`：任何横向溢出直接失败
+- 输入框 `getBoundingClientRect().bottom` 不能超出屏幕
+- 场景网格必须是 1 列
+
+CI 在 `.github/workflows/ci.yml`：格式检查 → vet → 竞态测试 → 覆盖率 → 构建 → 冒烟 → 桌面 E2E → 移动 E2E。
 
 写测试时抓到两个真 bug：带解释的 `[PASS] 这个话题我不懂` 被当成发言推给了用户；缓冲阶段 `[PA` 没被识别，用户会看到半截标记。都已修。
 
