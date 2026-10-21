@@ -76,6 +76,15 @@ func (c *Chat) Messages(userID, convID string, limit int) ([]*domain.Message, er
 	return c.store.ListMessages(convID, limit), nil
 }
 
+// MessagesPage 游标分页。
+func (c *Chat) MessagesPage(userID, convID, beforeID string, limit int) ([]*domain.Message, bool, error) {
+	if _, err := c.Get(userID, convID); err != nil {
+		return nil, false, err
+	}
+	msgs, hasMore := c.store.ListMessagesPage(convID, beforeID, limit)
+	return msgs, hasMore, nil
+}
+
 // Send 发一条消息并返回模型流。同时预扣额度。
 func (c *Chat) Send(ctx context.Context, user *domain.User, convID, content string) (<-chan domain.Chunk, *domain.Conversation, error) {
 	conv, err := c.Get(user.ID, convID)

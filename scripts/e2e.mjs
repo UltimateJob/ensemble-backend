@@ -303,6 +303,44 @@ async function run() {
     ok(`继续聊新增了 ${after - before} 条发言`, after > before);
     ok('按钮已恢复可点', await cdp.eval('!document.querySelector("#nudgeBtn").disabled'));
 
+    // ---- 分页：灌够消息后顶部出现「加载更早」 ----
+    const convId0 = await cdp.eval('document.querySelector(".conv").dataset.id');
+    const token0 = await cdp.eval('localStorage.getItem("ens_token")');
+    // 直接打后端造数据，比点界面快
+    for (let i = 0; i < 9; i++) {
+      await fetch(`${BASE}/v1/conversations/${convId0}/orchestrate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token0 },
+        body: JSON.stringify({ content: '第 ' + (i + 1) + ' 轮' }),
+      }).then(r => r.text());
+    }
+
+    await cdp.send('Page.reload');
+    await cdp.waitFor('document.readyState === "complete"', 20000, '刷新');
+    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '会话加载');
+    await cdp.eval(`document.querySelector('.conv[data-id="${convId0}"]').click()`);
+    await cdp.waitFor('document.querySelectorAll(".msg").length > 0', 20000, '消息加载');
+
+    const diag = await cdp.eval(`(() => ({
+      msgs: document.querySelectorAll('.msg').length,
+      wraps: document.querySelectorAll('.msg-wrap').length,
+      convs: document.querySelectorAll('.conv').length,
+      url: location.search,
+    }))()`);
+    const firstPage = diag.msgs;
+    ok(`首屏只加载一页（${firstPage} 条，不是全部）`, firstPage <= 31,
+       `wrap=${diag.wraps} conv=${diag.convs} url=${diag.url}`);
+
+    const hasLoadMore = await cdp.eval('!!document.querySelector("#loadMore")');
+    ok('顶部出现「加载更早」', hasLoadMore);
+
+    if (hasLoadMore) {
+      await cdp.eval('document.querySelector("#loadMore").click()');
+      await sleep(1200);
+      const afterMore = await cdp.eval('document.querySelectorAll(".msg").length');
+      ok(`点了之后拉回更早的消息（${firstPage} → ${afterMore}）`, afterMore > firstPage);
+    }
+
     // ---- 刷新后仍在（持久化 + 会话恢复）----
     const convId = await cdp.eval('window.__e2eConvId = document.querySelector(".conv").dataset.id; window.__e2eConvId');
     await cdp.send('Page.reload');

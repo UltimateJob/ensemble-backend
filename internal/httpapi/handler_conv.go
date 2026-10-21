@@ -59,7 +59,27 @@ func (s *Server) handleDeleteConv(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
-	msgs, err := s.chat.Messages(u.ID, r.PathValue("id"), queryInt(r, "limit", 100))
+	limit := queryInt(r, "limit", 30)
+	if limit <= 0 || limit > 200 {
+		limit = 30
+	}
+
+	// 带 before 参数走游标分页，否则保持旧行为（返回最近 limit 条）
+	before := r.URL.Query().Get("before")
+	if before != "" || r.URL.Query().Get("page") == "1" {
+		msgs, hasMore, err := s.chat.MessagesPage(u.ID, r.PathValue("id"), before, limit)
+		if err != nil {
+			notFound(w, "会话不存在")
+			return
+		}
+		ok(w, map[string]interface{}{
+			"messages": msgs,
+			"hasMore":  hasMore,
+		})
+		return
+	}
+
+	msgs, err := s.chat.Messages(u.ID, r.PathValue("id"), limit)
 	if err != nil {
 		notFound(w, "会话不存在")
 		return

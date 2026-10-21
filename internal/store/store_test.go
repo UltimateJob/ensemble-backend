@@ -308,3 +308,78 @@ func TestSafeName(t *testing.T) {
 		}
 	}
 }
+
+func TestListMessagesPage(t *testing.T) {
+	m := NewMemory()
+	_ = m.CreateConv(&domain.Conversation{ID: "c1", UserID: "u1"})
+	var ids []string
+	for i := 0; i < 25; i++ {
+		msg := &domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: string(rune('a' + i%26))}
+		_ = m.AppendMessage(msg)
+		ids = append(ids, msg.ID)
+	}
+	// 另一个会话的消息不应混进来
+	_ = m.AppendMessage(&domain.Message{ConversationID: "c2", Role: domain.RoleUser, Content: "别的"})
+
+	// 第一页：最新 10 条
+	page1, more := m.ListMessagesPage("c1", "", 10)
+	if len(page1) != 10 {
+		t.Fatalf("第一页应有 10 条，得到 %d", len(page1))
+	}
+	if !more {
+		t.Fatal("还有更早的消息，hasMore 应为 true")
+	}
+	// 正序返回：最后一条应是第 25 条
+	if page1[9].ID != ids[24] {
+		t.Fatal("第一页最后一条应是最新消息")
+	}
+	if page1[0].ID != ids[15] {
+		t.Fatal("第一页第一条应是第 16 条")
+	}
+
+	// 第二页：before = 第一页第一条
+	page2, more2 := m.ListMessagesPage("c1", page1[0].ID, 10)
+	if len(page2) != 10 {
+		t.Fatalf("第二页应有 10 条，得到 %d", len(page2))
+	}
+	if page2[9].ID != ids[14] {
+		t.Fatal("第二页应紧接第一页")
+	}
+	if !more2 {
+		t.Fatal("还剩 5 条，hasMore 应为 true")
+	}
+
+	// 第三页：只剩 5 条
+	page3, more3 := m.ListMessagesPage("c1", page2[0].ID, 10)
+	if len(page3) != 5 {
+		t.Fatalf("第三页应有 5 条，得到 %d", len(page3))
+	}
+	if more3 {
+		t.Fatal("已经到最早，hasMore 应为 false")
+	}
+
+	// 三段拼起来应恰好是 25 条，无重复无遗漏
+	total := len(page3) + len(page2) + len(page1)
+	if total != 25 {
+		t.Fatalf("三页合计应为 25 条，得到 %d", total)
+	}
+	seen := map[string]bool{}
+	for _, m := range append(append(page3, page2...), page1...) {
+		if seen[m.ID] {
+			t.Fatalf("消息重复：%s", m.ID)
+		}
+		seen[m.ID] = true
+	}
+
+	// 不存在的 beforeID：退化成取最新一页，不应 panic
+	fallback, _ := m.ListMessagesPage("c1", "no-such-id", 10)
+	if len(fallback) != 10 {
+		t.Fatalf("无效游标应退化为最新一页，得到 %d 条", len(fallback))
+	}
+
+	// 空会话
+	empty, moreE := m.ListMessagesPage("c_empty", "", 10)
+	if len(empty) != 0 || moreE {
+		t.Fatal("空会话应返回空且 hasMore=false")
+	}
+}

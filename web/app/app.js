@@ -21,6 +21,9 @@
     agents: [],       // 当前场景角色
     busy: false,
     pick: null,       // 场景选择中
+    oldestID: null,   // 分页游标：当前已加载的最早一条
+    hasMore: false,
+    loadingMore: false,
   };
 
   /* ---------------- 工具 ---------------- */
@@ -351,10 +354,16 @@
     });
   }
 
+  let openingConvId = null;
+
   async function openConv(id) {
     if (state.busy) return toast('上一轮还没结束');
+    // 同一个会话正在打开时忽略重复调用（并发会导致消息渲染两遍）
+    if (openingConvId === id) return;
     const conv = state.convs.find(c => c.id === id);
     if (!conv) return;
+
+    openingConvId = id;
     state.cur = conv;
 
     const sc = state.scenarios.find(s => s.key === conv.studio) || { agents: [] };
@@ -373,10 +382,14 @@
     $('#crumbName').textContent = conv.title;
     renderMembers();
     renderPipeline(true);
-    $('#msgWrap').innerHTML = '';
 
     try {
-      const msgs = await api('/v1/conversations/' + id + '/messages?limit=100');
+      const page = await api('/v1/conversations/' + id + '/messages?page=1&limit=30');
+      // 拿到数据后再清空：放在 await 之前的话，并发调用会互相覆盖
+      $('#msgWrap').innerHTML = '';
+      const msgs = page.messages || [];
+      state.oldestID = msgs.length ? msgs[0].id : null;
+      state.hasMore = !!page.hasMore;
       artifacts.length = 0;
       msgs.forEach(m => {
         const agent = state.agents.find(a => a.name === m.agent);
@@ -404,15 +417,81 @@
         pipeDone = state.agents.length;
         renderPipeline(false);
       }
+      renderLoadMore();
     } catch (e) {
       toast(e.message);
+    } finally {
+      if (openingConvId === id) openingConvId = null;
     }
     scrollBottom();
   }
 
+  /* 顶部「加载更早」 */
+  function renderLoadMore() {
+    let bar = document.getElementById('loadMore');
+    if (!state.hasMore) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'loadMore';
+      bar.className = 'load-more';
+      bar.innerHTML = '<span>加载更早的消息</span>';
+      bar.addEventListener('click', loadEarlier);
+      const wrap = $('#msgWrap');
+      wrap.insertBefore(bar, wrap.firstChild);
+    }
+  }
+
+  async function loadEarlier() {
+    if (state.loadingMore || !state.hasMore || !state.oldestID || !state.cur) return;
+    state.loadingMore = true;
+    const bar = document.getElementById('loadMore');
+    if (bar) bar.textContent = '加载中…';
+
+    const box = $('#msgs');
+    const prevHeight = box.scrollHeight;
+    const prevTop = box.scrollTop;
+
+    try {
+      const page = await api(
+        '/v1/conversations/' + state.cur.id + '/messages?page=1&limit=30&before=' + encodeURIComponent(state.oldestID)
+      );
+      const older = page.messages || [];
+      state.hasMore = !!page.hasMore;
+
+      // 把更早的消息插到最前面（保持原顺序）
+      const wrap = $('#msgWrap');
+      const frag = document.createDocumentFragment();
+      older.forEach(m => {
+        const agent = state.agents.find(a => a.name === m.agent);
+        const el = buildMsgEl({
+          name: m.role === 'user' ? (state.user && state.user.name) || '你' : (m.agent || 'Agent'),
+          title: agent ? agent.title : '',
+          color: agent ? agent.color : null,
+          text: m.content,
+          me: m.role === 'user',
+          time: m.createdAt,
+        });
+        frag.appendChild(el.el);
+      });
+      wrap.insertBefore(frag, wrap.firstChild);
+      if (older.length) state.oldestID = older[0].id;
+
+      // 恢复视觉位置，避免跳
+      box.scrollTop = box.scrollHeight - prevHeight + prevTop;
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      state.loadingMore = false;
+      if (bar) bar.remove();
+      renderLoadMore();
+    }
+  }
+
   /* ---------------- 渲染 ---------------- */
-  function addMsg(o) {
-    const wrap = $('#msgWrap');
+  function buildMsgEl(o) {
     const el = document.createElement('div');
     el.className = 'msg' + (o.me ? ' me' : '');
     el.innerHTML = `
@@ -426,7 +505,12 @@
         <div class="msg-text"></div>
       </div>`;
     el.querySelector('.msg-text').textContent = o.text || '';
-    wrap.appendChild(el);
+    return { el, textEl: el.querySelector('.msg-text') };
+  }
+
+  function addMsg(o) {
+    const { el } = buildMsgEl(o);
+    $('#msgWrap').appendChild(el);
     return el;
   }
 

@@ -190,7 +190,7 @@ type Provider interface {
 | POST | `/v1/events` | 上报行为 |
 | GET/POST | `/v1/conversations` | 会话列表 / 新建（可带自定义角色） |
 | GET/DELETE | `/v1/conversations/{id}` | 详情 / 删除 |
-| GET | `/v1/conversations/{id}/messages` | 历史消息 |
+| GET | `/v1/conversations/{id}/messages` | 历史消息（`?page=1&before=<id>&limit=30` 走游标分页） |
 | POST | `/v1/conversations/{id}/orchestrate` | **用户发言**，角色自主决定接不接 |
 | POST | `/v1/conversations/{id}/kickoff` | **无人触发**，让群里自己聊 |
 | POST | `/v1/agents/draft` | 生成角色人设 |
@@ -290,6 +290,20 @@ go test ./... -coverpkg=./internal/...
 - **跨用户隔离**：B 读不到 A 的会话，列表里也不出现
 - **接口不泄露**：场景接口不能把角色的系统提示词返回给前端
 - **端到端**：orchestrate 的 SSE 事件序列完整，start/end 配对，不发散超过场景上限
+
+### 消息分页
+
+首屏只拉 30 条，滚到顶部点「加载更早」再拉 30 条。游标是消息 ID 而不是 offset——offset 在并发插入时会错位。
+
+```
+GET /v1/conversations/{id}/messages?page=1&limit=30
+  → { messages: [...], hasMore: true }
+
+GET /v1/conversations/{id}/messages?page=1&limit=30&before=m_0a92...
+  → 更早的 30 条
+```
+
+加载更早时会记录插入前后的 `scrollHeight` 差，把滚动位置顶回去，视觉上不跳。
 
 ### 浏览器端到端
 

@@ -32,6 +32,9 @@ type Store interface {
 	// 消息
 	AppendMessage(m *domain.Message) error
 	ListMessages(convID string, limit int) []*domain.Message
+	// ListMessagesPage 游标分页：取 beforeID 之前的 limit 条。
+	// beforeID 为空表示取最新的一页。返回结果按时间正序，以及是否还有更早的。
+	ListMessagesPage(convID, beforeID string, limit int) (msgs []*domain.Message, hasMore bool)
 
 	// 审计
 	AppendAudit(a *domain.AuditLog) error
@@ -210,6 +213,48 @@ func (m *Memory) AppendMessage(msg *domain.Message) error {
 	cp := *msg
 	m.msgs = append(m.msgs, &cp)
 	return nil
+}
+
+// ListMessagesPage 游标分页实现。
+func (m *Memory) ListMessagesPage(convID, beforeID string, limit int) ([]*domain.Message, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// 先收集这个会话的全部消息（按插入顺序）
+	var all []*domain.Message
+	for _, msg := range m.msgs {
+		if msg.ConversationID == convID {
+			all = append(all, msg)
+		}
+	}
+
+	end := len(all)
+	if beforeID != "" {
+		for i, msg := range all {
+			if msg.ID == beforeID {
+				end = i
+				break
+			}
+		}
+	}
+	if end < 0 {
+		end = 0
+	}
+
+	if limit <= 0 {
+		limit = 30
+	}
+	start := end - limit
+	if start < 0 {
+		start = 0
+	}
+
+	out := make([]*domain.Message, 0, end-start)
+	for _, msg := range all[start:end] {
+		cp := *msg
+		out = append(out, &cp)
+	}
+	return out, start > 0
 }
 
 func (m *Memory) ListMessages(convID string, limit int) []*domain.Message {
