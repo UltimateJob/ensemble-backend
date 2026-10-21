@@ -734,6 +734,11 @@
         return;
       }
 
+      if (ev.type === 'busy') {
+        addSysNote('群里正在说话，这条先放着 — 稍后点右下角「继续聊」让他们接上');
+        return;
+      }
+
       if (ev.type === 'error') {
         addSysNote(ev.name + ' 出错了：' + ev.content);
         return;
@@ -807,6 +812,12 @@
             const n = document.createElement('div');
             n.className = 'pass-note';
             n.textContent = ev.name + ' 没接话';
+            container.appendChild(n);
+            scrollBottom();
+          } else if (ev.type === 'busy') {
+            const n = document.createElement('div');
+            n.className = 'pass-note';
+            n.textContent = '群里正在说话，等一下再试';
             container.appendChild(n);
             scrollBottom();
           }

@@ -33,7 +33,6 @@ func (s *Server) handleOrchestrate(w http.ResponseWriter, r *http.Request) {
 		fail(w, 402, "quota_exceeded", "本月额度已用完")
 		return
 	}
-
 	flusher, canFlush := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -82,7 +81,6 @@ func (s *Server) handleKickoff(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "会话不存在")
 		return
 	}
-
 	flusher, canFlush := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")

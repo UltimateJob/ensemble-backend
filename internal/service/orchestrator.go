@@ -35,14 +35,23 @@ type Event struct {
 type Orchestrator struct {
 	store store.Store
 	gw    *gateway.Gateway
+	locks *convLocks
 }
 
 func NewOrchestrator(s store.Store, gw *gateway.Gateway) *Orchestrator {
-	return &Orchestrator{store: s, gw: gw}
+	return &Orchestrator{store: s, gw: gw, locks: newConvLocks()}
 }
+
+// ErrConversationBusy 同一会话上一轮还没跑完。
+var ErrConversationBusy = fmt.Errorf("这个群正在说话，稍等一下")
+
+// Acquire 尝试占用会话。返回 false 表示有人在说。
+func (o *Orchestrator) Acquire(convID string) bool { return o.locks.TryLock(convID) }
+func (o *Orchestrator) Release(convID string)      { o.locks.Unlock(convID) }
 
 // Run 用户发言后，让群里的人自己决定接不接话。
 func (o *Orchestrator) Run(ctx context.Context, conv *domain.Conversation, user *domain.User, userText string, emit func(Event)) {
+	// 先说后调度：消息无论如何都落库，用户说的话不能因为并发被吞掉
 	_ = o.store.AppendMessage(&domain.Message{
 		ConversationID: conv.ID,
 		Role:           domain.RoleUser,
@@ -62,7 +71,16 @@ func (o *Orchestrator) Kickoff(ctx context.Context, conv *domain.Conversation, u
 }
 
 // loop 核心循环：最多让 N 个人开口，其余可以沉默。
+// 整轮持有会话锁，避免两轮编排交错。
 func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user *domain.User, emit func(Event), trigger string, forceFirst bool) {
+	if !o.locks.TryLock(conv.ID) {
+		// 有人在说：这一轮直接跳过，不产生交错的发言
+		emit(Event{Type: "busy"})
+		emit(Event{Type: "done"})
+		return
+	}
+	defer o.locks.Unlock(conv.ID)
+
 	sc, ok := FindScenario(conv.Studio)
 	if !ok {
 		// 自定义群没有预设场景，用中性上下文，避免被别的场景带偏
