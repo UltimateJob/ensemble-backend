@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -706,6 +708,117 @@ func TestCollaboratorsShowRealNames(t *testing.T) {
 		}
 		if _, ok := p["online"]; !ok {
 			t.Fatal("协作者应带 online 字段——界面上的绿点不能是写死的")
+		}
+	}
+}
+
+// 搜索只在本人可见的会话里找，不能串
+func TestSearchScoped(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "搜索测试群", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+	doJSON(t, h, "POST", "/v1/conversations/"+convID+"/orchestrate", token, map[string]interface{}{
+		"content": "这句话里有一个特别的词：紫水晶",
+	})
+
+	// 能搜到
+	_, out = doJSON(t, h, "GET", "/v1/search?q=紫水晶", token, nil)
+	d := out["data"].(map[string]interface{})
+	hits := d["hits"].([]interface{})
+	if len(hits) == 0 {
+		t.Fatal("应该能搜到刚发的内容")
+	}
+	first := hits[0].(map[string]interface{})
+	if first["convId"] != convID {
+		t.Fatalf("命中的群不对：%v", first["convId"])
+	}
+	if first["convTitle"] != "搜索测试群" {
+		t.Fatal("结果应带群名，前端要显示")
+	}
+	if !strings.Contains(first["snippet"].(string), "紫水晶") {
+		t.Fatalf("片段应包含命中词，得到 %v", first["snippet"])
+	}
+
+	// 搜不到的词返回空
+	_, out = doJSON(t, h, "GET", "/v1/search?q=不存在的词xyz", token, nil)
+	if n := len(out["data"].(map[string]interface{})["hits"].([]interface{})); n != 0 {
+		t.Fatalf("应返回 0 条，得到 %d", n)
+	}
+
+	// 空查询不报错
+	_, out = doJSON(t, h, "GET", "/v1/search?q=", token, nil)
+	if out["data"] == nil {
+		t.Fatal("空查询应正常返回")
+	}
+
+	// 未登录不能搜
+	rec, _ := doJSON(t, h, "GET", "/v1/search?q=紫水晶", "", nil)
+	if rec.Code != 401 {
+		t.Fatalf("未登录应 401，得到 %d", rec.Code)
+	}
+}
+
+// /metrics 要符合 Prometheus 文本格式，且需要令牌
+func TestMetricsEndpoint(t *testing.T) {
+	_, h := newTestServer(t)
+
+	// 无令牌
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatalf("无令牌应 401，得到 %d", rec.Code)
+	}
+
+	// 带令牌
+	req = httptest.NewRequest("GET", "/metrics", nil)
+	req.Header.Set("X-Admin-Token", "test-admin")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("带令牌应 200，得到 %d", rec.Code)
+	}
+	body := rec.Body.String()
+
+	// Prometheus 的基本要求：每个指标有 TYPE 声明，
+	// 每行数据行要么是注释要么是 name{labels} value
+	if !strings.Contains(body, "# TYPE ensemble_uptime_seconds gauge") {
+		t.Fatal("缺少 TYPE 声明")
+	}
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	dataLines := 0
+	for _, ln := range lines {
+		if ln == "" || strings.HasPrefix(ln, "#") {
+			continue
+		}
+		dataLines++
+		// 最后一个空格之后必须是数字
+		parts := strings.Fields(ln)
+		if len(parts) < 2 {
+			t.Fatalf("数据行格式不对：%q", ln)
+		}
+		val := parts[len(parts)-1]
+		if _, err := strconv.ParseFloat(val, 64); err != nil {
+			t.Fatalf("数据行的值不是数字：%q", ln)
+		}
+	}
+	if dataLines < 5 {
+		t.Fatalf("指标太少（%d 行），可能没渲染出来", dataLines)
+	}
+
+	// 关键指标都在
+	for _, want := range []string{
+		"ensemble_http_requests_total",
+		"ensemble_llm_tokens_total",
+		"ensemble_conversations",
+		"ensemble_messages",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("缺少指标 %s", want)
 		}
 	}
 }

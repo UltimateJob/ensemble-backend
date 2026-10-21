@@ -18,7 +18,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -26,6 +26,13 @@ const BASE = process.env.E2E_BASE || 'http://localhost:8080';
 const PORT = 9420;
 const EDGE = process.env.EDGE_PATH || '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge';
 const SHOT_DIR = process.env.SHOT_DIR || '/tmp/walk';
+
+// 每次跑都会覆盖同名截图，但先清一遍避免上一轮的残留混进来
+try {
+  for (const f of readdirSync('/tmp')) {
+    if (f.startsWith('walk-') && f.endsWith('.png')) rmSync('/tmp/' + f, { force: true });
+  }
+} catch { /* 清不掉就算了 */ }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -73,7 +80,10 @@ const kv = (k, v) => console.log(`    ${k}：${v}`);
 
   const profile = mkdtempSync(join(tmpdir(), 'walk-'));
   const proc = spawn(EDGE, [
-    '--headless=new', `--remote-debugging-port=${PORT}`, '--disable-gpu',
+    '--headless=new',
+    // CI 的 runner 以 root 运行，不加这个 Chrome 起不来
+    '--no-sandbox',
+    '--disable-dev-shm-usage', `--remote-debugging-port=${PORT}`, '--disable-gpu',
     '--hide-scrollbars', '--no-first-run', `--user-data-dir=${profile}`, 'about:blank',
   ], { stdio: 'ignore' });
 
@@ -187,4 +197,7 @@ const kv = (k, v) => console.log(`    ${k}：${v}`);
 
   ws.close();
   proc.kill();
+  // 不留临时 profile：每个几百 MB，跑几次就能把磁盘占满
+  await sleep(300);
+  try { rmSync(profile, { recursive: true, force: true }); } catch {}
 })();

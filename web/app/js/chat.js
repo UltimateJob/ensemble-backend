@@ -73,6 +73,7 @@ export async function openConv(id) {
         text: m.content,
         me: m.role === 'user',
         time: m.createdAt,
+        id: m.id,
       });
       // 历史里若在 @用户，恢复「在问你」标记
       if (m.role === 'assistant' && /@用户|@你/.test(m.content || '')) {
@@ -146,6 +147,7 @@ export async function loadEarlier() {
         text: m.content,
         me: m.role === 'user',
         time: m.createdAt,
+        id: m.id,
       });
       frag.appendChild(el.el);
     });
@@ -209,6 +211,7 @@ export function markRoundEnd(wrap) {
 export function buildMsgEl(o) {
   const el = document.createElement('div');
   el.className = 'msg' + (o.me ? ' me' : '');
+  if (o.id) el.dataset.mid = o.id;   // 搜索结果跳转时靠它定位
   el.innerHTML = `
     ${o.me ? '' : makeAv(o.name, o.color)}
     <div class="msg-body">
@@ -420,7 +423,15 @@ export async function runRound(path, body, opts = {}) {
     if (ev.type === 'end') {
       if (curEl) {
         curEl.classList.remove('speaking');
-        curEl.querySelector('.msg-text').classList.remove('caret');
+        const tx = curEl.querySelector('.msg-text');
+        tx.classList.remove('caret');
+        // 后端在流结束后会清理掉说话人前缀（「工头：…」这类）。
+        // 流式显示的是原文，这里用清理后的内容覆盖一次，
+        // 保证界面和落库的一致。
+        if (typeof ev.content === 'string' && ev.content !== curText) {
+          tx.textContent = ev.content;
+          curText = ev.content;
+        }
         curEl.querySelector('.msg-time').textContent = timeStr(new Date());
       }
       pipeDone++;

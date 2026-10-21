@@ -5,3 +5,8 @@
 .DS_Store
 bin/
 data/
+
+# 备份包不进仓库（可能含真实数据）
+backups/
+data.before-restore/
+data.bak/

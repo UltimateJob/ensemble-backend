@@ -28,6 +28,14 @@ test-live:
 quality:
 	@node scripts/quality.mjs
 
+# prompt 注入防御（需要真实 Key）
+injection:
+	@node scripts/injection.mjs
+
+# 真实输出的卫生检查：前缀、出戏、空发言、复读、超长（需要真实 Key）
+sanity:
+	@node scripts/sanity.mjs
+
 # 长时间运行 / 并发
 soak:
 	@ROUNDS=100 node scripts/soak.mjs
@@ -44,6 +52,26 @@ walk:
 audit:
 	@python3 scripts/audit-ui.py
 
+# 备份 data/ 到 backups/（只保留最近 20 份）
+backup:
+	@./scripts/backup.sh 20
+
+# 从备份恢复
+restore:
+	@./scripts/restore.sh $(FILE)
+
+# 备份/恢复往返测试
+test-backup:
+	@./scripts/backup_test.sh
+
+# 装一份可以直接看的演示数据（3 个群，真实对话）然后启动
+demo:
+	@./scripts/demo.sh
+
+# 只装演示数据，不启动
+demo-data:
+	@./scripts/demo.sh --only
+
 # 浏览器端到端
 e2e:
 	@python3 scripts/audit-ui.py
@@ -52,8 +80,12 @@ e2e:
 	@node scripts/multi-tab.mjs
 	@node scripts/keyboard.mjs
 
+# 清掉构建产物、本地数据和测试留下的临时文件
+# （Chrome 的 profile 每个几百 MB，跑几十次浏览器测试就能把磁盘占满）
 clean:
-	rm -rf bin data
+	@rm -rf bin data 2>/dev/null || true
+	@rm -rf /tmp/ens-e2e-* /tmp/ens-tabs-* /tmp/kb-* /tmp/walk-* /tmp/dg*-* /tmp/nt-* /tmp/ul-* 2>/dev/null || true
+	@echo "已清理：bin/ data/ 和临时 profile"
 
 # 清空本地数据
 reset:

@@ -66,7 +66,10 @@ async function main() {
 
   const profile = mkdtempSync(join(tmpdir(), 'ens-m-'));
   const proc = spawn(EDGE, [
-    '--headless=new', `--remote-debugging-port=${PORT}`, '--disable-gpu',
+    '--headless=new',
+    // CI 的 runner 以 root 运行，不加这个 Chrome 起不来
+    '--no-sandbox',
+    '--disable-dev-shm-usage', `--remote-debugging-port=${PORT}`, '--disable-gpu',
     '--no-first-run', '--hide-scrollbars', `--user-data-dir=${profile}`, 'about:blank',
   ], { stdio: 'ignore' });
 
@@ -145,6 +148,36 @@ async function main() {
     })()`);
     await cdp.waitFor('document.querySelector("#msgs").style.display !== "none"', 15000, '聊天区');
     ok('移动端建群成功', true);
+
+    // 真机差异点：这些在 CDP 里能验，真机上立刻能感觉到
+    ok('viewport 支持刘海屏', await cdp.eval(
+      `document.querySelector('meta[name=viewport]').content.includes('viewport-fit=cover')`
+    ));
+    ok('点按高亮已禁用', await cdp.eval(
+      `getComputedStyle(document.body).webkitTapHighlightColor === 'rgba(0, 0, 0, 0)'`
+    ));
+    // 底部安全区：CDP 默认模拟没有 Home 条，env() 算出来是 0，
+    // 所以只能验 CSS 里有没有用这个变量，验不了运行时值。
+    ok('底部用了 safe-area-inset', await cdp.eval(`(() => {
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch { continue; }
+        for (const r of rules) {
+          if (r.cssText && r.cssText.includes('.composer') && r.cssText.includes('safe-area-inset-bottom')) return true;
+        }
+      }
+      return false;
+    })()`));
+    // 视口变矮时（地址栏/键盘顶起），输入框不能被顶出屏幕
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 640, deviceScaleFactor: 3, mobile: true });
+    await sleep(500);
+    const inView = await cdp.eval(`(() => {
+      const r = document.querySelector('#composer').getBoundingClientRect();
+      return r.bottom <= window.innerHeight + 1;
+    })()`);
+    ok('视口变矮时输入框仍在屏幕内', inView);
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
+    await sleep(300);
 
     // 输入框在视口内
     const box = await cdp.eval(`(() => {

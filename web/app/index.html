@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>合奏 Ensemble</title>
 <link rel="stylesheet" href="app.css?v=18">
 </head>
@@ -216,6 +216,19 @@
     <button class="btn btn-line" id="drawerNew">新建</button>
   </div>
   <div class="conv-list" id="drawerList"></div>
+</div>
+
+<!-- 搜索 -->
+<div class="searchpanel" id="searchPanel">
+  <div class="sp-card">
+    <div class="sp-head">
+      <i data-ic="search" data-size="15"></i>
+      <input id="spInput" placeholder="搜消息内容，也可以搜群名" autocomplete="off">
+      <button class="icon-btn" id="spClose"><i data-ic="x" data-size="15"></i></button>
+    </div>
+    <div class="sp-body" id="spBody"></div>
+    <div class="sp-foot">↑↓ 选择 · Enter 打开 · Esc 关闭</div>
+  </div>
 </div>
 
 <!-- 角色编辑器 -->

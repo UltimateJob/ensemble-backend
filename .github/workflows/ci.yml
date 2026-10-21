@@ -78,6 +78,17 @@ jobs:
       - name: 端到端 · 移动端 390
         run: EDGE_PATH="$(which chrome)" node scripts/e2e-mobile.mjs
 
+      - name: 端到端 · 多标签页
+        run: EDGE_PATH="$(which chrome)" node scripts/multi-tab.mjs
+
+      # 键盘导航没有放进 CI。
+      # 试过两次：直接跑和 Page.bringToFront + 放宽等待，都失败。
+      # 拿不到 job 日志（GitHub 下载日志需要 admin 权限），没法继续诊断。
+      # 猜想是 Ubuntu headless 的按键事件投递差异——CDP 派的 keydown
+      # 在无窗口焦点的环境里被丢弃，本地 macOS 恰好是活动的。
+      # 与其留一个偶发红的步骤让人开始忽略 CI，不如只在本地跑：
+      #   node scripts/keyboard.mjs
+
       - name: 失败时打印后端日志
         if: failure()
         run: cat server.log

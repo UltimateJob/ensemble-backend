@@ -26,7 +26,10 @@ import (
 	"github.com/UltimateJob/ensemble-backend/internal/store"
 )
 
-const version = "0.1.0"
+// 1.0.0 意味着「可以承诺 API 稳定、可以对外」。
+// 现在的功能是完整的，但运营基础设施还缺（计费、账号找回、短信通道、
+// 多实例）。所以标 RC——候选版本，功能冻结，等基础设施补齐。
+const version = "1.0.0-rc.1"
 
 func main() {
 	cfg := config.Load()
@@ -49,6 +52,19 @@ func main() {
 	models := []domain.ModelInfo{
 		{Key: "deepseek-chat", Provider: "deepseek", Upstream: "deepseek-chat", Enabled: true, Weight: 10, CostPer1K: 0.001, Note: "通用对话"},
 		{Key: "deepseek-reasoner", Provider: "deepseek", Upstream: "deepseek-reasoner", Enabled: false, Weight: 1, CostPer1K: 0.002, Note: "推理模型"},
+	}
+
+	// 生产自检：不安全的默认值直接拒绝启动。
+	// 宁可起不来，也不要带着 DEV_BYPASS=true 和默认运维令牌对外跑。
+	if problems := cfg.ProdProblems(); len(problems) > 0 {
+		log.Error("生产模式自检未通过，拒绝启动", "问题数", len(problems))
+		for i, p := range problems {
+			log.Error(fmt.Sprintf("  %d. %s", i+1, p))
+		}
+		os.Exit(1)
+	}
+	if cfg.Prod {
+		log.Info("生产模式：自检通过")
 	}
 
 	if !cfg.UpstreamConfigured() {

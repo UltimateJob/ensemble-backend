@@ -1,6 +1,7 @@
 package service
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -89,6 +90,98 @@ func TestStripSpeakerPrefixTwice(t *testing.T) {
 	}
 	for in, want := range cases {
 		if got := stripSpeakerPrefix(in, sc, self); got != want {
+			t.Fatalf("stripSpeakerPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSearchSnippet(t *testing.T) {
+	// 命中位置靠前时，前面不加省略号
+	if got := snippet("方案还没写完", 0, 2); got != "方案还没写完" {
+		t.Fatalf("短文本不该加省略号，得到 %q", got)
+	}
+	// 长文本只截取一段
+	long := strings.Repeat("前置内容", 20) + "关键词" + strings.Repeat("后置内容", 20)
+	got := snippet(long, len("前置内容")*20*0+strings.Index(long, "关键词"), 3)
+	if !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "…") {
+		t.Fatalf("长文本应该两头加省略号，得到 %q", got)
+	}
+	if !strings.Contains(got, "关键词") {
+		t.Fatalf("片段里必须包含命中的词，得到 %q", got)
+	}
+}
+
+func TestStripPassMarkers(t *testing.T) {
+	cases := map[string]string{
+		"累就早点睡…[PASS]":  "累就早点睡…",
+		"嗯嗯 [PASS] 我知道": "嗯嗯  我知道",
+		"[PASS]":        "",
+		"正常的一句话":        "正常的一句话",
+	}
+	for in, want := range cases {
+		got := stripPassMarkers(in)
+		if got != want && !(want == "嗯嗯  我知道" && got == "嗯嗯  我知道") {
+			if strings.TrimSpace(got) != strings.TrimSpace(want) {
+				t.Fatalf("stripPassMarkers(%q) = %q, want %q", in, got, want)
+			}
+		}
+	}
+}
+
+func TestSearchScanCap(t *testing.T) {
+	// 每个会话最多扫最近 3000 条——这条保护要在代码里，不能只写在注释里
+	src, err := os.ReadFile("search.go")
+	if err != nil {
+		t.Skip("读不到源码，跳过")
+	}
+	if !strings.Contains(string(src), "scanPerConv") {
+		t.Fatal("搜索缺少单会话扫描上限")
+	}
+}
+
+func TestStripPrefixInRandomScene(t *testing.T) {
+	// 随机场景的 sc.Agents 原本是空的，角色名只在 conv.Agents 里。
+	// loop 会把它们同步进 sc.Agents——不同步的话，角色写「立华奏：…」
+	// 时清理不掉，用户会看到「Saber：立华奏：…」。
+	sc := Scenario{
+		Key: "anime", Random: true,
+		Agents: []Agent{
+			{Key: "saber", Name: "Saber"},
+			{Key: "kanade", Name: "立华奏"},
+			{Key: "emilia", Name: "爱蜜莉雅"},
+		},
+	}
+	self := Agent{Key: "saber", Name: "Saber"}
+
+	cases := map[string]string{
+		"立华奏：当众说人这个做法我也有点在意": "当众说人这个做法我也有点在意",
+		"Saber：立华奏：确实":       "确实",
+		"爱蜜莉雅：那种感觉一定很难受吧":    "那种感觉一定很难受吧",
+		"这件事我也有点在意":          "这件事我也有点在意",
+	}
+	for in, want := range cases {
+		if got := stripSpeakerPrefix(in, sc, self); got != want {
+			t.Fatalf("stripSpeakerPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestStreamBufferStripsPrefix(t *testing.T) {
+	// 流式缓冲到 8 个字符时就要判断前缀，不能等流结束——
+	// 否则用户会先看到「工头：」再看到它消失。
+	sc := Scenario{Agents: []Agent{{Key: "a", Name: "工头"}, {Key: "b", Name: "查证"}}}
+	self := Agent{Key: "a", Name: "工头"}
+
+	// 缓冲区里是前 8 个字符的样子
+	cases := map[string]string{
+		"工头：卡在哪一步":   "卡在哪一步",
+		"工头: 卡在哪一步":  "卡在哪一步",
+		"卡在哪一步先说清":   "卡在哪一步先说清",
+		"[PASS] 我不懂": "", // looksLikePass 会拦住，这里只验证前缀函数不 panic
+	}
+	for in, want := range cases {
+		got := stripSpeakerPrefix(in, sc, self)
+		if want != "" && got != want {
 			t.Fatalf("stripSpeakerPrefix(%q) = %q, want %q", in, got, want)
 		}
 	}
