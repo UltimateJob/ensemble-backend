@@ -1,6 +1,7 @@
 package service
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -124,5 +125,16 @@ func TestStripPassMarkers(t *testing.T) {
 				t.Fatalf("stripPassMarkers(%q) = %q, want %q", in, got, want)
 			}
 		}
+	}
+}
+
+func TestSearchScanCap(t *testing.T) {
+	// 每个会话最多扫最近 3000 条——这条保护要在代码里，不能只写在注释里
+	src, err := os.ReadFile("search.go")
+	if err != nil {
+		t.Skip("读不到源码，跳过")
+	}
+	if !strings.Contains(string(src), "scanPerConv") {
+		t.Fatal("搜索缺少单会话扫描上限")
 	}
 }

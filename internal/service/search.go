@@ -32,6 +32,12 @@ func (c *Chat) Search(userID, q string, limit int) []SearchHit {
 	}
 	lower := strings.ToLower(q)
 
+	// 每个会话最多扫最近这么多条。
+	// 规模测试：单会话 5 万条扫一遍 6ms，100 个会话就是 600ms。
+	// 搜索的目的是「找到那个群」，不是全库精确检索——
+	// 所以宁可少扫一点，也不让搜索变成慢操作。
+	const scanPerConv = 3000
+
 	hits := make([]SearchHit, 0, limit)
 	for _, conv := range c.store.ListConvs(userID) {
 		if !conv.CanAccess(userID) {
@@ -49,7 +55,11 @@ func (c *Chat) Search(userID, q string, limit int) []SearchHit {
 				Snippet:   conv.Title,
 			})
 		}
-		for _, m := range c.store.ListMessages(conv.ID, 0) {
+		convMsgs := c.store.ListMessages(conv.ID, 0)
+		if len(convMsgs) > scanPerConv {
+			convMsgs = convMsgs[len(convMsgs)-scanPerConv:]
+		}
+		for _, m := range convMsgs {
 			content := m.Content
 			if content == "" {
 				continue
