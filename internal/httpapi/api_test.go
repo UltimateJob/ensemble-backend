@@ -861,3 +861,38 @@ func TestOrchestrateInputValidation(t *testing.T) {
 		t.Fatalf("非法 JSON 应 400，得到 %d", rec.Code)
 	}
 }
+
+// 请求体上限：不能让一个大 body 撑爆内存
+func TestBodySizeLimit(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "body 限制", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	// 3MB 的请求体（上限 2MB）
+	big := strings.Repeat("x", 3<<20)
+	body := `{"content":"` + big + `"}`
+	req := httptest.NewRequest("POST", "/v1/conversations/"+convID+"/orchestrate",
+		strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code == 200 {
+		t.Fatal("超过上限的请求体应该被拒绝")
+	}
+	if rec.Code >= 500 {
+		t.Fatalf("应该返回 4xx 而不是 %d——错误输入不该让服务崩", rec.Code)
+	}
+
+	// 正常大小的请求不受影响
+	rec2, _ := doJSON(t, h, "POST", "/v1/conversations/"+convID+"/orchestrate", token,
+		map[string]interface{}{"content": "正常消息"})
+	if rec2.Code != 200 {
+		t.Fatalf("正常请求应 200，得到 %d", rec2.Code)
+	}
+}

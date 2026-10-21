@@ -133,10 +133,15 @@ func (s *Server) Handler() http.Handler {
 		http.Redirect(w, r, "/app/", http.StatusFound)
 	})
 
-	return Chain(mux,
+	h := Chain(mux,
 		Recover,
 		Trace,
 		CORS,
 		Access,
 	)
+
+	// 限制请求体大小，放在最外层——任何路径都不能靠一个大 body 撑爆内存。
+	// 2MB：消息上限 4000 字约 12KB，留足余量。
+	// 实测没有这个限制时，单个 100MB 请求会让内存从 80MB 涨到 331MB。
+	return LimitBody(h, 2<<20)
 }
