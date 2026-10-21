@@ -186,6 +186,11 @@ async function main() {
     })()`);
     ok(`输入框不超出屏幕（bottom=${box.bottom}, right=${box.right}）`, box.bottom <= 850 && box.right <= 390);
 
+    // 建群后会自动开场（kickoff），那一轮可能还没跑完。
+    // busy 为真时点发送会被静默忽略——桌面测试修过这个，移动端漏了。
+    // 加上角色之间的间隔（Round 68）之后，一轮比以前长，更容易撞上。
+    await cdp.waitFor('window.__ens && !window.__ens.state.busy', 40000, '自动开场结束');
+
     // 发一条，确认流式在窄屏也能正常渲染
     await cdp.eval(`(() => {
       const ta = document.querySelector('#ta');
