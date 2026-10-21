@@ -33,6 +33,8 @@ soak:
 	@ROUNDS=100 node scripts/soak.mjs
 concurrent:
 	@USERS=20 ROUNDS=2 node scripts/concurrent.mjs
+resilience:
+	@node scripts/resilience.mjs
 
 # 浏览器端到端
 e2e:
