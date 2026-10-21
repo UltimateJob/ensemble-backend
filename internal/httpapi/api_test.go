@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -705,5 +706,55 @@ func TestCollaboratorsShowRealNames(t *testing.T) {
 		if _, ok := p["online"]; !ok {
 			t.Fatal("协作者应带 online 字段——界面上的绿点不能是写死的")
 		}
+	}
+}
+
+// 搜索只在本人可见的会话里找，不能串
+func TestSearchScoped(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "搜索测试群", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+	doJSON(t, h, "POST", "/v1/conversations/"+convID+"/orchestrate", token, map[string]interface{}{
+		"content": "这句话里有一个特别的词：紫水晶",
+	})
+
+	// 能搜到
+	_, out = doJSON(t, h, "GET", "/v1/search?q=紫水晶", token, nil)
+	d := out["data"].(map[string]interface{})
+	hits := d["hits"].([]interface{})
+	if len(hits) == 0 {
+		t.Fatal("应该能搜到刚发的内容")
+	}
+	first := hits[0].(map[string]interface{})
+	if first["convId"] != convID {
+		t.Fatalf("命中的群不对：%v", first["convId"])
+	}
+	if first["convTitle"] != "搜索测试群" {
+		t.Fatal("结果应带群名，前端要显示")
+	}
+	if !strings.Contains(first["snippet"].(string), "紫水晶") {
+		t.Fatalf("片段应包含命中词，得到 %v", first["snippet"])
+	}
+
+	// 搜不到的词返回空
+	_, out = doJSON(t, h, "GET", "/v1/search?q=不存在的词xyz", token, nil)
+	if n := len(out["data"].(map[string]interface{})["hits"].([]interface{})); n != 0 {
+		t.Fatalf("应返回 0 条，得到 %d", n)
+	}
+
+	// 空查询不报错
+	_, out = doJSON(t, h, "GET", "/v1/search?q=", token, nil)
+	if out["data"] == nil {
+		t.Fatal("空查询应正常返回")
+	}
+
+	// 未登录不能搜
+	rec, _ := doJSON(t, h, "GET", "/v1/search?q=紫水晶", "", nil)
+	if rec.Code != 401 {
+		t.Fatalf("未登录应 401，得到 %d", rec.Code)
 	}
 }

@@ -676,7 +676,117 @@ $('#logoutBtn').addEventListener('click', () => {
   localStorage.removeItem('ens_token');
   location.reload();
 });
-$('#searchBtn').addEventListener('click', () => toast('全局搜索待接入'));
+/* ---------------- 搜索 ---------------- */
+// 之前这里是一句 toast('全局搜索待接入')——界面上明晃晃一句没做完。
+// 现在真的能搜：跨会话搜消息内容，点结果直接跳到那个群。
+let spHits = [];
+let spSel = -1;
+let spTimer = null;
+
+function openSearch() {
+  $('#searchPanel').classList.add('on');
+  const inp = $('#spInput');
+  inp.value = '';
+  inp.focus();
+  spHits = [];
+  spSel = -1;
+  $('#spBody').innerHTML = '<div class="sp-empty">输入关键词，跨所有群搜消息</div>';
+}
+
+function closeSearch() {
+  $('#searchPanel').classList.remove('on');
+}
+
+function renderHits(q) {
+  const box = $('#spBody');
+  if (!spHits.length) {
+    box.innerHTML = `<div class="sp-empty">没找到「${esc(q)}」。换个词试试。</div>`;
+    return;
+  }
+  // 把命中的词标出来（先转义再插 mark，避免 XSS）
+  const mark = (text) => {
+    const safe = esc(text);
+    const idx = safe.toLowerCase().indexOf(esc(q).toLowerCase());
+    if (idx < 0) return safe;
+    const ql = esc(q).length;
+    return safe.slice(0, idx) + '<mark>' + safe.slice(idx, idx + ql) + '</mark>' + safe.slice(idx + ql);
+  };
+  box.innerHTML = spHits.map((h, i) => `
+    <button class="sp-hit ${i === spSel ? 'sel' : ''}" data-hit="${i}">
+      <span class="h-top">
+        <span class="h-conv">${esc(h.convTitle)}</span>
+        <span>·</span>
+        <span>${h.role === 'conv' ? '群' : esc(h.agent || '你')}</span>
+        <span>·</span>
+        <span>${esc(h.createdAt)}</span>
+      </span>
+      <span class="h-txt">${mark(h.snippet)}</span>
+    </button>`).join('');
+  box.querySelectorAll('[data-hit]').forEach(b => {
+    b.addEventListener('click', () => jumpToHit(Number(b.dataset.hit)));
+  });
+}
+
+async function doSearch(q) {
+  if (!q.trim()) {
+    $('#spBody').innerHTML = '<div class="sp-empty">输入关键词，跨所有群搜消息</div>';
+    spHits = [];
+    return;
+  }
+  $('#spBody').innerHTML = '<div class="sp-empty">搜索中…</div>';
+  try {
+    const d = await api('/v1/search?q=' + encodeURIComponent(q));
+    spHits = d.hits || [];
+    spSel = spHits.length ? 0 : -1;
+    renderHits(q);
+  } catch (e) {
+    $('#spBody').innerHTML = '<div class="sp-empty">' + esc(e.message) + '</div>';
+  }
+}
+
+async function jumpToHit(i) {
+  const h = spHits[i];
+  if (!h) return;
+  closeSearch();
+  await openConv(h.convId);
+  // 滚到那条消息（历史分页可能还没加载到，找不到就算了）
+  setTimeout(() => {
+    const el = document.querySelector(`[data-mid="${h.msgId}"]`);
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.classList.add('flash');
+      setTimeout(() => el.classList.remove('flash'), 1400);
+    }
+  }, 400);
+}
+
+$('#searchBtn').addEventListener('click', openSearch);
+$('#spClose').addEventListener('click', closeSearch);
+$('#searchPanel').addEventListener('click', e => {
+  if (e.target.id === 'searchPanel') closeSearch();
+});
+$('#spInput').addEventListener('input', e => {
+  clearTimeout(spTimer);
+  const q = e.target.value;
+  spTimer = setTimeout(() => doSearch(q), 220);
+});
+$('#spInput').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    spSel = Math.min(spHits.length - 1, spSel + 1);
+    renderHits($('#spInput').value);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    spSel = Math.max(0, spSel - 1);
+    renderHits($('#spInput').value);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    jumpToHit(spSel);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeSearch();
+  }
+});
 
 /* ---------------- 键盘导航 ---------------- */
 // 专业用户默认用键盘。这里补齐列表导航和常用动作，
@@ -740,7 +850,7 @@ document.addEventListener('keydown', e => {
   // ⌘K 搜索
   if (mod && (e.key === 'k' || e.key === 'K')) {
     e.preventDefault();
-    $('#searchBtn').click();
+    openSearch();
     return;
   }
 

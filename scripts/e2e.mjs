@@ -444,6 +444,24 @@ async function run() {
     await cdp.eval('document.querySelector("#sceneCancel").click()');
     await sleep(400);
 
+    // ---- 搜索 ----
+    // 之前顶栏搜索框点开是 toast('全局搜索待接入')，界面上明晃晃一句没做完
+    await cdp.eval('document.querySelector("#searchBtn").click()');
+    await sleep(600);
+    ok('搜索面板能打开', await cdp.eval('document.querySelector("#searchPanel").classList.contains("on")'));
+    await cdp.eval(`(() => {
+      const i = document.querySelector('#spInput');
+      i.value = 'E2E';
+      i.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await sleep(1000);
+    const searchHits = await cdp.eval('document.querySelectorAll(".sp-hit").length');
+    ok(`搜到 ${searchHits} 条结果`, searchHits > 0);
+    ok('命中词有高亮', await cdp.eval('document.querySelectorAll(".sp-hit mark").length > 0'));
+    await cdp.eval(`document.querySelector('#spInput').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+    await sleep(400);
+    ok('Esc 关闭搜索', await cdp.eval('!document.querySelector("#searchPanel").classList.contains("on")'));
+
     // ---- 关页保护 ----
     // 只在「一轮正在说」时拦一下。空闲时拦人很烦。
     // 注意：CDP 的导航不触发 beforeunload（浏览器要求真实用户交互），

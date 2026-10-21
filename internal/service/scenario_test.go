@@ -93,3 +93,19 @@ func TestStripSpeakerPrefixTwice(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchSnippet(t *testing.T) {
+	// 命中位置靠前时，前面不加省略号
+	if got := snippet("方案还没写完", 0, 2); got != "方案还没写完" {
+		t.Fatalf("短文本不该加省略号，得到 %q", got)
+	}
+	// 长文本只截取一段
+	long := strings.Repeat("前置内容", 20) + "关键词" + strings.Repeat("后置内容", 20)
+	got := snippet(long, len("前置内容")*20*0+strings.Index(long, "关键词"), 3)
+	if !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "…") {
+		t.Fatalf("长文本应该两头加省略号，得到 %q", got)
+	}
+	if !strings.Contains(got, "关键词") {
+		t.Fatalf("片段里必须包含命中的词，得到 %q", got)
+	}
+}

@@ -73,6 +73,7 @@ export async function openConv(id) {
         text: m.content,
         me: m.role === 'user',
         time: m.createdAt,
+        id: m.id,
       });
       // 历史里若在 @用户，恢复「在问你」标记
       if (m.role === 'assistant' && /@用户|@你/.test(m.content || '')) {
@@ -146,6 +147,7 @@ export async function loadEarlier() {
         text: m.content,
         me: m.role === 'user',
         time: m.createdAt,
+        id: m.id,
       });
       frag.appendChild(el.el);
     });
@@ -209,6 +211,7 @@ export function markRoundEnd(wrap) {
 export function buildMsgEl(o) {
   const el = document.createElement('div');
   el.className = 'msg' + (o.me ? ' me' : '');
+  if (o.id) el.dataset.mid = o.id;   // 搜索结果跳转时靠它定位
   el.innerHTML = `
     ${o.me ? '' : makeAv(o.name, o.color)}
     <div class="msg-body">
