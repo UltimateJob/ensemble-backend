@@ -1111,3 +1111,14 @@ body.no-conv .col-info{display:none}
 @media (prefers-reduced-motion:reduce){
   .sk-av,.sk-line{animation:none}
 }
+
+/* 发失败的消息：标出来，不让它看起来像发成功了 */
+.msg.me.failed .msg-text{
+  background:rgba(206,31,31,.06);
+  border:1px solid rgba(206,31,31,.28);
+  color:var(--tx-2);
+}
+.msg.me.failed .msg-time::after{
+  content:' · 没发出去';
+  color:var(--bad);
+}

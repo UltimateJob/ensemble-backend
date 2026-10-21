@@ -177,6 +177,25 @@ else:
     elif i_aw >= 0 and i_sk > i_aw:
         problems.append('openConv 的骨架屏在第一个 await 之后——慢网络下会先显示上一个群的消息')
 
+
+# 10) 刷新会话列表失败时，不能把列表清空。
+#     网络抖一下侧栏变成「还没有群聊」，用户会以为自己的群全没了。
+convsjs = open('web/app/js/convs.js', encoding='utf-8').read()
+m = re.search(r'export async function loadConvs\(\)\s*\{(.*?)\n\}', convsjs, re.S)
+if not m:
+    problems.append('convs.js 里找不到 loadConvs')
+else:
+    body = re.sub(r'//[^\n]*', '', m.group(1))
+    if re.search(r'catch\s*\([^)]*\)\s*\{\s*state\.convs\s*=\s*\[\]', body):
+        problems.append('loadConvs 出错时清空了 state.convs——网络抖动会让侧栏变空')
+
+# 11) 发送失败要把原文还给用户，并标记那条消息
+chatjs2 = open('web/app/js/chat.js', encoding='utf-8').read()
+if 'onFail' not in chatjs2:
+    problems.append('send() 没有失败回调——发送失败时原文会丢')
+elif 'msg.me.failed' not in open('web/app/app.css', encoding='utf-8').read():
+    problems.append('缺少 .msg.me.failed 样式——发送失败的消息看起来像发成功了')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:

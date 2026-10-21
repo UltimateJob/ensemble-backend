@@ -18,7 +18,13 @@ export async function loadConvs() {
   try {
     state.convs = await api('/v1/conversations');
   } catch (e) {
-    state.convs = [];
+    // 刷新失败不要把列表清空。之前是 state.convs = []，
+    // 网络抖一下整个侧栏就变成「还没有群聊 / 开第一个群」——
+    // 用户会以为自己的群全没了。保留上一次的列表，只是不更新。
+    if (!state.convs || !state.convs.length) state.convs = [];
+    renderConvs();
+    if (window.__refreshOnboard) window.__refreshOnboard();
+    return;
   }
   renderConvs();
   // 会话数变化会影响上手清单

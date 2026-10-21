@@ -620,8 +620,14 @@ export async function runRound(path, body, opts = {}) {
   } catch (e) {
     if (/额度/.test(e.message)) {
       addSysNote('本月额度用完了 — 这句话先留着，加完额度再点「继续聊」');
+    } else if (/Failed to fetch|NetworkError|load failed/i.test(e.message)) {
+      // 网络断了：这条消息根本没到服务器。界面上那条「我发出的」是乐观渲染，
+      // 刷新就没了。必须把原文还给用户，否则他要重新打一遍。
+      addSysNote('网络断了，这句话没发出去 — 已经放回输入框，网络好了再发一次');
+      if (opts.onFail) opts.onFail(e, 'network');
     } else {
       addSysNote('出错了：' + e.message);
+      if (opts.onFail) opts.onFail(e, 'other');
     }
   } finally {
     state.busy = false;
@@ -657,13 +663,23 @@ export async function send() {
   $('#sendBtn').disabled = true;
   state.busy = true;
 
-  addMsg({ name: (state.user && state.user.name) || '你', text, me: true, time: new Date() });
+  const sentEl = addMsg({ name: (state.user && state.user.name) || '你', text, me: true, time: new Date() });
   scrollBottom();
 
   await runRound('/v1/conversations/' + state.cur.id + '/orchestrate', { content: text }, {
     onDone: () => {
       const box = $('#ta');
       $('#sendBtn').disabled = !box || !box.value.trim();
+    },
+    onFail: (err, kind) => {
+      // 消息没到服务器。把它标成「没发出去」，并把原文放回输入框。
+      if (sentEl) sentEl.classList.add('failed');
+      const box = $('#ta');
+      if (box && !box.value.trim()) {
+        box.value = text;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        if (kind === 'network') box.focus();
+      }
     },
   });
 }
