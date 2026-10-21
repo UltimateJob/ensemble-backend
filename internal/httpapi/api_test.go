@@ -603,3 +603,70 @@ func TestSavedStudio(t *testing.T) {
 		}
 	}
 }
+
+func TestAdminOps(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	_, me := doJSON(t, h, "GET", "/v1/me", token, nil)
+	user := me["data"].(map[string]interface{})["user"].(map[string]interface{})
+	userID := user["id"].(string)
+
+	// 先花掉一点额度
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "运维测试", "studio": "companion",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+	doJSON(t, h, "POST", "/v1/conversations/"+convID+"/orchestrate", token, map[string]interface{}{
+		"content": "花点额度",
+	})
+
+	// 清零
+	req := httptest.NewRequest("POST", "/admin/api/users/"+userID+"/reset-usage", nil)
+	req.Header.Set("X-Admin-Token", "test-admin")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("清零失败：%d %s", rec.Code, rec.Body.String())
+	}
+	_, me = doJSON(t, h, "GET", "/v1/me", token, nil)
+	if used := me["data"].(map[string]interface{})["user"].(map[string]interface{})["used"].(float64); used != 0 {
+		t.Fatalf("清零后 used 应为 0，得到 %v", used)
+	}
+
+	// 会话列表（带锁状态）
+	req = httptest.NewRequest("GET", "/admin/api/conversations", nil)
+	req.Header.Set("X-Admin-Token", "test-admin")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("会话列表失败：%d", rec.Code)
+	}
+	var listResp map[string]interface{}
+	_ = json.Unmarshal(rec.Body.Bytes(), &listResp)
+	list := listResp["data"].([]interface{})
+	if len(list) == 0 {
+		t.Fatal("会话列表不应为空")
+	}
+	first := list[0].(map[string]interface{})
+	if _, hasBusy := first["busy"]; !hasBusy {
+		t.Fatal("会话列表应带 busy 字段")
+	}
+
+	// 强行解锁（本来没锁，也应成功且 wasBusy=false）
+	req = httptest.NewRequest("POST", "/admin/api/conversations/"+convID+"/unlock", nil)
+	req.Header.Set("X-Admin-Token", "test-admin")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("解锁失败：%d", rec.Code)
+	}
+
+	// 无令牌一律拒绝
+	req = httptest.NewRequest("POST", "/admin/api/users/"+userID+"/reset-usage", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 401 {
+		t.Fatalf("无令牌应 401，得到 %d", rec.Code)
+	}
+}

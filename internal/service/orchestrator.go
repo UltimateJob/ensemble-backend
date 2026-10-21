@@ -53,6 +53,9 @@ var ErrConversationBusy = fmt.Errorf("这个群正在说话，稍等一下")
 func (o *Orchestrator) Acquire(convID string) bool { return o.locks.TryLock(convID) }
 func (o *Orchestrator) Release(convID string)      { o.locks.Unlock(convID) }
 
+// Busy 给运维台看这个群是不是卡在编排里。
+func (o *Orchestrator) Busy(convID string) bool { return o.locks.Busy(convID) }
+
 // Run 用户发言后，让群里的人自己决定接不接话。
 func (o *Orchestrator) Run(ctx context.Context, conv *domain.Conversation, user *domain.User, userText string, emit func(Event)) {
 	// 先说后调度：消息无论如何都落库，用户说的话不能因为并发被吞掉
