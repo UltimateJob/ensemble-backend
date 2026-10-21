@@ -413,6 +413,43 @@ a{color:inherit;text-decoration:none}
 .drawer-head h4{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-4)}
 .drawer-head .btn{margin-left:auto;height:28px;padding:0 10px;font-size:12px;border-radius:7px}
 
+/* ---------- 角色编辑器 ---------- */
+.forge{
+  position:fixed;inset:0;z-index:95;display:none;place-items:center;
+  background:rgba(20,22,34,.28);backdrop-filter:blur(6px);padding:20px;
+}
+.forge.on{display:grid}
+.forge-card{
+  width:min(520px,100%);max-height:88vh;overflow-y:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:18px;
+  box-shadow:var(--sh-3),inset 0 1px 0 #fff;padding:22px 22px 18px;
+  animation:forgeIn .26s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes forgeIn{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+.forge-head{display:flex;align-items:center}
+.forge-head h3{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.forge-head .icon-btn{margin-left:auto}
+.forge-sub{margin-top:7px;font-size:12.5px;color:var(--tx-3);line-height:1.6}
+.forge-form{margin-top:16px;display:grid;gap:10px}
+.forge-list{margin-top:16px;display:grid;gap:8px}
+.fcard{
+  display:flex;align-items:center;gap:11px;padding:11px 12px;
+  border:1px solid var(--line);border-radius:12px;background:#fff;
+  animation:msgIn .3s cubic-bezier(.2,.8,.2,1) both;
+}
+.fcard .av{width:34px;height:34px;flex:0 0 34px}
+.fcard .av b{font-size:13px}
+.fcard-n{font-size:13px;font-weight:600}
+.fcard-t{font-size:11px;color:var(--tx-4);margin-top:1px}
+.fcard-p{font-size:11.5px;color:var(--tx-3);margin-top:5px;line-height:1.55;max-height:2.9em;overflow:hidden}
+.fcard .x{margin-left:auto;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--tx-4)}
+.fcard .x:hover{background:rgba(220,38,38,.07);color:var(--bad)}
+.forge-foot{
+  margin-top:18px;padding-top:14px;border-top:1px solid var(--line);
+  display:flex;align-items:center;gap:10px;font-size:12px;color:var(--tx-4);
+}
+.forge-foot .btn{margin-left:auto;height:36px}
+
 /* ---------- 空态 ---------- */
 .empty{
   flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;

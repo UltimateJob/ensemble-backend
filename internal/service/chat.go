@@ -26,7 +26,7 @@ func NewChat(s store.Store, gw *gateway.Gateway) *Chat {
 }
 
 // Create 新建会话。
-func (c *Chat) Create(userID, title, studio, model string, members []string) (*domain.Conversation, error) {
+func (c *Chat) Create(userID, title, studio, model string, members []string, agents []domain.ConvAgent) (*domain.Conversation, error) {
 	if title == "" {
 		title = "新群聊"
 	}
@@ -36,12 +36,13 @@ func (c *Chat) Create(userID, title, studio, model string, members []string) (*d
 		Studio:  studio,
 		Model:   model,
 		Members: members,
+		Agents:  agents,
 	}
 	if err := c.store.CreateConv(conv); err != nil {
 		return nil, err
 	}
 	// 场景有开场白时，由第一个角色先开口，新群不会一片空白
-	if sc, ok := FindScenario(studio); ok && sc.Opening != "" && len(sc.Agents) > 0 {
+	if sc, ok := FindScenario(studio); ok && sc.Opening != "" && len(sc.Agents) > 0 && len(agents) == 0 {
 		first := sc.Agents[0]
 		_ = c.store.AppendMessage(&domain.Message{
 			ConversationID: conv.ID,

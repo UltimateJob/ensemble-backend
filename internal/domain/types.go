@@ -38,14 +38,29 @@ func (u *User) Remaining() int {
 
 // Conversation 一个会话，对应前端的一个群聊。
 type Conversation struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	Title     string    `json:"title"`
-	Studio    string    `json:"studio,omitempty"` // 工作室模板：bid | code | research | blank
-	Model     string    `json:"model"`            // 首选模型
-	Members   []string  `json:"members"`          // Agent 角色 key
+	ID      string   `json:"id"`
+	UserID  string   `json:"userId"`
+	Title   string   `json:"title"`
+	Studio  string   `json:"studio,omitempty"` // 工作室模板：bid | code | research | anime | companion | custom
+	Model   string   `json:"model"`
+	Members []string `json:"members"` // 场景内置角色的 key
+
+	// Agents 自定义角色。为空时用场景预设，非空时覆盖。
+	// 这是「自己造角色拉进群」的落地方式。
+	Agents []ConvAgent `json:"agents,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// ConvAgent 会话内的自定义角色，带完整设定。
+type ConvAgent struct {
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	Emoji  string `json:"emoji,omitempty"`
+	Color  string `json:"color,omitempty"`
+	Prompt string `json:"prompt"`
 }
 
 // Message 一条消息。Agent 消息带产物引用。

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>合奏 Ensemble</title>
-<link rel="stylesheet" href="app.css?v=12">
+<link rel="stylesheet" href="app.css?v=13">
 </head>
 <body>
 
@@ -183,6 +183,7 @@
     <div class="scene-grid" id="sceneGrid"></div>
     <div class="scenes-foot">
       <button class="btn btn-line" id="sceneCancel">取消</button>
+      <button class="btn btn-line" id="openForge">自己造角色</button>
       <button class="btn btn-grad" id="sceneCreate" disabled>创建群聊</button>
     </div>
   </div>
@@ -198,8 +199,40 @@
   <div class="conv-list" id="drawerList"></div>
 </div>
 
+<!-- 角色编辑器 -->
+<div class="forge" id="forge">
+  <div class="forge-card">
+    <div class="forge-head">
+      <h3>造一个角色</h3>
+      <button class="icon-btn" id="forgeClose">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <p class="forge-sub">给个名字和几个关键词，平台会写出完整人设——语气、句子长短、口头习惯。</p>
+
+    <div class="forge-form">
+      <div class="field">
+        <label>名字</label>
+        <input id="fName" placeholder="比如：夜岚" maxlength="12">
+      </div>
+      <div class="field">
+        <label>关键词</label>
+        <input id="fKeys" placeholder="比如：冷淡、剑客、话少" maxlength="40">
+      </div>
+      <button class="btn btn-grad" id="fMake" style="width:100%">生成人设</button>
+    </div>
+
+    <div class="forge-list" id="forgeList"></div>
+
+    <div class="forge-foot">
+      <span id="forgeCount">还没有角色</span>
+      <button class="btn btn-grad" id="forgeDone" disabled>用这些角色开群</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
-<script src="app.js?v=12"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

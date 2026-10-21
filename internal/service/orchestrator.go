@@ -65,9 +65,24 @@ func (o *Orchestrator) Kickoff(ctx context.Context, conv *domain.Conversation, u
 func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user *domain.User, emit func(Event), trigger string, forceFirst bool) {
 	sc, ok := FindScenario(conv.Studio)
 	if !ok {
-		sc, _ = FindScenario("bid")
+		// 自定义群没有预设场景，用中性上下文，避免被别的场景带偏
+		sc = Scenario{Key: "custom", Name: conv.Title, Opening: "", Round: 3}
 	}
+
+	// 会话里有自定义角色时，以它们为准
 	agents := sc.Agents
+	if len(conv.Agents) > 0 {
+		agents = make([]Agent, 0, len(conv.Agents))
+		for _, a := range conv.Agents {
+			agents = append(agents, Agent{
+				Key: a.Key, Name: a.Name, Title: a.Title,
+				Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt,
+			})
+		}
+	}
+	if sc.Round <= 0 || len(agents) < sc.Round {
+		sc.Round = len(agents)
+	}
 	if len(agents) == 0 {
 		emit(Event{Type: "done"})
 		return

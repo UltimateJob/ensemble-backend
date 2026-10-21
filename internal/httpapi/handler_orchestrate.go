@@ -120,7 +120,15 @@ func (s *Server) handleDraftAgent(w http.ResponseWriter, r *http.Request) {
 		serverErr(w, err.Error())
 		return
 	}
-	ok(w, agent)
+	// Agent.Prompt 在场景列表里不对外，这里单独返回
+	ok(w, map[string]string{
+		"key":    agent.Key,
+		"name":   agent.Name,
+		"title":  agent.Title,
+		"emoji":  agent.Emoji,
+		"color":  agent.Color,
+		"prompt": agent.Prompt,
+	})
 }
 
 // handleScenarios 列出所有内置场景。

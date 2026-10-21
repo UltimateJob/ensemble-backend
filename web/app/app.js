@@ -293,7 +293,17 @@
       state.scenarios = [];
     }
     await loadConvs();
-    if (new URLSearchParams(location.search).get('scenes')) openScenes();
+    const qs2 = new URLSearchParams(location.search);
+    if (qs2.get('scenes') || qs2.get('forge')) openScenes();
+    if (qs2.get('forge')) {
+      $('#forge').classList.add('on');
+      renderForge();
+      if (qs2.get('name')) {
+        $('#fName').value = qs2.get('name');
+        $('#fKeys').value = qs2.get('keys') || '';
+        setTimeout(() => $('#fMake').click(), 200);
+      }
+    }
     const wantConv = new URLSearchParams(location.search).get('c');
     if (wantConv && state.convs.some(c => c.id === wantConv)) {
       openConv(wantConv);
@@ -325,12 +335,12 @@
     }
     box.innerHTML = state.convs.map(c => {
       const sc = state.scenarios.find(s => s.key === c.studio) || {};
-      const color = sc.accent || '#4F46E5';
+      const color = sc.accent || (c.agents && c.agents[0] && c.agents[0].color) || '#4F46E5';
       return `<div class="conv ${state.cur && state.cur.id === c.id ? 'on' : ''}" data-id="${c.id}">
         ${makeAv(c.title, color)}
         <div class="conv-body">
           <div class="conv-name">${esc(c.title)}</div>
-          <div class="conv-meta">${esc(sc.name || c.studio || '自定义')} · ${(c.members || []).length || (sc.agents || []).length} 个角色</div>
+          <div class="conv-meta">${esc(sc.name || (c.agents && c.agents.length ? '自定义群' : c.studio) || '自定义')} · ${(c.agents || []).length || (c.members || []).length || (sc.agents || []).length} 个角色</div>
         </div>
         <div class="conv-time">${agoStr(c.updatedAt || c.createdAt).replace('前', '')}</div>
       </div>`;
@@ -348,7 +358,10 @@
     state.cur = conv;
 
     const sc = state.scenarios.find(s => s.key === conv.studio) || { agents: [] };
-    state.agents = sc.agents || [];
+    // 自定义角色优先
+    state.agents = (conv.agents && conv.agents.length)
+      ? conv.agents
+      : (sc.agents || []);
 
     renderConvs();
     if (drawer.classList.contains('on')) closeDrawer();
@@ -796,6 +809,112 @@
       await openConv(conv.id);
       toast('群聊已创建');
       // 建完就让角色自己聊起来，用户进来时群里是活的
+      setTimeout(() => kickoff(conv.id), 400);
+    } catch (e) {
+      toast(e.message);
+    }
+  });
+
+  /* ---------------- 角色编辑器 ---------------- */
+  const forged = [];
+
+  function renderForge() {
+    const box = $('#forgeList');
+    if (!forged.length) {
+      box.innerHTML = `<div style="padding:16px;text-align:center;font-size:12px;color:var(--tx-4)">
+        还没有角色。填个名字，让它自己长出来。
+      </div>`;
+    } else {
+      box.innerHTML = forged.map((a, i) => `
+        <div class="fcard">
+          ${makeAv(a.name, a.color)}
+          <div style="min-width:0;flex:1">
+            <div class="fcard-n">${esc(a.name)}</div>
+            <div class="fcard-t">${esc(a.title)}</div>
+            <div class="fcard-p">${esc(a.prompt || '')}</div>
+          </div>
+          <button class="x" data-i="${i}">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>`).join('');
+      box.querySelectorAll('[data-i]').forEach(b => {
+        b.addEventListener('click', () => {
+          forged.splice(+b.dataset.i, 1);
+          renderForge();
+        });
+      });
+    }
+    $('#forgeCount').textContent = forged.length ? forged.length + ' 个角色' : '还没有角色';
+    $('#forgeDone').disabled = forged.length < 1;
+  }
+
+  $('#openForge').addEventListener('click', () => {
+    $('#forge').classList.add('on');
+    renderForge();
+  });
+  $('#forgeClose').addEventListener('click', () => $('#forge').classList.remove('on'));
+  $('#forge').addEventListener('click', e => {
+    if (e.target.id === 'forge') $('#forge').classList.remove('on');
+  });
+
+  let making = false;
+  $('#fMake').addEventListener('click', async () => {
+    if (making) return;
+    const name = $('#fName').value.trim();
+    const keys = $('#fKeys').value.trim();
+    if (!name) return toast('先给角色起个名字');
+
+    making = true;
+    const btn = $('#fMake');
+    btn.disabled = true;
+    btn.textContent = '生成中…';
+    try {
+      const a = await api('/v1/agents/draft', {
+        method: 'POST',
+        body: { name, keywords: keys },
+      });
+      forged.push(a);
+      renderForge();
+      $('#fName').value = '';
+      $('#fKeys').value = '';
+      toast(a.name + ' 已生成');
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      making = false;
+      btn.disabled = false;
+      btn.textContent = '生成人设';
+    }
+  });
+
+  // 回车即生成
+  ['#fName', '#fKeys'].forEach(sel => {
+    $(sel).addEventListener('keydown', e => {
+      if (e.key === 'Enter') $('#fMake').click();
+    });
+  });
+
+  $('#forgeDone').addEventListener('click', async () => {
+    if (!forged.length) return;
+    const title = prompt('给这个群起个名字', forged.map(a => a.name).join('、'));
+    if (title === null) return;
+    try {
+      const conv = await api('/v1/conversations', {
+        method: 'POST',
+        body: {
+          title: title || '自定义群',
+          studio: 'custom',
+          agents: forged.map(a => ({
+            key: a.key, name: a.name, title: a.title,
+            emoji: a.emoji, color: a.color, prompt: a.prompt,
+          })),
+        },
+      });
+      $('#forge').classList.remove('on');
+      $('#scenes').classList.remove('on');
+      await loadConvs();
+      await openConv(conv.id);
+      toast('群聊已创建');
       setTimeout(() => kickoff(conv.id), 400);
     } catch (e) {
       toast(e.message);

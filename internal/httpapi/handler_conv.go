@@ -18,16 +18,17 @@ func (s *Server) handleListConvs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
 	var req struct {
-		Title   string   `json:"title"`
-		Studio  string   `json:"studio"`
-		Model   string   `json:"model"`
-		Members []string `json:"members"`
+		Title   string             `json:"title"`
+		Studio  string             `json:"studio"`
+		Model   string             `json:"model"`
+		Members []string           `json:"members"`
+		Agents  []domain.ConvAgent `json:"agents"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
 		return
 	}
-	conv, err := s.chat.Create(u.ID, req.Title, req.Studio, req.Model, req.Members)
+	conv, err := s.chat.Create(u.ID, req.Title, req.Studio, req.Model, req.Members, req.Agents)
 	if err != nil {
 		serverErr(w, err.Error())
 		return
