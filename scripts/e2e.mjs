@@ -226,6 +226,11 @@ async function run() {
     );
     ok('包含竞标场景', sceneNames.some(n => n.includes('竞标')));
     ok('包含二次元场景', sceneNames.some(n => n.includes('二次元')));
+    // 内置场景和自定义工作室要分两段，混在一起用户分不清哪个是自己做的
+    ok('场景页有「官方给的」分区', await cdp.eval(
+      '[...document.querySelectorAll(".scene-sec")].some(e => e.textContent.includes("官方"))'
+    ));
+
     // 写死角色的场景显示头像；随机场景显示「开局随机挑」的说明。
     // 两种都算「这个场景有角色」，不能只认头像。
     ok(

@@ -311,19 +311,31 @@ function openScenes() {
   state.picked = [];
   renderLibPick();
   $('#sceneCreate').disabled = true;
-  $('#sceneGrid').innerHTML = state.scenarios.map((s, i) => `
+  // 内置场景和自定义工作室分两段。
+  // 混在一起的话，用户分不清哪个是自己做的、哪个是平台给的。
+  const card = (s, i) => `
     <button class="scene" data-k="${s.key}" style="--i:${i}">
       <span class="scene-ic" style="background:linear-gradient(140deg,${s.accent},${shift(s.accent, -26)})">
         ${icon(s.icon || 'briefcase', 20)}
       </span>
       <span style="min-width:0;flex:1">
         <span class="scene-n">${esc(s.name)}</span>
-        <span class="scene-d">${esc(s.tagline)}</span>
+        <span class="scene-d">${esc(s.tagline || (s.custom ? '自己调的工作室' : ''))}</span>
         <span class="scene-m">${(s.agents || []).length
           ? (s.agents || []).slice(0, 4).map(a => makeAv(a.name, a.color)).join('')
           : '<em class="scene-rand">开局随机挑 3 个</em>'}</span>
       </span>
-    </button>`).join('');
+    </button>`;
+
+  const builtin = state.scenarios.filter(s => !s.custom);
+  const mine = state.scenarios.filter(s => s.custom);
+
+  $('#sceneGrid').innerHTML = `
+    <div class="scene-sec">官方给的</div>
+    <div class="scene-row">${builtin.map(card).join('')}</div>
+    ${mine.length ? `
+      <div class="scene-sec">我的工作室 <span>${mine.length}</span></div>
+      <div class="scene-row">${mine.map(card).join('')}</div>` : ''}`;
 
   $$('.scene').forEach(el => {
     el.addEventListener('click', () => {

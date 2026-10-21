@@ -460,7 +460,8 @@ a{color:inherit;text-decoration:none}
 .scenes-head .k{font-size:10px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--tx-4)}
 .scenes-head h2{margin-top:12px;font-size:26px;font-weight:600;letter-spacing:-.03em}
 .scenes-head p{margin-top:9px;font-size:13px;color:var(--tx-3)}
-.scene-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.scene-grid{display:block}
+.scene-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .scene{
   display:flex;gap:13px;padding:16px;text-align:left;
   animation:sceneIn .44s cubic-bezier(.2,.8,.2,1) both;
@@ -613,6 +614,19 @@ a{color:inherit;text-decoration:none}
   border:1px solid var(--line-2);
 }
 .hint-kb:hover kbd{border-color:rgba(120,130,170,.3)}
+
+/* 场景分区 */
+.scene-sec{
+  grid-column:1/-1;display:flex;align-items:center;gap:8px;
+  margin:6px 0 -2px;font-size:10px;font-weight:600;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--tx-4);
+}
+.scene-sec:not(:first-child){margin-top:18px}
+.scene-sec span{
+  font-family:var(--mono);letter-spacing:0;text-transform:none;
+  font-size:10.5px;color:var(--tx-4);
+}
+.scene-sec::after{content:"";flex:1;height:1px;background:var(--line)}
 
 /* 场景卡片上的「开局随机」 */
 .scene-rand{
@@ -910,7 +924,7 @@ a{color:inherit;text-decoration:none}
   .empty{padding:24px}
   /* 场景页 */
   #scenes{padding:28px 14px 40px}
-  .scene-grid{grid-template-columns:1fr;gap:10px}
+  .scene-row{grid-template-columns:1fr;gap:10px}
   .scenes-head h2{font-size:22px}
   .login-card{width:100%;max-width:100%;padding:28px 22px 24px}
   #login{padding:16px}
