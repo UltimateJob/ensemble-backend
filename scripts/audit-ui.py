@@ -39,6 +39,15 @@ used |= set(re.findall(r"""icon\('([a-z0-9-]+)'""", js))
 for u in sorted(used - icons):
     problems.append(f'图标 "{u}" 被引用但 icons.js 里没有')
 
+# 4) 场景里写的 Icon 字段也必须有对应图标。
+#    这是盲区：后端返回的场景 icon 名不进 HTML/JS 的字面量检查，
+#    缺了会静默 fallback 成 sparkles——用户看到的是错图标。
+go_icons = set()
+for f in glob.glob('internal/service/*.go'):
+    go_icons |= set(re.findall(r'Icon:\s*"([a-z0-9-]+)"', open(f, encoding='utf-8').read()))
+for u in sorted(go_icons - icons):
+    problems.append(f'场景用的图标 "{u}" 在 icons.js 里没有（会静默 fallback 成 sparkles）')
+
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')
     for p in problems:
