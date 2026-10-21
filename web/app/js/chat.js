@@ -27,9 +27,14 @@ export function renderConvs() {
 function renderInto(box) {
   if (!box) return;
   if (!state.convs.length) {
-    box.innerHTML = `<div style="padding:24px 12px;text-align:center;font-size:12px;color:var(--tx-4)">
-      还没有群聊<br><span style="color:var(--tx-4)">点「新建」开一个</span>
+    // 只说「点新建」不够——得给一个能点的东西
+    box.innerHTML = `<div class="conv-empty">
+      <div class="ce-t">还没有群聊</div>
+      <div class="ce-d">选一个场景，平台会配好一组角色</div>
+      <button class="ce-btn" id="ceNew">开第一个群</button>
     </div>`;
+    const b = box.querySelector('#ceNew');
+    if (b) b.addEventListener('click', () => { if (window.__openScenes) window.__openScenes(); });
     return;
   }
   box.innerHTML = state.convs.map(c => {

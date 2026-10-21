@@ -194,6 +194,8 @@ async function run() {
     ok('三栏布局存在', await cdp.eval('!!document.querySelector(".col-list") && !!document.querySelector(".chat")'));
     // 快捷键入口：新用户不会自己去试 ?，得有个看得见的门
     ok('输入框下方有快捷键入口', await cdp.eval('!!document.querySelector("#hintKb")'));
+    // 空态要给能点的东西，不能只说「点新建」
+    ok('会话空态有可点按钮', await cdp.eval('!!document.querySelector("#ceNew") || document.querySelectorAll(".conv").length > 0'));
     ok(
       '顶栏显示品牌',
       (await cdp.eval('document.querySelector(".brand b")?.textContent')) === '合奏'

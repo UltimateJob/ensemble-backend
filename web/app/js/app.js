@@ -692,6 +692,7 @@ boot();
 
 // 供 chat.js 反向刷新引导清单
 window.__refreshOnboard = renderOnboard;
+window.__openScenes = openScenes;
 
 // 调试出口：出问题时可以在控制台直接调
 window.__ens = { kickoff, send, openConv, loadConvs, state, renderOnboard };

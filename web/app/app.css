@@ -326,6 +326,17 @@ a{color:inherit;text-decoration:none}
   content:""; height:1px; flex:1; background:var(--line); margin:0 12px;
 }
 
+/* 会话列表空态 */
+.conv-empty{padding:30px 16px 24px;text-align:center}
+.conv-empty .ce-t{font-size:13px;color:var(--tx-3);margin-bottom:6px}
+.conv-empty .ce-d{font-size:11.5px;color:var(--tx-4);line-height:1.6;margin-bottom:14px}
+.conv-empty .ce-btn{
+  height:32px;padding:0 14px;border-radius:8px;font-size:12.5px;
+  background:var(--card);border:1px solid var(--line-2);color:var(--tx-2);
+  transition:all .15s;
+}
+.conv-empty .ce-btn:hover{border-color:var(--pri);color:var(--pri);background:rgba(79,70,229,.04)}
+
 /* 时间分隔 */
 .time-divider{
   display:flex;align-items:center;gap:12px;
