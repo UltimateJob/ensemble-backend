@@ -66,22 +66,24 @@ type Store interface {
 
 // Memory 进程内实现，带读写锁。重启即清空，用于首版与本地演示。
 type Memory struct {
-	mu      sync.RWMutex
-	users   map[string]*domain.User
-	convs   map[string]*domain.Conversation
-	agents  map[string]*domain.SavedAgent
-	studios map[string]*domain.SavedStudio
-	msgs    []*domain.Message
-	audits  []*domain.AuditLog
-	events  []*domain.Event
+	mu       sync.RWMutex
+	users    map[string]*domain.User
+	convs    map[string]*domain.Conversation
+	agents   map[string]*domain.SavedAgent
+	studios  map[string]*domain.SavedStudio
+	msgs     []*domain.Message
+	msgCount map[string]int // convID → 该会话消息条数。msgs 的派生索引，load/append/delete 时同步维护，让计数是 O(1)
+	audits   []*domain.AuditLog
+	events   []*domain.Event
 }
 
 func NewMemory() *Memory {
 	return &Memory{
-		users:   make(map[string]*domain.User),
-		convs:   make(map[string]*domain.Conversation),
-		agents:  make(map[string]*domain.SavedAgent),
-		studios: make(map[string]*domain.SavedStudio),
+		users:    make(map[string]*domain.User),
+		convs:    make(map[string]*domain.Conversation),
+		agents:   make(map[string]*domain.SavedAgent),
+		studios:  make(map[string]*domain.SavedStudio),
+		msgCount: make(map[string]int),
 	}
 }
 
@@ -261,6 +263,8 @@ func (m *Memory) DeleteConv(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.convs, id)
+	// 原地过滤是安全的：写指针 j 始终 <= 读指针 i，只会覆盖已经读过的
+	// 元素，不会碰到还没遍历到的——省一次大切片的内存分配。
 	filtered := m.msgs[:0]
 	for _, msg := range m.msgs {
 		if msg.ConversationID != id {
@@ -268,6 +272,7 @@ func (m *Memory) DeleteConv(id string) error {
 		}
 	}
 	m.msgs = filtered
+	delete(m.msgCount, id)
 	return nil
 }
 
@@ -282,7 +287,17 @@ func (m *Memory) AppendMessage(msg *domain.Message) error {
 	}
 	cp := *msg
 	m.msgs = append(m.msgs, &cp)
+	m.msgCount[msg.ConversationID]++
 	return nil
+}
+
+// CountMessages 返回会话当前的消息条数，O(1)。
+// 计数在 load/append/delete 时与 msgs 同步维护，
+// 比为了拿个数去 ListMessages(convID, 0) 扫全量便宜得多。
+func (m *Memory) CountMessages(convID string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.msgCount[convID]
 }
 
 // ListMessagesPage 游标分页实现。

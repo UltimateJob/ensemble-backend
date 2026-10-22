@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -53,29 +52,14 @@ func (s *Server) handleOrchestrate(w http.ResponseWriter, r *http.Request) {
 		fail(w, 402, "quota_exceeded", "本月额度已用完")
 		return
 	}
-	flusher, canFlush := w.(http.Flusher)
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
 
-	send := func(ev service.Event) bool {
-		b, err := json.Marshal(ev)
-		if err != nil {
-			return false
-		}
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-			return false
-		}
-		if canFlush {
-			flusher.Flush()
-		}
-		return true
-	}
+	// 心跳：等第一个角色开口期间连接可能长时间无字节，
+	// 有空闲超时的代理会把连接掐掉，见 sseWriter 的说明。
+	sw := startSSE(w)
+	defer sw.stop()
 
 	s.orchestrator.Run(r.Context(), conv, u, req.Content, func(ev service.Event) {
-		send(ev)
+		sw.writeData(ev)
 	})
 
 	_ = s.store.AppendEvent(&domain.Event{
@@ -101,36 +85,49 @@ func (s *Server) handleKickoff(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "会话不存在")
 		return
 	}
-	flusher, canFlush := w.(http.Flusher)
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
-	send := func(ev service.Event) {
-		b, err := json.Marshal(ev)
-		if err != nil {
-			return
-		}
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-			return
-		}
-		if canFlush {
-			flusher.Flush()
-		}
+	// 和 orchestrate 一样在写 SSE 头之前挡住没额度的人，
+	// 否则头已经写出去了，只能再往流里塞一个 error 事件。
+	if u.Remaining() <= 0 {
+		fail(w, 402, "quota_exceeded", "本月额度已用完")
+		return
 	}
-	s.orchestrator.Kickoff(r.Context(), conv, u, req.Topic, send)
+
+	sw := startSSE(w)
+	defer sw.stop()
+
+	s.orchestrator.Kickoff(r.Context(), conv, u, req.Topic, func(ev service.Event) {
+		sw.writeData(ev)
+	})
 }
 
 // handleDraftAgent 用模型生成一个角色设定。
 func (s *Server) handleDraftAgent(w http.ResponseWriter, r *http.Request) {
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	// AI 生成走的是真上游，也是成本。没额度的人和发消息入口一样挡在门外。
+	if u.Remaining() <= 0 {
+		fail(w, 402, "quota_exceeded", "本月额度已用完")
+		return
+	}
 	var req struct {
 		Name     string `json:"name"`
 		Keywords string `json:"keywords"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
+		return
+	}
+	// 入参直接拼进提示词，不设上限的话一段几万字的输入
+	// 会原样吃掉等量 token。
+	if n := len([]rune(req.Name)); n > 50 {
+		fail(w, 400, "too_long", fmt.Sprintf("名字太长（%d 字），最多 50 字", n))
+		return
+	}
+	if n := len([]rune(req.Keywords)); n > 200 {
+		fail(w, 400, "too_long", fmt.Sprintf("关键词太长（%d 字），最多 200 字", n))
 		return
 	}
 	agent, err := s.drafter.Draft(r.Context(), req.Name, req.Keywords)

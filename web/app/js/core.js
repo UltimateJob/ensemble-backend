@@ -91,15 +91,32 @@ export function humanError(e) {
   return msg || '出了点问题，再试一次。';
 }
 
+// 引号也要转义：esc 的结果会进 title="…"、data-x="…" 这类属性上下文，
+// 只转 & < > 的话，一个 " 就能把属性掐断（颜色、文件名都来自外部数据）。
 export function esc(s) {
   return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 export function timeStr(d) {
   const x = new Date(d);
   if (isNaN(x)) return '';
   return x.getHours().toString().padStart(2, '0') + ':' + x.getMinutes().toString().padStart(2, '0');
+}
+
+// 完整时间：今天/昨天带时分，更早带日期。
+// 消息、搜索结果都用这一份，避免一边「今天 14:30」一边「2026-10-22 14:30」。
+export function fullTimeStr(d) {
+  const x = new Date(d);
+  if (isNaN(x)) return '';
+  const hm = x.getHours().toString().padStart(2, '0') + ':' + x.getMinutes().toString().padStart(2, '0');
+  const now = new Date();
+  if (x.toDateString() === now.toDateString()) return '今天 ' + hm;
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  if (x.toDateString() === y.toDateString()) return '昨天 ' + hm;
+  return (x.getMonth() + 1) + '月' + x.getDate() + '日 ' + hm;
 }
 
 export function agoStr(d) {
@@ -110,17 +127,7 @@ export function agoStr(d) {
   return Math.floor(diff / 86400) + ' 天前';
 }
 
-// 由名字生成稳定的渐变头像
-export function avatarStyle(seed, color) {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  const hue = h % 360;
-  if (color) {
-    return `background:linear-gradient(140deg, ${color}, ${shift(color, -22)})`;
-  }
-  return `background:linear-gradient(140deg, hsl(${hue} 62% 58%), hsl(${(hue + 40) % 360} 62% 46%))`;
-}
-
+// 颜色微调：把 hex 明度增减 amt，供头像/场景图标的渐变拼接
 export function shift(hex, amt) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
   if (!m) return hex;
@@ -128,76 +135,12 @@ export function shift(hex, amt) {
   return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
-/* 由名字生成稳定的几何头像：背景 + 2~3 个图形。
-   思路参考 Boring Avatars / DiceBear，但不依赖任何外部资源。 */
-export function hashStr(str) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-export function rng(seed) {
-  let s = seed;
-  return function () {
-    s ^= s << 13; s >>>= 0;
-    s ^= s >> 17;
-    s ^= s << 5; s >>>= 0;
-    return s / 4294967296;
-  };
-}
-
-export function geoAvatar(name, color) {
-  const seed = hashStr(name || 'x');
-  const r = rng(seed);
-  const pick = arr => arr[Math.floor(r() * arr.length)];
-
-  // 基色：角色色优先，否则由名字推导
-  let base = color;
-  if (!base) {
-    const hue = seed % 360;
-    base = `hsl(${hue} 58% 54%)`;
-  }
-  const tints = [0, 18, -22, 40];
-  const t = tints[Math.floor(r() * tints.length)];
-  const bg = base;
-  const fg = `rgba(255,255,255,.85)`;
-  const fg2 = `rgba(255,255,255,.42)`;
-
-  const variant = Math.floor(r() * 4);
-  let art = '';
-
-  // 角落装饰，不影响首字可读性
-  if (variant === 0) {
-    art = `<circle cx="34" cy="6" r="12" fill="rgba(255,255,255,.16)"/>`;
-  } else if (variant === 1) {
-    art = `<path d="M0 40 L40 14 L40 40 Z" fill="rgba(255,255,255,.16)"/>`;
-  } else if (variant === 2) {
-    art = `<circle cx="6" cy="34" r="11" fill="rgba(255,255,255,.14)"/>`;
-  } else {
-    art = `<rect x="26" y="-6" width="22" height="22" rx="6" fill="rgba(255,255,255,.15)" transform="rotate(20 37 5)"/>`;
-  }
-  const ch = (name || '?').trim().slice(0, 1);
-  art += `<text x="20" y="21" text-anchor="middle" dominant-baseline="central"
-    font-family="-apple-system,BlinkMacSystemFont,PingFang SC,sans-serif"
-    font-size="17" font-weight="600" fill="rgba(255,255,255,.96)">${ch.replace(/[<>&]/g, '')}</text>`;
-
-  return `<svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" stroke="none" style="display:block;width:100%;height:100%">
-    <defs><linearGradient id="g${seed}" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="${bg}"/>
-      <stop offset="100%" stop-color="${shift(hexOf(bg), -26) || bg}"/>
-    </linearGradient></defs>
-    <rect width="40" height="40" fill="url(#g${seed})"/>
-    ${art}
-  </svg>`;
-}
-
-// 把 hsl 或 hex 统一成 hex，供 shift 使用
+// 把 hsl 或 hex 统一成合法的 6 位 hex，供 shift / 渐变拼接使用。
+// 严格校验：颜色可能来自 LLM 生成的角色设定，任何不是
+// #RRGGBB / hsl(...) 的值都落到默认色，避免被拼进 style 里。
 export function hexOf(c) {
-  if (/^#/.test(c)) return c;
-  const m = /hsl\((\d+)/.exec(c);
+  if (/^#[0-9a-fA-F]{6}$/.test(c || '')) return c;
+  const m = /hsl\((\d+)/.exec(c || '');
   if (!m) return '#4F46E5';
   const h = +m[1] / 360;
   const s = 0.58, l = 0.54;

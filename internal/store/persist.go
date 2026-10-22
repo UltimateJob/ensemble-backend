@@ -102,12 +102,14 @@ func NewFileStore(dir string) (*FileStore, error) {
 			logx.L().Warn("数据文件损坏，按 ALLOW_CORRUPT_START 强制从空库启动",
 				"err", err.Error(), "备份目录", quarantine)
 		} else {
+			// 文案别把人指向不存在的机制：服务端从不自动写 backups/，
+			// 那里只有手动跑过 make backup 才有东西可恢复。
 			return nil, fmt.Errorf(
 				"数据文件损坏，拒绝启动（从空库启动会用空数据覆盖原文件）\n"+
 					"  %v\n"+
 					"  处理方式：\n"+
-					"    1. 先备份整个 %s 目录\n"+
-					"    2. 检查哪个 .json 坏了，从 backups/ 里恢复：make restore FILE=...\n"+
+					"    1. 先手动备份整个 %s 目录（服务端不会自动备份，坏文件也是原始数据）\n"+
+					"    2. 之前手动跑过 make backup 的话，可从备份包恢复：make restore FILE=backups/ensemble-<时间戳>.tar.gz\n"+
 					"    3. 确实要带着损坏启动（会丢数据）：ALLOW_CORRUPT_START=true",
 				err, fs.dir)
 		}
@@ -199,13 +201,31 @@ func (fs *FileStore) load() error {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue
 		}
+		msgPath := filepath.Join(fs.dir, dirMsgs, e.Name())
 		var msgs []*domain.Message
-		if err := readJSON(filepath.Join(fs.dir, dirMsgs, e.Name()), &msgs); err != nil {
-			logx.L().Warn("会话消息文件损坏，已跳过", "file", e.Name(), "err", err.Error())
+		if err := readJSON(msgPath, &msgs); err != nil {
+			// 只是 WARN 跳过是不够的：内存里没有这个会话的消息，
+			// 下一次 Flush 就会用空数据覆盖原文件，历史无声消失。
+			// 先改名隔离——原文件保留，且扩展名不再是 .json，
+			// 后续启动既不会加载它、Flush 也不会再碰它，人工确认后再处理。
+			quarantine := fmt.Sprintf("%s.corrupt-%d", msgPath, time.Now().Unix())
+			if rerr := os.Rename(msgPath, quarantine); rerr != nil {
+				// 隔离不了就挡不住下一次 Flush 的覆盖，宁可像主文件
+				// 损坏一样拒启动，也不带着「随时可能被清空」的文件继续跑。
+				return fmt.Errorf("会话消息文件损坏且隔离失败（%s）：%w（隔离失败原因：%v）",
+					e.Name(), err, rerr)
+			}
+			logx.L().Warn("会话消息文件损坏，已隔离，原文件保留",
+				"file", e.Name(), "隔离为", quarantine, "err", err.Error())
 			continue
 		}
 		fs.Memory.mu.Lock()
 		fs.Memory.msgs = append(fs.Memory.msgs, msgs...)
+		for _, msg := range msgs {
+			if msg != nil {
+				fs.Memory.msgCount[msg.ConversationID]++
+			}
+		}
 		fs.Memory.mu.Unlock()
 		total += len(msgs)
 	}
@@ -320,6 +340,40 @@ func (fs *FileStore) Flush() (err error) {
 
 	sort.Strings(msgs)
 
+	// 到这里脏标记已清、文件还没写。中途失败（磁盘满/权限）时必须把
+	// 没写成的项补回脏标记——否则这批改动既不在盘上、也不在标记里，
+	// 永远不会再被写盘。约定：各分片成功写完一项就把它从「欠账」里
+	// 划掉（局部变量置 false），消息列表按下标推进；失败时 defer 统一补回。
+	pendingMsgs := msgs
+	defer func() {
+		if err == nil {
+			return
+		}
+		fs.mu.Lock()
+		if dStudios {
+			fs.dirtyStudios = true
+		}
+		if dAgents {
+			fs.dirtyAgents = true
+		}
+		if dUsers {
+			fs.dirtyUsers = true
+		}
+		if dConvs {
+			fs.dirtyConvs = true
+		}
+		if dAudits {
+			fs.dirtyAudits = true
+		}
+		if dEvents {
+			fs.dirtyEvents = true
+		}
+		for _, id := range pendingMsgs {
+			fs.dirtyMsgs[id] = true
+		}
+		fs.mu.Unlock()
+	}()
+
 	if dStudios {
 		fs.Memory.mu.RLock()
 		list := make([]*domain.SavedStudio, 0, len(fs.Memory.studios))
@@ -330,6 +384,7 @@ func (fs *FileStore) Flush() (err error) {
 		if err := writeJSON(filepath.Join(fs.dir, fileStudios), list); err != nil {
 			return err
 		}
+		dStudios = false // 已安全落盘，失败补标记时不再计入
 	}
 	if dAgents {
 		fs.Memory.mu.RLock()
@@ -341,6 +396,7 @@ func (fs *FileStore) Flush() (err error) {
 		if err := writeJSON(filepath.Join(fs.dir, fileAgents), list); err != nil {
 			return err
 		}
+		dAgents = false // 已安全落盘，失败补标记时不再计入
 	}
 	if dUsers {
 		fs.Memory.mu.RLock()
@@ -352,6 +408,7 @@ func (fs *FileStore) Flush() (err error) {
 		if err := writeJSON(filepath.Join(fs.dir, fileUsers), list); err != nil {
 			return err
 		}
+		dUsers = false // 已安全落盘，失败补标记时不再计入
 	}
 	if dConvs {
 		fs.Memory.mu.RLock()
@@ -363,6 +420,7 @@ func (fs *FileStore) Flush() (err error) {
 		if err := writeJSON(filepath.Join(fs.dir, fileConvs), list); err != nil {
 			return err
 		}
+		dConvs = false // 已安全落盘，失败补标记时不再计入
 	}
 	if dAudits {
 		fs.Memory.mu.RLock()
@@ -371,6 +429,7 @@ func (fs *FileStore) Flush() (err error) {
 		if err := writeJSON(filepath.Join(fs.dir, fileAudits), list); err != nil {
 			return err
 		}
+		dAudits = false // 已安全落盘，失败补标记时不再计入
 	}
 	if dEvents {
 		fs.Memory.mu.RLock()
@@ -379,8 +438,9 @@ func (fs *FileStore) Flush() (err error) {
 		if err := writeJSON(filepath.Join(fs.dir, fileEvents), list); err != nil {
 			return err
 		}
+		dEvents = false // 已安全落盘，失败补标记时不再计入
 	}
-	for _, convID := range msgs {
+	for i, convID := range msgs {
 		fs.Memory.mu.RLock()
 		var list []*domain.Message
 		for _, m := range fs.Memory.msgs {
@@ -391,28 +451,52 @@ func (fs *FileStore) Flush() (err error) {
 		_, convExists := fs.Memory.convs[convID]
 		fs.Memory.mu.RUnlock()
 
-		// 会话已经删了就没有消息可写——直接删文件，别留一个空数组。
-		// 之前每次删群都会留下一个 2 字节的 []，跑几十个群之后
-		// messages/ 里全是孤儿文件。
-		if !convExists && len(list) == 0 {
+		// 会话已经删了：无论内存里还有没有残留消息（删会话时编排器
+		// 还在往里 Append 的竞态），都不写这个文件——否则会留下孤儿
+		// messages/<id>.json，每次重启都被加载回来。残留消息随会话
+		// 一起丢弃，旧文件删掉，也别留一个 2 字节的 []。
+		if !convExists {
+			if len(list) > 0 {
+				logx.L().Info("会话已删除，丢弃未落盘的孤儿消息",
+					"convID", convID, "count", len(list))
+			}
 			_ = os.Remove(filepath.Join(fs.dir, dirMsgs, safeName(convID)+".json"))
+			pendingMsgs = msgs[i+1:]
 			continue
 		}
 
 		if err := writeJSON(filepath.Join(fs.dir, dirMsgs, safeName(convID)+".json"), list); err != nil {
 			return err
 		}
+		pendingMsgs = msgs[i+1:]
 	}
 	return nil
 }
 
-func writeJSON(path string, v interface{}) error {
+// writeJSON 抽成包级变量：测试里替换它来注入「写一半失败」，
+// 模拟磁盘满/权限问题，不用真把目录改成只读。
+var writeJSON = func(path string, v interface{}) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	// Sync 必须在 close 之前、Rename 之前：掉电时 Rename 是元数据操作
+	// 可能先落盘，而文件内容还停在页缓存里，结果留下一个空壳新文件
+	// ——比旧文件损坏更难察觉。先把内容钉到盘上再换名字。
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -587,6 +671,13 @@ func (m *Memory) Load(s Snapshot) {
 		m.convs[c.ID] = c
 	}
 	m.msgs = s.Msgs
+	// 快照是整体覆盖 msgs，计数索引也要随之重建。
+	m.msgCount = make(map[string]int, len(s.Msgs))
+	for _, msg := range s.Msgs {
+		if msg != nil {
+			m.msgCount[msg.ConversationID]++
+		}
+	}
 	m.audits = s.Audits
 	m.events = s.Events
 }

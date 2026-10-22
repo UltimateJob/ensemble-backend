@@ -180,6 +180,33 @@ $$('#ctxMenu button').forEach(btn => {
       return;
     }
 
+    if (act === 'leave') {
+      const yes = await uiConfirm(`离开「${conv.title}」？`,
+        '离开后这个群不再出现在你的列表里。群主不会被移除，只能由他自己删群。', {
+          okText: '离开', danger: true,
+        });
+      if (!yes) return;
+      try {
+        await api('/v1/conversations/' + id + '/leave', { method: 'POST' });
+        // 离开的如果是当前打开的群，把主视图收起来
+        if (state.cur && state.cur.id === id) {
+          state.cur = null;
+          $('#msgWrap').innerHTML = '';
+          $('#msgs').style.display = 'none';
+          $('#composer').style.display = 'none';
+          $('#chatHead').style.display = 'none';
+          $('#chatEmpty').style.display = 'flex';
+          document.body.classList.add('no-conv');
+          $('#crumbName').textContent = '—';
+          state.agents = [];
+          setDocTitle('', false);
+        }
+        await loadConvs();
+        toast('已离开群聊');
+      } catch (e) { toast(humanError(e)); }
+      return;
+    }
+
     if (act === 'delete') {
       UI_confirm_delete(conv);
     }
@@ -203,7 +230,10 @@ async function UI_confirm_delete(conv) {
         $('#crumbName').textContent = '—';
         state.agents = [];
         setDocTitle('', false);
-        renderMembers();
+        // 不能直接调 chat.js 的 renderMembers（会和 chat → convs 的依赖成环），
+        // 这里群都关了，成员面板直接清空即可
+        $('#memberList').innerHTML = '';
+        $('#memberCount').textContent = '0';
       }
       await loadConvs();
       toast('已删除');

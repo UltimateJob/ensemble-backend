@@ -2,7 +2,7 @@
 
 > 五个声部，一个成品。
 
-**1.0.0-rc.3** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
+**1.0.0-rc.4** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
 
 一个多角色群聊的 Agent 工作台。每个群是一组角色，它们自己判断要不要说话、可以互相接话、缺信息时直接问你。真跑了 DeepSeek。
 
@@ -154,7 +154,7 @@ make reset    # 清空本地数据
 
 ![角色搜索](docs/character-search.png)
 
-内置 56 个常见角色（跨 20 多部作品），可以按名字、作品或性格搜：
+内置 61 个常见角色（跨 20 多部作品），可以按名字、作品或性格搜：
 
 - 搜「毒舌」→ 雪之下雪乃 / 拉姆 / 霞之丘诗羽 / 早坂爱 / 山田凉…
 - 搜「雪」→ 雪之下雪乃 / 雪之下阳乃
@@ -591,7 +591,7 @@ node scripts/walk.mjs
 三栏：会话 / 消息流 / 成员·流水线·产物。移动端收敛为单栏 + 抽屉切群。
 
 角色头像由名字 hash 生成渐变底色 + 首字，无外部图片依赖。
-图标用 [Lucide](https://lucide.dev)（MIT），50 个内联进 `icons.js`，离线可用。
+图标用 [Lucide](https://lucide.dev)（MIT），52 个内联进 `icons.js`，离线可用。
 
 前端五个 ES 模块，零构建，浏览器原生 `<script type="module">`：
 
@@ -621,6 +621,8 @@ node scripts/walk.mjs
 | `SMS_PROVIDER` | `log` | 验证码通道：`log` 写日志回显，`aliyun`/`tencent` 接真短信 |
 | `DEV_BYPASS` | `true` | 演示账号免验证码，**生产必须 false** |
 | `RATE_PER_MINUTE` | `120` | 每用户每分钟请求 |
+| `ORCHESTRA_HISTORY` | `32` | 编排时带给角色的历史消息条数（8-64） |
+| `DEFAULT_QUOTA` | `800` | 新用户初始额度（次） |
 | `MAX_RETRIES` | `2` | 上游重试 |
 | `BREAKER_ERRORS` | `5` | 熔断阈值 |
 | `UPSTREAM_TIMEOUT` | `120s` | 上游超时 |
@@ -1018,7 +1020,7 @@ type CodeSender interface {
 1. **单实例** —— 已加文件锁防止并发写，但也就意味着不能水平扩展。要么换 PostgreSQL，要么做读写分离
 2. **限流与熔断是进程内状态** —— 多实例需接 Redis 共享
 3. **没有鉴权分级** —— 所有登录用户权限相同，没有团队/空间概念
-5. **真实上游没有自动化测试** —— E2E 跑 mock，避免 CI 烧额度
+4. **真实上游没有自动化测试** —— E2E 跑 mock，避免 CI 烧额度
 
 ---
 

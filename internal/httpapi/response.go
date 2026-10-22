@@ -41,6 +41,11 @@ func forbidden(w http.ResponseWriter)                { fail(w, 403, "forbidden",
 func notFound(w http.ResponseWriter, msg string)     { fail(w, 404, "not_found", msg) }
 func serverErr(w http.ResponseWriter, msg string)    { fail(w, 500, "internal", msg) }
 
+// tooManyRequests 触发限流时的统一形状与文案。
+func tooManyRequests(w http.ResponseWriter) {
+	fail(w, 429, "rate_limited", "操作太频繁了，等几秒再试")
+}
+
 func decode(r *http.Request, v interface{}) error {
 	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(v)

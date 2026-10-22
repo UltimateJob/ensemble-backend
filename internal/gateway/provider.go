@@ -40,6 +40,11 @@ type entry struct {
 	state    string // closed | open | half-open
 	fails    int
 	openTill time.Time
+	// probing 标记半开后已放出的那个探测请求还没上报结果。
+	// probeTill 是兜底：探测请求可能永远不上报（比如半路被取消），
+	// 到点后必须允许放新探测，否则会永远卡在半开。
+	probing   bool
+	probeTill time.Time
 
 	success  atomic.Int64
 	failure  atomic.Int64
@@ -68,7 +73,19 @@ func (r *Registry) Get(name string) (Provider, bool) {
 	return e.p, true
 }
 
-// Allow 熔断判定：closed 放行；open 到期转 half-open 放行一个；half-open 放行试探。
+// admitProbe 半开状态下放出一个探测，并占用探测名额直到 Report 上报结果。
+// 探测在途中（且没超时）时其他调用一律拒绝——否则一个还没恢复的上游
+// 会在半开窗口里吃进全部流量，半开就失去意义了。
+func (e *entry) admitProbe(openFor time.Duration) bool {
+	if e.probing && time.Now().Before(e.probeTill) {
+		return false
+	}
+	e.probing = true
+	e.probeTill = time.Now().Add(openFor)
+	return true
+}
+
+// Allow 熔断判定：closed 放行；open 到期转 half-open 放一个探测；half-open 只放一个探测。
 func (r *Registry) Allow(name string, threshold int, openFor time.Duration) bool {
 	r.mu.RLock()
 	e, ok := r.providers[name]
@@ -85,11 +102,12 @@ func (r *Registry) Allow(name string, threshold int, openFor time.Duration) bool
 	case "open":
 		if time.Now().After(e.openTill) {
 			e.state = "half-open"
-			return true
+			// 冷却期刚结束的第一个请求就是探测，直接占名额
+			return e.admitProbe(openFor)
 		}
 		return false
-	default: // half-open：只放一个
-		return true
+	default: // half-open：同一时刻只放一个探测
+		return e.admitProbe(openFor)
 	}
 }
 
@@ -120,13 +138,18 @@ func (r *Registry) Report(name string, ok bool, d time.Duration, errMsg string, 
 	if ok {
 		e.fails = 0
 		e.state = "closed"
+		e.probing = false
 		return
 	}
 	e.fails++
-	if e.fails >= threshold {
+	// 半开中的失败即探测失败：立刻回熔断并重新计冷却期。
+	// （在途旧请求补报的失败也会走这里，倾向保守没错。）
+	if e.state == "half-open" || e.fails >= threshold {
 		e.state = "open"
 		e.openTill = time.Now().Add(openFor)
 	}
+	// 不管成败，探测名额都已释放
+	e.probing = false
 }
 
 // Stats 返回各上游状态快照。
@@ -167,6 +190,7 @@ func (r *Registry) Reset(name string) bool {
 	e.mu.Lock()
 	e.fails = 0
 	e.state = "closed"
+	e.probing = false
 	e.mu.Unlock()
 	return true
 }

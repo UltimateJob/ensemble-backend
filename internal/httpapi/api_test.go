@@ -51,7 +51,7 @@ func newTestServer(t *testing.T) (*Server, http.Handler) {
 	}
 	admin := service.NewAdmin(st, gw, shared)
 
-	srv := NewServer(cfg, st, auth, chat, admin, gw, orch, drafter)
+	srv := NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, shared.Limiter)
 	return srv, srv.Handler()
 }
 

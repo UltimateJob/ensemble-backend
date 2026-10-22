@@ -158,6 +158,40 @@ input.inline{
   font-size:12px;text-align:right;font-variant-numeric:tabular-nums;
 }
 input.inline:focus{outline:0;border-color:var(--pri)}
+button:disabled{opacity:.55;cursor:default}
+
+/* 连接异常横幅：轮询失败时挂顶，恢复自动消失 */
+.conn{
+  background:var(--warnbg);color:var(--warn);
+  border-bottom:1px solid rgba(180,83,9,.25);
+  padding:8px 16px;font-size:12.5px;text-align:center;
+}
+.conn[hidden]{display:none}
+
+/* ---------- 弹层：确认框 / 新增模型表单 ---------- */
+.mask{
+  position:fixed;inset:0;background:rgba(20,20,32,.44);
+  display:grid;place-items:center;padding:20px;z-index:100;
+}
+.mask[hidden]{display:none}
+.dlg{
+  width:400px;max-width:100%;max-height:86vh;overflow:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:18px 20px 16px;
+  box-shadow:inset 0 1px 0 #fff, 0 30px 70px -20px rgba(20,20,40,.42);
+}
+.dlg .card-h{margin-bottom:12px}
+.dlg-msg{font-size:12.5px;line-height:1.7;color:var(--tx2);word-break:break-all}
+.dlg-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.dlg-foot .btn-grad{width:auto}
+.fld select{
+  width:100%;height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:10px;
+  font-size:13px;background:#fff;color:var(--tx);
+}
+.fld select:focus{outline:0;border-color:var(--pri);box-shadow:0 0 0 3px rgba(79,70,229,.1)}
+.fld.fld-row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fld.fld-inline{display:flex;align-items:center;gap:10px}
+.fld.fld-inline label{margin:0}
 
 /* ---------- 窄屏 ---------- */
 /* 之前后台没有移动适配：390 下顶栏导航和卡片标签被逐字换行，
@@ -248,6 +282,8 @@ input.inline:focus{outline:0;border-color:var(--pri)}
       <button class="btn btn-line btn-sm" id="logout">退出</button>
     </div>
   </div>
+
+  <div class="conn" id="connBar" hidden>连接异常，当前显示的是旧数据 · 恢复后自动消失</div>
 
   <div class="wrap">
 
@@ -418,6 +454,19 @@ input.inline:focus{outline:0;border-color:var(--pri)}
   </div>
 </div>
 
+<!-- 自绘弹层：确认框 / 新增模型表单共用 -->
+<div class="mask" id="dlgMask" hidden>
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+    <div class="card-h"><h3 id="dlgTitle"></h3></div>
+    <div id="dlgBody"></div>
+    <div id="dlgErr" class="err-box" style="display:none"></div>
+    <div class="dlg-foot">
+      <button class="btn btn-line btn-sm" id="dlgCancel">取消</button>
+      <button class="btn btn-grad btn-sm" id="dlgOk">确定</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -434,6 +483,10 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     setTimeout(()=> t.classList.remove('on'), 1800);
   }
 
+  /* 所有插进 innerHTML 的动态数据都先过这里，防 XSS */
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
   async function api(path, opt){
     opt = opt || {};
     const res = await fetch('/admin/api' + path, {
@@ -447,29 +500,91 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     const json = await res.json().catch(()=>({}));
     if(!res.ok || json.ok === false){
       const msg = (json.error && json.error.message) || ('HTTP ' + res.status);
-      throw new Error(msg);
+      const err = new Error(msg);
+      err.status = res.status;   // refresh() 靠它识别 401/403
+      throw err;
     }
     return json.data;
   }
 
+  /* ---- 自绘弹层（确认框 / 表单共用）---- */
+  let dlgOnOk = null, dlgOnCancel = null;
+  function openDialog(title, bodyHTML, okText, onOk, onCancel){
+    $('#dlgTitle').textContent = title;
+    $('#dlgBody').innerHTML = bodyHTML;
+    $('#dlgOk').textContent = okText || '确定';
+    $('#dlgOk').disabled = false;
+    hideDlgErr();
+    dlgOnOk = onOk || null;
+    dlgOnCancel = onCancel || null;
+    $('#dlgMask').hidden = false;
+    const first = $('#dlgBody').querySelector('input, select') || $('#dlgOk');
+    setTimeout(()=> first.focus(), 0);
+  }
+  function settleDialog(){ dlgOnOk = dlgOnCancel = null; }
+  function showDlgErr(msg){
+    const el = $('#dlgErr');
+    el.textContent = msg; el.style.display = 'block';
+  }
+  function hideDlgErr(){ $('#dlgErr').style.display = 'none'; }
+  function cancelDialog(){
+    if($('#dlgMask').hidden) return;
+    $('#dlgMask').hidden = true;
+    const cb = dlgOnCancel;
+    settleDialog();
+    if(cb) cb(false);
+  }
+  $('#dlgCancel').addEventListener('click', cancelDialog);
+  $('#dlgMask').addEventListener('click', e => { if(e.target === e.currentTarget) cancelDialog(); });
+  $('#dlgOk').addEventListener('click', () => { if(dlgOnOk) dlgOnOk(); });
+  document.addEventListener('keydown', e => {
+    if($('#dlgMask').hidden) return;
+    if(e.key === 'Escape'){ e.preventDefault(); cancelDialog(); }
+    if(e.key === 'Enter' && e.target.closest('#dlgBody')
+       && e.target.tagName === 'INPUT' && dlgOnOk){
+      e.preventDefault(); dlgOnOk();
+    }
+  });
+
+  /* 替代原生 confirm，返回 Promise<boolean> */
+  function confirmDialog(msg, okText){
+    return new Promise(resolve => {
+      openDialog('请确认', '<p class="dlg-msg"></p>', okText || '确定',
+        () => { $('#dlgMask').hidden = true; settleDialog(); resolve(true); },
+        () => resolve(false));
+      $('#dlgBody .dlg-msg').textContent = msg;
+    });
+  }
+
   /* ---- 登录 ---- */
+  function loginErr(msg){
+    const el = $('#loginErr');
+    el.textContent = msg; el.style.display = 'block';
+  }
   async function login(){
     const v = $('#token').value.trim();
     if(!v) return;
+    const btn = $('#loginBtn');
+    btn.disabled = true;
     try{
-      await fetch('/admin/api/login', {
+      const r = await fetch('/admin/api/login', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({token: v})
-      }).then(async r => {
-        const j = await r.json();
-        if(!r.ok) throw new Error((j.error && j.error.message) || '令牌不正确');
       });
+      const j = await r.json().catch(()=>({}));
+      if(!r.ok || j.ok === false){
+        throw new Error((j.error && j.error.message) || '令牌不正确');
+      }
+      // 只信输入框里的 token，不依赖响应回显
       token = v;
       localStorage.setItem('ens_admin', v);
+      $('#loginErr').style.display = 'none';
+      $('#token').value = '';
       enter();
     }catch(e){
-      const el = $('#loginErr');
-      el.textContent = e.message; el.style.display = 'block';
+      loginErr(e.message);
+    }finally{
+      btn.disabled = false;
     }
   }
 
@@ -500,7 +615,8 @@ input.inline:focus{outline:0;border-color:var(--pri)}
 
   /* ---- 格式化 ---- */
   const nf = n => (n == null ? '—' : Number(n).toLocaleString('zh-CN'));
-  const ms = n => n >= 1000 ? (n/1000).toFixed(1) + 's' : Math.round(n) + 'ms';
+  const ms = n => (typeof n !== 'number' || !isFinite(n)) ? '—'
+    : (n >= 1000 ? (n/1000).toFixed(1) + 's' : Math.round(n) + 'ms');
   function uptime(sec){
     if(sec < 60) return sec + 's';
     if(sec < 3600) return Math.floor(sec/60) + 'm';
@@ -542,7 +658,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
       const cls = p.state === 'closed' ? 'b-ok' : p.state === 'half-open' ? 'b-warn' : 'b-bad';
       return `<div class="prov">
         <div class="prov-h">
-          <span class="prov-n">${p.name}</span>
+          <span class="prov-n">${esc(p.name)}</span>
           <span class="b ${cls}">${p.state === 'closed' ? '正常' : p.state === 'half-open' ? '试探中' : '熔断'}</span>
           <span class="prov-st"></span>
         </div>
@@ -551,46 +667,55 @@ input.inline:focus{outline:0;border-color:var(--pri)}
           <div>失败<b>${nf(p.failure)}</b></div>
           <div>平均延迟<b>${ms(p.latencyMs || 0)}</b></div>
         </div>
-        ${p.lastErr ? `<div style="margin-top:10px;font-size:11px;color:#B91C1C;font-family:var(--mono)">${p.lastErr.slice(0,120)}</div>` : ''}
+        ${p.lastErr ? `<div style="margin-top:10px;font-size:11px;color:#B91C1C;font-family:var(--mono)">${esc(String(p.lastErr).slice(0,120))}</div>` : ''}
       </div>`;
     }).join('') || '<div class="empty">没有注册上游</div>';
 
     const usage = m.modelUsage || {};
     const rows = Object.keys(usage).sort((a,b) => usage[b]-usage[a]);
     $('#usageBody').innerHTML = rows.length
-      ? rows.map(k => `<tr><td class="mono" data-label="模型">${k}</td><td class="num" data-label="Token">${nf(usage[k])}</td></tr>`).join('')
+      ? rows.map(k => `<tr><td class="mono" data-label="模型">${esc(k)}</td><td class="num" data-label="Token">${nf(usage[k])}</td></tr>`).join('')
       : '<tr><td colspan="2" class="empty">还没有调用记录</td></tr>';
   }
 
   /* ---- 模型 ---- */
   async function loadModels(){
     const list = await api('/models');
-    $('#modelBody').innerHTML = list.map(m => `
+    $('#modelBody').innerHTML = list.map(m => {
+      const cost = m.costPer1K != null ? m.costPer1K : m.costPer1k;  // 新旧字段名都认
+      return `
       <tr>
-        <td class="mono" data-label="模型">${m.key}</td>
-        <td data-label="上游"><span class="b b-pri">${m.provider}</span></td>
-        <td class="mono" data-label="模型名">${m.upstream || '—'}</td>
-        <td class="num" data-label="权重">${m.weight}</td>
-        <td class="num" data-label="单价">${m.costPer1K ? m.costPer1K.toFixed(4) : '—'}</td>
-        <td data-label="启用"><button class="sw ${m.enabled?'on':''}" data-toggle="${m.key}"></button></td>
-        <td data-label=""><button class="btn btn-line btn-sm" data-del="${m.key}">删除</button></td>
-      </tr>`).join('');
+        <td class="mono" data-label="模型">${esc(m.key)}</td>
+        <td data-label="上游"><span class="b b-pri">${esc(m.provider)}</span></td>
+        <td class="mono" data-label="模型名">${esc(m.upstream || '—')}</td>
+        <td class="num" data-label="权重">${esc(m.weight)}</td>
+        <td class="num" data-label="单价">${cost != null ? Number(cost).toFixed(4) : '—'}</td>
+        <td data-label="启用"><button class="sw ${m.enabled?'on':''}" data-toggle="${esc(m.key)}"></button></td>
+        <td data-label=""><button class="btn btn-line btn-sm" data-del="${esc(m.key)}">删除</button></td>
+      </tr>`;}).join('');
 
-    document.querySelectorAll('[data-toggle]').forEach(b => {
+    /* 选择器都圈在本表内：[data-reset] 在用户表和熔断卡里撞名，全文档扫会串处理器 */
+    $('#modelBody').querySelectorAll('[data-toggle]').forEach(b => {
       b.addEventListener('click', async () => {
         const key = b.dataset.toggle;
         const m = list.find(x => x.key === key);
         m.enabled = !m.enabled;
-        await api('/models', { method:'POST', body: m });
-        toast(key + (m.enabled ? ' 已启用' : ' 已停用'));
+        try{
+          await api('/models', { method:'POST', body: m });
+          toast(key + (m.enabled ? ' 已启用' : ' 已停用'));
+        }catch(e){
+          toast(e.message);
+        }
         loadModels();
       });
     });
-    document.querySelectorAll('[data-del]').forEach(b => {
+    $('#modelBody').querySelectorAll('[data-del]').forEach(b => {
       b.addEventListener('click', async () => {
-        if(!confirm('删除模型 ' + b.dataset.del + '？')) return;
-        await api('/models/' + b.dataset.del, { method:'DELETE' });
-        toast('已删除'); loadModels();
+        if(!await confirmDialog('删除模型「' + b.dataset.del + '」？')) return;
+        try{
+          await api('/models/' + encodeURIComponent(b.dataset.del), { method:'DELETE' });
+          toast('已删除'); loadModels();
+        }catch(e){ toast(e.message); }
       });
     });
 
@@ -598,34 +723,89 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#breakerList').innerHTML = (ov.metrics.providers || []).map(p => `
       <div class="prov">
         <div class="prov-h">
-          <span class="prov-n">${p.name}</span>
+          <span class="prov-n">${esc(p.name)}</span>
           <span class="b ${p.state==='closed'?'b-ok':p.state==='half-open'?'b-warn':'b-bad'}">
             ${p.state==='closed'?'正常':p.state==='half-open'?'试探中':'熔断'}
           </span>
           <span class="prov-st">
-            <button class="btn btn-line btn-sm" data-reset="${p.name}">重置</button>
+            <button class="btn btn-line btn-sm" data-reset="${esc(p.name)}">重置</button>
           </span>
         </div>
       </div>`).join('');
-    document.querySelectorAll('[data-reset]').forEach(b => {
+    $('#breakerList').querySelectorAll('[data-reset]').forEach(b => {
       b.addEventListener('click', async () => {
-        await api('/providers/' + b.dataset.reset + '/reset', { method:'POST' });
+        await api('/providers/' + encodeURIComponent(b.dataset.reset) + '/reset', { method:'POST' });
         toast('已重置 ' + b.dataset.reset);
         loadModels();
       });
     });
   }
 
-  $('#addModel').addEventListener('click', async () => {
-    const key = prompt('模型 Key（如 deepseek-reasoner）');
-    if(!key) return;
-    const provider = prompt('Provider（deepseek / mock）', 'deepseek');
-    if(!provider) return;
-    await api('/models', { method:'POST', body:{
-      key, provider, upstream: key, enabled:true, weight:5, costPer1K:0.001
-    }});
-    toast('已添加'); loadModels();
-  });
+  /* ---- 新增模型：内联表单弹层（替代两个原生 prompt）---- */
+  $('#addModel').addEventListener('click', openModelForm);
+
+  async function openModelForm(){
+    // Provider 下拉项来自 /admin/api/overview 的 providers 列表
+    let provs = [];
+    try{
+      const ov = await api('/overview');
+      provs = (ov.metrics.providers || []).map(p => p.name);
+    }catch(e){ /* 拿不到列表时下拉留空，提交前的校验会拦 */ }
+
+    const provField = provs.length
+      ? `<select id="fProv">${provs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select>`
+      : `<select id="fProv"><option value="">（没拿到 Provider 列表，稍后再试）</option></select>`;
+
+    openDialog('新增模型', `
+      <div class="fld"><label>Key · 模型标识</label>
+        <input id="fKey" placeholder="如 deepseek-reasoner" autocomplete="off"></div>
+      <div class="fld"><label>Provider · 上游服务</label>${provField}</div>
+      <div class="fld"><label>上游模型 · 默认同 Key</label>
+        <input id="fUp" placeholder="默认同 Key" autocomplete="off"></div>
+      <div class="fld fld-row2">
+        <div><label>权重</label><input id="fW" type="number" value="5" min="1" step="1"></div>
+        <div><label>单价 / 1K</label><input id="fC" type="number" value="0.001" min="0" step="0.0001"></div>
+      </div>
+      <div class="fld"><label>备注</label><input id="fNote" placeholder="可选" autocomplete="off"></div>
+      <div class="fld fld-inline"><label>启用</label><button type="button" class="sw on" id="fOn"></button></div>
+    `, '提交', submitModelForm);
+
+    // Upstream 默认跟着 Key 走，手动改过就不再联动
+    let upDirty = false;
+    $('#fKey').addEventListener('input', () => { if(!upDirty) $('#fUp').value = $('#fKey').value; });
+    $('#fUp').addEventListener('input', () => { upDirty = true; });
+    $('#fOn').addEventListener('click', function(){ this.classList.toggle('on'); });
+  }
+
+  async function submitModelForm(){
+    const key = $('#fKey').value.trim();
+    const provider = $('#fProv').value.trim();
+    const upstream = $('#fUp').value.trim() || key;
+    const weight = Number($('#fW').value);
+    const cost = Number($('#fC').value);
+    const enabled = $('#fOn').classList.contains('on');
+    if(!key) return showDlgErr('请填写模型 Key');
+    if(!provider) return showDlgErr('请选择 Provider（后端要求 Provider 必须真实存在）');
+    if(!Number.isFinite(weight) || weight <= 0) return showDlgErr('权重必须是正数');
+    if(!Number.isFinite(cost) || cost < 0) return showDlgErr('单价格式不正确');
+
+    const btn = $('#dlgOk');
+    btn.disabled = true; const oldTxt = btn.textContent; btn.textContent = '提交中…';
+    try{
+      await api('/models', { method:'POST', body:{
+        key, provider, upstream, enabled,
+        weight: Math.round(weight), costPer1k: cost,
+        note: $('#fNote').value.trim()
+      }});
+      $('#dlgMask').hidden = true; settleDialog();
+      toast('已添加 ' + key);
+      loadModels();
+    }catch(e){
+      showDlgErr(e.message);   // 后端 400 的 message 显示在弹层提示条
+    }finally{
+      btn.disabled = false; btn.textContent = oldTxt;
+    }
+  }
 
   /* ---- 用户 ---- */
   async function loadUsers(){
@@ -634,47 +814,49 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#userEmpty').style.display = list.length ? 'none' : 'block';
     $('#userBody').innerHTML = list.map(u => `
       <tr>
-        <td data-label="用户"><b style="font-weight:600">${u.name}</b></td>
-        <td class="mono" data-label="登录标识">${u.phone || u.email}</td>
-        <td data-label="套餐"><span class="b b-gray">${u.plan}</span></td>
-        <td class="num" data-label="额度"><input class="inline" value="${u.quota}" data-quota="${u.id}"></td>
-        <td class="num" data-label="已用">${u.used}</td>
+        <td data-label="用户"><b style="font-weight:600">${esc(u.name)}</b></td>
+        <td class="mono" data-label="登录标识">${esc(u.phone || u.email)}</td>
+        <td data-label="套餐"><span class="b b-gray">${esc(u.plan)}</span></td>
+        <td class="num" data-label="额度"><input class="inline" value="${esc(u.quota)}" data-quota="${esc(u.id)}"></td>
+        <td class="num" data-label="已用">${esc(nf(u.used))}</td>
         <td data-label="状态"><span class="b ${u.status==='active'?'b-ok':'b-bad'}">${u.status==='active'?'正常':'已停用'}</span></td>
         <td data-label="">
-          <button class="btn btn-line btn-sm" data-st="${u.id}" data-cur="${u.status}">
+          <button class="btn btn-line btn-sm" data-st="${esc(u.id)}" data-cur="${esc(u.status)}">
             ${u.status==='active'?'停用':'启用'}
           </button>
-          <button class="btn btn-line btn-sm" data-reset="${u.id}" data-used="${u.used}">
+          <button class="btn btn-line btn-sm" data-reset="${esc(u.id)}" data-used="${esc(u.used)}">
             清额度
           </button>
         </td>
       </tr>`).join('');
 
-    document.querySelectorAll('[data-st]').forEach(b => {
+    $('#userBody').querySelectorAll('[data-st]').forEach(b => {
       b.addEventListener('click', async () => {
         const next = b.dataset.cur === 'active' ? 'disabled' : 'active';
-        await api('/users/' + b.dataset.st + '/status', { method:'POST', body:{ status: next }});
+        await api('/users/' + encodeURIComponent(b.dataset.st) + '/status', { method:'POST', body:{ status: next }});
         toast('已' + (next==='active'?'启用':'停用'));
         loadUsers();
       });
     });
-    document.querySelectorAll('[data-reset]').forEach(b => {
+    $('#userBody').querySelectorAll('[data-reset]').forEach(b => {
       b.addEventListener('click', async () => {
         const used = b.dataset.used;
-        if (!confirm(`把这个用户的已用额度（${used} 次）清零？`)) return;
+        if (!await confirmDialog(`把这个用户的已用额度（${used} 次）清零？`)) return;
         try {
-          const r = await api('/users/' + b.dataset.reset + '/reset-usage', { method:'POST' });
+          const r = await api('/users/' + encodeURIComponent(b.dataset.reset) + '/reset-usage', { method:'POST' });
           toast(`已清零 ${r.reset} 次`);
           loadUsers();
         } catch (e) { toast(e.message); }
       });
     });
-    document.querySelectorAll('[data-quota]').forEach(inp => {
+    $('#userBody').querySelectorAll('[data-quota]').forEach(inp => {
       inp.addEventListener('change', async () => {
-        await api('/users/' + inp.dataset.quota + '/quota', {
-          method:'POST', body:{ quota: Number(inp.value) || 0 }
-        });
-        toast('额度已更新');
+        try{
+          await api('/users/' + encodeURIComponent(inp.dataset.quota) + '/quota', {
+            method:'POST', body:{ quota: Number(inp.value) || 0 }
+          });
+          toast('额度已更新');
+        }catch(e){ toast(e.message); }
       });
     });
   }
@@ -688,17 +870,17 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#auditBody').innerHTML = audits.length ? audits.map(a => `
       <tr>
         <td class="mono" data-label="时间">${ago(a.createdAt)}</td>
-        <td data-label="操作"><span class="b b-pri">${a.action}</span></td>
-        <td class="mono" data-label="对象">${a.target || '—'}</td>
-        <td class="mono" data-label="来源IP">${a.ip || '—'}</td>
+        <td data-label="操作"><span class="b b-pri">${esc(a.action)}</span></td>
+        <td class="mono" data-label="对象">${esc(a.target || '—')}</td>
+        <td class="mono" data-label="来源IP">${esc(a.ip || '—')}</td>
       </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无操作记录</td></tr>';
 
     $('#eventBody').innerHTML = events.length ? events.map(e => `
       <tr>
         <td class="mono" data-label="时间">${ago(e.createdAt)}</td>
-        <td data-label="事件"><span class="b b-gray">${e.kind}</span></td>
-        <td class="mono" data-label="用户">${e.userId || '—'}</td>
-        <td class="mono" data-label="对象">${e.target || '—'}</td>
+        <td data-label="事件"><span class="b b-gray">${esc(e.kind)}</span></td>
+        <td class="mono" data-label="用户">${esc(e.userId || '—')}</td>
+        <td class="mono" data-label="对象">${esc(e.target || '—')}</td>
       </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无行为记录</td></tr>';
   }
 
@@ -711,12 +893,12 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#slowBody').innerHTML = items.map(it => `
       <tr>
         <td class="mono" data-label="时间">${it.time ? new Date(it.time).toLocaleString('zh-CN', {hour12:false}) : '—'}</td>
-        <td data-label="群">${it.convTitle || it.convId || '—'}</td>
-        <td data-label="角色">${it.agent || '—'}</td>
+        <td data-label="群">${esc(it.convTitle || it.convId || '—')}</td>
+        <td data-label="角色">${esc(it.agent || '—')}</td>
         <td class="num" data-label="耗时" style="color:${it.latencyMs > 20000 ? 'var(--bad)' : 'inherit'}">${ms(it.latencyMs || 0)}</td>
         <td class="num" data-label="token">${nf(it.tokens || 0)}</td>
         <td data-label="结果">${it.err
-          ? `<span class="b b-bad" title="${(it.err||'').replace(/"/g,'')}">失败</span>`
+          ? `<span class="b b-bad" title="${esc(it.err)}">失败</span>`
           : '<span class="b b-warn">慢</span>'}</td>
       </tr>`).join('');
   }
@@ -728,23 +910,23 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#convMeta').textContent = `${list.length} 个会话 · ${busyN} 个正在编排`;
     $('#convBody').innerHTML = list.length ? list.map(c => `
       <tr>
-        <td data-label="群"><b style="font-weight:600">${c.title}</b></td>
-        <td data-label="场景">${c.studio || '—'}</td>
-        <td class="num" data-label="消息数">${c.messages}</td>
-        <td class="mono" data-label="更新时间">${c.updatedAt || '—'}</td>
+        <td data-label="群"><b style="font-weight:600">${esc(c.title)}</b></td>
+        <td data-label="场景">${esc(c.studio || '—')}</td>
+        <td class="num" data-label="消息数">${esc(nf(c.messages))}</td>
+        <td class="mono" data-label="更新时间">${esc(c.updatedAt || '—')}</td>
         <td data-label="状态">${c.busy
           ? '<span class="b b-warn">编排中</span>'
           : '<span class="b b-ok">空闲</span>'}</td>
         <td data-label="">${c.busy
-          ? `<button class="btn btn-line btn-sm" data-unlock="${c.id}">强行解锁</button>`
+          ? `<button class="btn btn-line btn-sm" data-unlock="${esc(c.id)}">强行解锁</button>`
           : ''}</td>
       </tr>`).join('') : '<tr><td colspan="6" class="empty">还没有会话</td></tr>';
 
-    document.querySelectorAll('[data-unlock]').forEach(b => {
+    $('#convBody').querySelectorAll('[data-unlock]').forEach(b => {
       b.addEventListener('click', async () => {
-        if (!confirm('强行释放这个群的锁？只影响锁，不动消息。')) return;
+        if (!await confirmDialog('强行释放这个群的锁？只影响锁，不动消息。')) return;
         try {
-          const r = await api('/conversations/' + b.dataset.unlock + '/unlock', { method:'POST' });
+          const r = await api('/conversations/' + encodeURIComponent(b.dataset.unlock) + '/unlock', { method:'POST' });
           toast(r.wasBusy ? '锁已释放' : '本来就没锁着');
           loadConvs2();
         } catch (e) { toast(e.message); }
@@ -753,7 +935,28 @@ input.inline:focus{outline:0;border-color:var(--pri)}
   }
 
   /* ---- 轮询 ---- */
+  function editingInPage(){
+    // 当前页里有聚焦的输入框就先别重渲染，免得管理员改额度改到一半被清掉。
+    // 这轮直接跳过，等失焦后的下一轮再刷。
+    const pg = document.querySelector('.page.on');
+    const el = document.activeElement;
+    return !!pg && !!el && pg.contains(el)
+      && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+  }
+
+  function backToLogin(msg){
+    clearInterval(timer); timer = null;
+    token = '';
+    localStorage.removeItem('ens_admin');
+    $('#dlgMask').hidden = true;
+    $('#app').classList.remove('on');
+    $('#connBar').hidden = true;
+    $('#login').style.display = '';   // 还原成 .login 类里的 grid 布局
+    if(msg) loginErr(msg);
+  }
+
   async function refresh(){
+    if(editingInPage()) return;
     const active = document.querySelector('.page.on').id;
     try{
       if(active === 'p-dash') await loadDash();
@@ -763,17 +966,30 @@ input.inline:focus{outline:0;border-color:var(--pri)}
       if(active === 'p-slow') await loadSlow();
       if(active === 'p-convs') await loadConvs2();
       $('#liveTxt').textContent = '运行中';
+      $('#connBar').hidden = true;   // 恢复后横幅自动消失
     }catch(e){
-      if(/401|令牌/.test(e.message)){
-        clearInterval(timer);
-        localStorage.removeItem('ens_admin');
-        location.reload();
+      if(e.status === 401 || e.status === 403 || /401|403|令牌/.test(e.message)){
+        backToLogin('登录已失效，请重新登录');
+        return;
       }
       $('#liveTxt').textContent = '连接异常';
+      $('#connBar').hidden = false;  // 持久横幅：一直挂着直到下一轮成功
     }
   }
 
-  if(token) enter();
+  if(token){
+    // 存量 token 先调轻量接口验证再进主界面，避免闪一下又弹回登录页
+    api('/overview').then(() => enter()).catch(e => {
+      $('#token').value = token;   // 若只是网络抖动，token 留在框里方便重试
+      if(e && e.status){
+        token = '';
+        localStorage.removeItem('ens_admin');
+        loginErr('令牌已失效，请重新登录');
+      }else{
+        loginErr('暂时连不上服务器，稍后点「进入」重试');
+      }
+    });
+  }
 })();
 </script>
 </body>

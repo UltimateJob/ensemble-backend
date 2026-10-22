@@ -59,7 +59,7 @@ func Load() Config {
 	c := Config{
 		Addr:            env("ADDR", ":8080"),
 		AdminToken:      env("ADMIN_TOKEN", "admin-dev-token"),
-		JWTSecret:       env("JWT_SECRET", "change-me-in-production"),
+		JWTSecret:       env("JWT_SECRET", DefaultJWTSecret),
 		ReadTimeout:     dur("READ_TIMEOUT", 15*time.Second),
 		WriteTimeout:    dur("WRITE_TIMEOUT", 5*time.Minute),
 		IdleTimeout:     dur("IDLE_TIMEOUT", 120*time.Second),

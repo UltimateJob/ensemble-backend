@@ -1,6 +1,9 @@
 package gateway
 
 import (
+	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -238,5 +241,168 @@ func TestMetricsP95NotEstimated(t *testing.T) {
 	p95 := gw.latency.percentile(0.95)
 	if p95 < 900 {
 		t.Fatalf("P95 应反映尾部延迟（接近 1000），得到 %v", p95)
+	}
+}
+
+// scriptedProvider 按脚本回放 chunk 序列，每次调用消费一组。
+// 用于构造「流到一半断掉」「第一次失败、第二次成功」这类上游行为。
+type scriptedProvider struct {
+	calls   atomic.Int32
+	streams [][]domain.Chunk
+}
+
+func (p *scriptedProvider) Name() string { return "scripted" }
+
+func (p *scriptedProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	n := int(p.calls.Add(1))
+	script := p.streams[(n-1)%len(p.streams)]
+	ch := make(chan domain.Chunk, len(script)+1)
+	for _, c := range script {
+		ch <- c
+	}
+	close(ch)
+	return ch, nil
+}
+
+func newScriptedGateway(t *testing.T, retries int, streams [][]domain.Chunk) (*Gateway, *scriptedProvider) {
+	t.Helper()
+	p := &scriptedProvider{streams: streams}
+	reg := NewRegistry()
+	reg.Add(p)
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "m", Provider: "scripted", Enabled: true, Weight: 1},
+	})
+	// 阈值给高一点，测的是重试语义，别让熔断插手
+	return New(reg, table, retries, 100, time.Second), p
+}
+
+func TestStreamBreakNoRetryAfterForwarded(t *testing.T) {
+	// P0：回答转发到一半流断了，绝不能整单重试——
+	// 第二次的完整回答会拼在半截回答后面，落库就是「半截+完整再来一遍」。
+	gw, p := newScriptedGateway(t, 2, [][]domain.Chunk{
+		{
+			{Content: "回答的前半截"},
+			{Err: errors.New("broken pipe"), Done: true},
+		},
+	})
+
+	out, err := gw.Stream(t.Context(), domain.ChatRequest{
+		Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var text string
+	var streamErr error
+	for c := range out {
+		if c.Err != nil {
+			streamErr = c.Err
+		}
+		text += c.Content
+	}
+
+	if streamErr == nil {
+		t.Fatal("中途断流应以错误结束，而不是悄悄吞掉")
+	}
+	if text != "回答的前半截" {
+		t.Fatalf("断流后不应重试拼接，得到 %q", text)
+	}
+	if n := p.calls.Load(); n != 1 {
+		t.Fatalf("已转发过内容就不应重试，上游被调了 %d 次", n)
+	}
+}
+
+func TestStreamRetryOnlyWhenNothingForwarded(t *testing.T) {
+	// 一行都没转发出去时重试是无副作用的，应该照常重试
+	gw, p := newScriptedGateway(t, 1, [][]domain.Chunk{
+		{
+			{Err: errors.New("first attempt dies"), Done: true},
+		},
+		{
+			{Content: "第二次的完整回答"},
+			{Done: true, Usage: &domain.Usage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3}},
+		},
+	})
+
+	out, err := gw.Stream(t.Context(), domain.ChatRequest{
+		Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var text string
+	for c := range out {
+		if c.Err != nil {
+			t.Fatalf("重试后应成功，却收到错误：%v", c.Err)
+		}
+		text += c.Content
+	}
+	if text != "第二次的完整回答" {
+		t.Fatalf("应拿到第二次的完整回答，得到 %q", text)
+	}
+	if n := p.calls.Load(); n != 2 {
+		t.Fatalf("没转发过内容应重试一次，上游被调了 %d 次", n)
+	}
+}
+
+func TestHalfOpenSingleProbe(t *testing.T) {
+	reg := NewRegistry()
+	reg.Add(&Mock{})
+
+	const threshold = 1
+	const openFor = 30 * time.Millisecond
+
+	reg.Report("mock", false, time.Millisecond, "boom", threshold, openFor)
+	if reg.Allow("mock", threshold, openFor) {
+		t.Fatal("熔断打开后应拒绝")
+	}
+
+	time.Sleep(openFor + 5*time.Millisecond)
+	if !reg.Allow("mock", threshold, openFor) {
+		t.Fatal("冷却结束后应放行一个探测")
+	}
+	// 探测在途中：其他调用必须被拒，否则半开等于全放
+	if reg.Allow("mock", threshold, openFor) {
+		t.Fatal("半开状态同时只能放一个探测")
+	}
+
+	// 探测失败 → 立刻回熔断
+	reg.Report("mock", false, time.Millisecond, "probe failed", threshold, openFor)
+	if reg.Allow("mock", threshold, openFor) {
+		t.Fatal("探测失败应重新熔断")
+	}
+
+	// 再冷却后能放新探测；探测成功恢复正常放行
+	time.Sleep(openFor + 5*time.Millisecond)
+	if !reg.Allow("mock", threshold, openFor) {
+		t.Fatal("冷却后应放行新探测")
+	}
+	reg.Report("mock", true, time.Millisecond, "", threshold, openFor)
+	if !reg.Allow("mock", threshold, openFor) {
+		t.Fatal("探测成功后应恢复为关闭")
+	}
+}
+
+func TestHalfOpenProbeTimeout(t *testing.T) {
+	// 探测请求可能永远不上报结果（比如半路被取消），
+	// 名额必须能超时释放，否则永远卡死在半开。
+	reg := NewRegistry()
+	reg.Add(&Mock{})
+
+	const openFor = 30 * time.Millisecond
+	reg.Report("mock", false, time.Millisecond, "boom", 1, openFor)
+	time.Sleep(openFor + 5*time.Millisecond)
+	if !reg.Allow("mock", 1, openFor) {
+		t.Fatal("应放行探测")
+	}
+	if reg.Allow("mock", 1, openFor) {
+		t.Fatal("探测在途中应拒绝其他人")
+	}
+
+	time.Sleep(openFor + 10*time.Millisecond)
+	if !reg.Allow("mock", 1, openFor) {
+		t.Fatal("探测超时后应放行新探测")
 	}
 }

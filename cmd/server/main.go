@@ -27,7 +27,7 @@ import (
 // 1.0.0 意味着「可以承诺 API 稳定、可以对外」。
 // 现在的功能是完整的，但运营基础设施还缺（计费、账号找回、短信通道、
 // 多实例）。所以标 RC——候选版本，功能冻结，等基础设施补齐。
-const version = "1.0.0-rc.3"
+const version = "1.0.0-rc.4"
 
 func main() {
 	cfg := config.Load()
@@ -106,7 +106,7 @@ func main() {
 	admin := service.NewAdmin(st, gw, shared)
 
 	// ---- HTTP ----
-	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter)
+	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, shared.Limiter)
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Handler(),

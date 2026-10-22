@@ -1,9 +1,9 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
@@ -70,7 +70,7 @@ func (s *Server) handleGetConv(w http.ResponseWriter, r *http.Request) {
 	ok(w, conv)
 }
 
-// handleUpdateConv 改名或换默认模型。
+// handleUpdateConv 改名、换默认模型，或整组替换群里的自定义角色。
 func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
 	conv, err := s.chat.Get(u.ID, r.PathValue("id"))
@@ -78,7 +78,7 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "会话不存在")
 		return
 	}
-	// 改名和换模型属于管理动作，只有创建者能改
+	// 改名、换模型、换角色组都是管理动作，只有创建者能改
 	if !conv.IsOwner(u.ID) {
 		forbidden(w)
 		return
@@ -86,6 +86,9 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title string `json:"title"`
 		Model string `json:"model"`
+		// Agents 用指针区分「没带这个字段」和「带了个空数组」：
+		// 没带＝不动角色；带了空数组＝把群恢复成场景预设（清空自定义角色）。
+		Agents *[]domain.ConvAgent `json:"agents"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
@@ -101,6 +104,59 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 	if req.Model != "" {
 		conv.Model = req.Model
 	}
+	if req.Agents != nil {
+		if len(*req.Agents) > 12 {
+			fail(w, 400, "too_many", "一个群最多 12 个自定义角色")
+			return
+		}
+		conv.Agents = *req.Agents
+	}
+	if err := s.chat.Update(conv); err != nil {
+		serverErr(w, err.Error())
+		return
+	}
+	ok(w, conv)
+}
+
+// handleRemoveConvAgent 把一个自定义角色移出群聊（owner only）。
+// 角色按 Key 匹配；连带清掉 Members 里的同名 key，
+// 不然编排器还会按成员列表点到这个已经不存在的人。
+func (s *Server) handleRemoveConvAgent(w http.ResponseWriter, r *http.Request) {
+	u, _ := UserFrom(r.Context())
+	conv, err := s.chat.Get(u.ID, r.PathValue("id"))
+	if err != nil {
+		notFound(w, "会话不存在")
+		return
+	}
+	if !conv.IsOwner(u.ID) {
+		forbidden(w)
+		return
+	}
+	key := r.PathValue("key")
+
+	found := false
+	agents := make([]domain.ConvAgent, 0, len(conv.Agents))
+	for _, a := range conv.Agents {
+		if a.Key == key {
+			found = true
+			continue
+		}
+		agents = append(agents, a)
+	}
+	if !found {
+		notFound(w, "这个角色不在群里")
+		return
+	}
+	conv.Agents = agents
+
+	members := make([]string, 0, len(conv.Members))
+	for _, m := range conv.Members {
+		if m != key {
+			members = append(members, m)
+		}
+	}
+	conv.Members = members
+
 	if err := s.chat.Update(conv); err != nil {
 		serverErr(w, err.Error())
 		return
@@ -110,12 +166,19 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteConv(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
-	if _, err := s.chat.Get(u.ID, r.PathValue("id")); err != nil {
+	conv, err := s.chat.Get(u.ID, r.PathValue("id"))
+	if err != nil {
 		notFound(w, "会话不存在")
 		return
 	}
-	_ = s.store.DeleteConv(r.PathValue("id"))
-	_ = s.store.AppendEvent(&domain.Event{UserID: u.ID, Kind: "conv_delete", Target: r.PathValue("id")})
+	// 删除是全员不可逆的动作，只归创建者。协作者走 /leave。
+	// 之前只要能看见这个群（含协作者）就能删，等于受邀的人可以随时解散别人的群。
+	if !conv.IsOwner(u.ID) {
+		fail(w, 403, "forbidden", "只有群主能删除群聊")
+		return
+	}
+	_ = s.store.DeleteConv(conv.ID)
+	_ = s.store.AppendEvent(&domain.Event{UserID: u.ID, Kind: "conv_delete", Target: conv.ID})
 	ok(w, map[string]string{"deleted": "true"})
 }
 
@@ -159,10 +222,24 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Content string `json:"content"`
 	}
-	if err := decode(r, &req); err != nil || req.Content == "" {
+	if err := decode(r, &req); err != nil {
+		badRequest(w, "请求格式不正确")
+		return
+	}
+	// 校验与 orchestrate 对齐：只判 == "" 挡不住纯空格，
+	// 不设上限的话一条超长消息会吃掉几万 token。
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
 		badRequest(w, "消息不能为空")
 		return
 	}
+	const maxRunes = 4000
+	if n := len([]rune(content)); n > maxRunes {
+		fail(w, 400, "too_long",
+			fmt.Sprintf("消息太长了（%d 字），最多 %d 字。拆成几条发更好", n, maxRunes))
+		return
+	}
+	req.Content = content
 
 	convID := r.PathValue("id")
 	stream, conv, err := s.chat.Send(r.Context(), u, convID, req.Content)
@@ -180,40 +257,27 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flusher, canFlush := w.(http.Flusher)
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
+	sw := startSSE(w)
+	defer sw.stop()
 
 	start := time.Now()
 	var full string
 	var tokens int
-
-	send := func(payload interface{}) bool {
-		b, err := json.Marshal(payload)
-		if err != nil {
-			return false
-		}
-		if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-			return false
-		}
-		if canFlush {
-			flusher.Flush()
-		}
-		return true
-	}
+	// 客户端断开后不再发送，但流要读完、消息要照常落库：
+	// 模型已经完整生成的内容不能因为对端关了页面就丢掉。
+	clientGone := false
 
 	for chunk := range stream {
 		if chunk.Err != nil {
-			send(map[string]interface{}{"error": chunk.Err.Error(), "done": true})
+			if !clientGone {
+				sw.writeData(map[string]interface{}{"error": chunk.Err.Error(), "done": true})
+			}
 			break
 		}
 		if chunk.Content != "" {
 			full += chunk.Content
-			if !send(map[string]interface{}{"delta": chunk.Content}) {
-				return
+			if !clientGone && !sw.writeData(map[string]interface{}{"delta": chunk.Content}) {
+				clientGone = true
 			}
 		}
 		if chunk.Usage != nil {
@@ -231,9 +295,11 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		Meta: map[string]string{"tokens": fmt.Sprint(tokens), "ms": fmt.Sprint(latency)},
 	})
 
-	send(map[string]interface{}{
-		"done":    true,
-		"tokens":  tokens,
-		"latency": latency,
-	})
+	if !clientGone {
+		sw.writeData(map[string]interface{}{
+			"done":    true,
+			"tokens":  tokens,
+			"latency": latency,
+		})
+	}
 }

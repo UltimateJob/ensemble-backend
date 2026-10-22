@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -137,6 +138,9 @@ func TestFileStorePersist(t *testing.T) {
 	}
 	if msgs := fs2.ListMessages("c1", 0); len(msgs) != 1 {
 		t.Fatalf("重启后消息丢失，剩 %d 条", len(msgs))
+	}
+	if fs2.CountMessages("c1") != 1 {
+		t.Fatal("重启后消息计数不对——load 时要同步维护 msgCount")
 	}
 }
 
@@ -476,5 +480,231 @@ func TestTouchLastSeen(t *testing.T) {
 	}
 	if after.Name != before.Name {
 		t.Fatal("TouchLastSeen 不应改动其他字段")
+	}
+}
+
+/* ---------------- CountMessages ---------------- */
+
+// 计数索引要在 append/delete/load（磁盘与旧版快照）各路径上与 msgs 同步。
+func TestCountMessages(t *testing.T) {
+	m := NewMemory()
+	_ = m.CreateConv(&domain.Conversation{ID: "c1", UserID: "u1"})
+	for i := 0; i < 3; i++ {
+		_ = m.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "x"})
+	}
+	_ = m.AppendMessage(&domain.Message{ConversationID: "c2", Role: domain.RoleUser, Content: "y"})
+
+	if got := m.CountMessages("c1"); got != 3 {
+		t.Fatalf("c1 应计数 3，得到 %d", got)
+	}
+	if got := m.CountMessages("c2"); got != 1 {
+		t.Fatalf("c2 应计数 1，得到 %d", got)
+	}
+	if got := m.CountMessages("不存在的会话"); got != 0 {
+		t.Fatalf("未知会话应计数 0，得到 %d", got)
+	}
+
+	// 删会话连带清计数，别的会话不受影响
+	_ = m.DeleteConv("c1")
+	if got := m.CountMessages("c1"); got != 0 {
+		t.Fatalf("删会话后计数应清零，得到 %d", got)
+	}
+	if got := m.CountMessages("c2"); got != 1 {
+		t.Fatalf("c2 不应受影响，得到 %d", got)
+	}
+
+	// 旧版快照 Load 是整体覆盖 msgs，计数也要重建
+	m2 := NewMemory()
+	m2.Load(Snapshot{Msgs: []*domain.Message{
+		{ConversationID: "c9", Role: domain.RoleUser, Content: "a"},
+		{ConversationID: "c9", Role: domain.RoleUser, Content: "b"},
+	}})
+	if got := m2.CountMessages("c9"); got != 2 {
+		t.Fatalf("Load 后应计数 2，得到 %d", got)
+	}
+}
+
+/* ---------------- Flush 部分失败恢复 ---------------- */
+
+// Flush 中途写盘失败（磁盘满/权限）时，没写成的分片必须补回脏标记——
+// 旧实现是先把所有标记清零再逐个写，第 2 个文件失败后，
+// 剩余脏数据既不在盘上、也不在标记里，永远不会被重写。
+// 用替换 writeJSON 的方式注入失败，不用真把目录改成只读。
+func TestFlushFailureRestoresDirty(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 先停掉后台 loop：本测试要精确控制 Flush 时机（并替换 writeJSON），
+	// 不能让 loop 在旁边抢着写盘。
+	fs.once.Do(func() { close(fs.stop) })
+
+	_ = fs.CreateUser(newUser("u1", "13800000000"))
+	_ = fs.CreateConv(&domain.Conversation{ID: "c1", UserID: "u1"})
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "第一条"})
+	if err := fs.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 第二批改动：users + 消息。让 users.json 写失败——
+	// Flush 的写入顺序里 users 在 messages 之前，失败后两者都写不成。
+	_ = fs.CreateUser(newUser("u2", "13900000000"))
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "第二条"})
+
+	orig := writeJSON
+	writeJSON = func(path string, v interface{}) error {
+		if filepath.Base(path) == fileUsers {
+			return errors.New("注入的写盘失败（模拟磁盘满）")
+		}
+		return orig(path, v)
+	}
+	flushErr := fs.Flush()
+	writeJSON = orig
+	if flushErr == nil {
+		t.Fatal("写盘被注入失败，Flush 应该报错")
+	}
+
+	// 关键断言：写失败的项必须回到脏标记里
+	fs.mu.Lock()
+	dirtyUsers := fs.dirtyUsers
+	dirtyMsgCount := len(fs.dirtyMsgs)
+	fs.mu.Unlock()
+	if !dirtyUsers {
+		t.Fatal("users 写失败后脏标记被清了，这批改动会永远丢掉")
+	}
+	if dirtyMsgCount != 1 {
+		t.Fatalf("未写成的消息分片应补回脏标记，期望 1 个，得到 %d 个", dirtyMsgCount)
+	}
+
+	// 恢复写盘能力后，不需要任何新写入，一次 Flush 就该把欠的账补上
+	if err := fs.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 数据真的在盘上：重开验证
+	fs2, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs2.Close()
+	if _, ok := fs2.GetUser("u2"); !ok {
+		t.Fatal("失败后恢复的 Flush 没把 u2 写盘")
+	}
+	if got := fs2.ListMessages("c1", 0); len(got) != 2 {
+		t.Fatalf("消息应补写 2 条，得到 %d", len(got))
+	}
+}
+
+// 消息分片逐个写：c1 成功、c2 失败时，只有 c2 及之后的会话需要补标，
+// 已写成的分片（users 等）不应被重新弄脏。
+func TestFlushFailureKeepsWrittenShards(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs.Close()
+	fs.once.Do(func() { close(fs.stop) })
+
+	_ = fs.CreateUser(newUser("u1", ""))
+	_ = fs.CreateConv(&domain.Conversation{ID: "c1", UserID: "u1"})
+	_ = fs.CreateConv(&domain.Conversation{ID: "c2", UserID: "u1"})
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "给 c1"})
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c2", Role: domain.RoleUser, Content: "给 c2"})
+
+	// 只让 c2.json 失败（msgs 按字典序：c1 先写成功，c2 失败）
+	orig := writeJSON
+	writeJSON = func(path string, v interface{}) error {
+		if filepath.Base(path) == "c2.json" {
+			return errors.New("注入的写盘失败")
+		}
+		return orig(path, v)
+	}
+	flushErr := fs.Flush()
+	writeJSON = orig
+	if flushErr == nil {
+		t.Fatal("应报错")
+	}
+
+	fs.mu.Lock()
+	dirtyUsers := fs.dirtyUsers
+	var marked []string
+	for id := range fs.dirtyMsgs {
+		marked = append(marked, id)
+	}
+	fs.mu.Unlock()
+
+	if dirtyUsers {
+		t.Fatal("users 已成功写盘，不应被重新标脏")
+	}
+	if len(marked) != 1 || marked[0] != "c2" {
+		t.Fatalf("只应补标写失败的 c2，实际 %v", marked)
+	}
+
+	// 补写后 c2 的消息应完整落盘
+	if err := fs.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "messages", "c2.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msgs []*domain.Message
+	if err := json.Unmarshal(b, &msgs); err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "给 c2" {
+		t.Fatalf("c2 补写内容不对：%+v", msgs)
+	}
+}
+
+/* ---------------- 孤儿消息不落盘 ---------------- */
+
+// 会话已删但内存里还有它的消息（删会话时编排器仍在 Append 的竞态）：
+// Flush 不应写出孤儿 messages/<id>.json，还要把旧文件删掉，
+// 免得每次重启都把孤儿加载回来。
+func TestFlushSkipsOrphanMessages(t *testing.T) {
+	dir := t.TempDir()
+	fs, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = fs.CreateConv(&domain.Conversation{ID: "c1", UserID: "u1", Title: "要删的群"})
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "历史"})
+	if err := fs.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	msgFile := filepath.Join(dir, "messages", "c1.json")
+	if _, err := os.Stat(msgFile); err != nil {
+		t.Fatal("删除前消息文件应存在")
+	}
+
+	// 模拟竞态：会话删了，随后一条并发 Append 又落进来
+	_ = fs.DeleteConv("c1")
+	_ = fs.AppendMessage(&domain.Message{ConversationID: "c1", Role: domain.RoleUser, Content: "孤儿"})
+	if err := fs.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(msgFile); !os.IsNotExist(err) {
+		t.Fatal("会话已删：即使内存里还有残留消息，也不应写出消息文件")
+	}
+
+	// 重启后孤儿消息不应回来
+	if err := fs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fs2, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fs2.Close()
+	if got := fs2.ListMessages("c1", 0); len(got) != 0 {
+		t.Fatalf("孤儿消息不应被加载回来，得到 %d 条", len(got))
 	}
 }

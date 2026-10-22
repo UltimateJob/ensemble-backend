@@ -44,12 +44,20 @@ func NewDeepSeek(base, key, model string, timeout time.Duration) *DeepSeek {
 
 func (d *DeepSeek) Name() string { return "deepseek" }
 
+// dsStreamOptions OpenAI 兼容协议的流式开关。
+type dsStreamOptions struct {
+	// IncludeUsage 让上游在 [DONE] 前多发一个只带 usage 的 chunk。
+	// 不开的话流式响应里根本没有用量，tokens 统计永远是 0。
+	IncludeUsage bool `json:"include_usage"`
+}
+
 type dsRequest struct {
-	Model       string               `json:"model"`
-	Messages    []domain.ChatMessage `json:"messages"`
-	Stream      bool                 `json:"stream"`
-	Temperature float64              `json:"temperature,omitempty"`
-	MaxTokens   int                  `json:"max_tokens,omitempty"`
+	Model         string               `json:"model"`
+	Messages      []domain.ChatMessage `json:"messages"`
+	Stream        bool                 `json:"stream"`
+	Temperature   float64              `json:"temperature,omitempty"`
+	MaxTokens     int                  `json:"max_tokens,omitempty"`
+	StreamOptions *dsStreamOptions     `json:"stream_options,omitempty"`
 }
 
 type dsChunk struct {
@@ -77,6 +85,8 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 		Stream:      true,
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,
+		// 流式必须显式要 usage，否则上游不吐、计费统计全为 0
+		StreamOptions: &dsStreamOptions{IncludeUsage: true},
 	})
 	if err != nil {
 		return nil, err
@@ -122,14 +132,9 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 			if err := json.Unmarshal([]byte(payload), &c); err != nil {
 				continue
 			}
-			if c.Usage != nil {
-				ch <- domain.Chunk{Done: true, Usage: &domain.Usage{
-					PromptTokens:     c.Usage.PromptTokens,
-					CompletionTokens: c.Usage.CompletionTokens,
-					TotalTokens:      c.Usage.TotalTokens,
-				}}
-				return
-			}
+			// 先转发正文再处理 usage：usage chunk 正常是 [DONE] 前那个
+			// choices 为空的独立块，但万一上游把用量合并在最后一个正文
+			// delta 里，先查 usage 的话那半个字就丢了。
 			for _, pick := range c.Choices {
 				if pick.Delta.Content != "" {
 					select {
@@ -138,6 +143,14 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 						return
 					}
 				}
+			}
+			if c.Usage != nil {
+				ch <- domain.Chunk{Done: true, Usage: &domain.Usage{
+					PromptTokens:     c.Usage.PromptTokens,
+					CompletionTokens: c.Usage.CompletionTokens,
+					TotalTokens:      c.Usage.TotalTokens,
+				}}
+				return
 			}
 		}
 		if err := sc.Err(); err != nil && ctx.Err() == nil {

@@ -11,6 +11,18 @@ import (
 // handleGatewayChat 网关直连接口，协议对齐 OpenAI /v1/chat/completions。
 // 客户端可指定 model，网关按模型表与权重选路。
 func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
+	// 这个接口之前完全绕过额度：不查剩余、不计数，
+	// 拿到 token 的人可以无限免费刷模型。和其它入口一视同仁。
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	if u.Remaining() <= 0 {
+		fail(w, 402, "quota_exceeded", "本月额度已用完")
+		return
+	}
+
 	var req domain.ChatRequest
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
@@ -41,6 +53,7 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 			fail(w, 502, "upstream_error", lastErr)
 			return
 		}
+		_ = s.store.IncrementUsed(u.ID, 1)
 		ok(w, map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{"message": map[string]string{"role": "assistant", "content": full}},
@@ -49,37 +62,31 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flusher, canFlush := w.(http.Flusher)
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(200)
+	// 心跳：等首 token 期间连接可能长时间无字节，
+	// 有空闲超时的代理会掐断连接，见 sseWriter。
+	sw := startSSE(w)
+	defer sw.stop()
 
 	for c := range stream {
 		if c.Err != nil {
 			b, _ := json.Marshal(map[string]string{"error": c.Err.Error()})
-			fmt.Fprintf(w, "data: %s\n\n", b)
-			if canFlush {
-				flusher.Flush()
-			}
+			sw.writeRaw(fmt.Sprintf("data: %s\n\n", b))
 			break
 		}
 		if c.Content != "" {
 			b, _ := json.Marshal(map[string]interface{}{
 				"choices": []map[string]interface{}{{"delta": map[string]string{"content": c.Content}}},
 			})
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+			// 写失败＝客户端已断开，继续把流读完即可，不需要扣费
+			if !sw.writeRaw(fmt.Sprintf("data: %s\n\n", b)) {
 				return
-			}
-			if canFlush {
-				flusher.Flush()
 			}
 		}
 		if c.Done {
-			fmt.Fprint(w, "data: [DONE]\n\n")
-			if canFlush {
-				flusher.Flush()
-			}
+			sw.writeRaw("data: [DONE]\n\n")
+			// 流正常走完才计数；中途出错或断开不扣——
+			// 用户没拿到完整回复就不该付费。
+			_ = s.store.IncrementUsed(u.ID, 1)
 			break
 		}
 	}

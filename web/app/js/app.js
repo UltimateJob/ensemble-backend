@@ -4,13 +4,13 @@
    ============================================================ */
 
 import {
-  $, $$, api, state, toast, esc, icon, makeAv, timeStr, hydrateIcons, shift,
+  $, $$, api, state, toast, esc, icon, makeAv, fullTimeStr, hydrateIcons, shift, hexOf,
   isOnline, onNetChange, humanError } from './core.js';
 
 import {
   openConv, loadEarlier, buildMsgEl, addMsg,
   addSysNote, scrollBottom, renderMembers, renderPipeline,
-  addArtifact, appendArtifactCard, send, kickoff,
+  addArtifact, appendArtifactCard, send, kickoff, stopRound,
 } from './chat.js';
 import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
 import { uiConfirm, uiPrompt } from './dialog.js';
@@ -50,7 +50,7 @@ function bindSendCode(btnSel, inputSel) {
       }, 1000);
     } catch (e) {
       btn.disabled = false;
-      showLoginErr(e.message);
+      showLoginErr(humanError(e));
     }
   });
 }
@@ -84,7 +84,7 @@ async function doLogin() {
     try { state.me = await api('/v1/me'); } catch (e) { state.me = null; }
     enterApp();
   } catch (e) {
-    showLoginErr(e.message);
+    showLoginErr(humanError(e));
     btn.disabled = false;
     btn.textContent = '登录 / 注册';
   }
@@ -186,7 +186,8 @@ const ta = $('#ta');
 ta.addEventListener('input', () => {
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
-  $('#sendBtn').disabled = !ta.value.trim() || state.busy;
+  // 一轮进行中按钮是「停止」，保持可点；只在空闲时按内容切换可用态
+  if (!state.busy) $('#sendBtn').disabled = !ta.value.trim();
 });
 ta.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -194,20 +195,103 @@ ta.addEventListener('keydown', e => {
     if (!state.busy && ta.value.trim()) send();
   }
 });
-$('#sendBtn').addEventListener('click', send);
-$('#attachBtn').addEventListener('click', () => toast('附件上传待接入 · 支持 PDF / DOCX / XLSX'));
-$('#mentionBtn').addEventListener('click', () => {
-  if (!state.agents.length) return;
-  ta.value += '@' + state.agents[0].name + ' ';
-  ta.focus();
+// 发送键在「发送 / 停止」间切换：busy 时点它就是停掉这一轮
+$('#sendBtn').addEventListener('click', () => {
+  if (state.busy) stopRound();
+  else send();
 });
-// 让群里继续聊：不需要用户发言，角色自己找话题
+
+/* 附件：纯客户端读文本文件拼进输入框。
+   不上传服务器——这里的价值是「把材料递给角色看」，
+   内容进了消息就等于进了上下文，无需真的传文件。 */
+const attachInput = document.createElement('input');
+attachInput.type = 'file';
+attachInput.accept = '.txt,.md,.markdown,.csv,.tsv,.json,.yml,.yaml,.xml,.log,.html,.css,.js,.go,.py,.ts,text/*';
+attachInput.style.display = 'none';
+document.body.appendChild(attachInput);
+
+$('#attachBtn').addEventListener('click', () => attachInput.click());
+attachInput.addEventListener('change', async () => {
+  const f = attachInput.files && attachInput.files[0];
+  attachInput.value = '';   // 同一个文件连选两次也要触发 change
+  if (!f) return;
+  // 二进制类型给一句人话，别让用户对着静默失败发呆
+  if (/\.(png|jpe?g|gif|webp|bmp|svg|ico|pdf|docx?|xlsx?|pptx?|zip|gz|tar|mp[34]|wav|mov|mp4|avi)$/i.test(f.name)) {
+    toast('这类文件读不成文字，暂不支持。把内容复制粘贴进来一样有效');
+    return;
+  }
+  try {
+    const text = await f.text();
+    if (!text.trim()) return toast('这个文件是空的');
+    const insert = `📎 附件《${f.name}》：\n${text.trim()}\n`;
+    // 超长会撞后端 4000 字上限：先提醒，让用户自己删减
+    if ([...ta.value, ...insert].length > 4000) {
+      toast('加上这个附件超过 4000 字上限了，放不下——挑关键部分粘贴更好');
+      return;
+    }
+    ta.value += (ta.value && !ta.value.endsWith('\n') ? '\n' : '') + insert;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    toast(`已插入《${f.name}》（${text.length} 字）`);
+  } catch (e) {
+    toast('文件读取失败，换一个试试');
+  }
+});
+
+/* @：弹出成员选择，点谁就在光标处插入 @谁 */
+$('#mentionBtn').addEventListener('click', () => {
+  if (!state.agents.length) return toast('这个群还没有角色');
+  const btn = $('#mentionBtn');
+  const r = btn.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'at-pop';
+  pop.innerHTML = state.agents.map(a => `
+    <button data-at="${esc(a.name)}">
+      ${makeAv(a.name, a.color, 'av-sm')}
+      <span class="ap-n">${esc(a.name)}</span>
+      <span class="ap-t">${esc(a.title || '')}</span>
+    </button>`).join('');
+  document.body.appendChild(pop);
+  const W = 240, H = Math.min(pop.scrollHeight || 260, 280);
+  pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - W - 8)) + 'px';
+  pop.style.top = Math.max(8, r.top - H - 8) + 'px';
+  requestAnimationFrame(() => pop.classList.add('on'));
+
+  const close = () => {
+    pop.classList.remove('on');
+    setTimeout(() => pop.remove(), 150);
+    document.removeEventListener('mousedown', onDoc, true);
+    document.removeEventListener('keydown', onKey);
+  };
+  function onDoc(e) { if (!pop.contains(e.target) && e.target !== btn) close(); }
+  document.addEventListener('mousedown', onDoc, true);
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  document.addEventListener('keydown', onKey);
+
+  pop.querySelectorAll('[data-at]').forEach(b => {
+    b.addEventListener('click', () => {
+      // 插在光标处；没有光标信息就追加到末尾
+      const pos = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+      const name = b.dataset.at;
+      ta.value = ta.value.slice(0, pos) + '@' + name + ' ' + ta.value.slice(pos);
+      const np = pos + name.length + 2;
+      ta.setSelectionRange(np, np);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.focus();
+      close();
+    });
+  });
+});
+
+// 让群里继续聊：不需要用户发言，角色自己找话题。
+// 点击就直接开始——多一步「问话题」的弹窗反而拖慢节奏，
+// 想指定话题直接在输入框里说一句就行。
 $('#nudgeBtn').addEventListener('click', async () => {
   if (state.busy || !state.cur) return;
   const btn = $('#nudgeBtn');
   btn.disabled = true;
   try {
-    await kickoff(state.cur.id);
+    await kickoff(state.cur.id, '');
   } finally {
     btn.disabled = false;
   }
@@ -259,12 +343,17 @@ function UI_dialog_info() {
     </div>`;
   document.body.appendChild(mask);
   requestAnimationFrame(() => mask.classList.add('on'));
-  const close = () => { mask.classList.remove('on'); setTimeout(() => mask.remove(), 200); };
+  // Esc 监听要跟着浮层走：从「知道了」或点遮罩关闭时也要摘掉，
+  // 之前只在这里越积越多（每次开浮层漏一个）
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  const close = () => {
+    mask.classList.remove('on');
+    setTimeout(() => mask.remove(), 200);
+    document.removeEventListener('keydown', onKey);
+  };
+  document.addEventListener('keydown', onKey);
   mask.addEventListener('click', e => { if (e.target === mask) close(); });
   mask.querySelector('#uiDemoOk').addEventListener('click', close);
-  document.addEventListener('keydown', function esc(e) {
-    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); }
-  });
 }
 
 /* ---------------- 上手引导 ---------------- */
@@ -292,7 +381,7 @@ function renderOnboard() {
     {
       done: state.scenarios.some(s => s.custom),
       text: '把角色组合存成工作室',
-      hint: '群右上 <em>⋯ → 存为工作室</em>',
+      hint: '会话行右侧 <em>⋯ → 存为工作室</em>',
     },
   ];
   const doneN = steps.filter(s => s.done).length;
@@ -373,8 +462,8 @@ function openScenes() {
   // 内置场景和自定义工作室分两段。
   // 混在一起的话，用户分不清哪个是自己做的、哪个是平台给的。
   const card = (s, i) => `
-    <button class="scene" data-k="${s.key}" style="--i:${i}">
-      <span class="scene-ic" style="background:linear-gradient(140deg,${s.accent},${shift(s.accent, -26)})">
+    <button class="scene" data-k="${esc(s.key)}" style="--i:${i}">
+      <span class="scene-ic" style="background:linear-gradient(140deg,${hexOf(s.accent)},${shift(hexOf(s.accent), -26)})">
         ${icon(s.icon || 'briefcase', 20)}
       </span>
       <span style="min-width:0;flex:1">
@@ -739,8 +828,7 @@ $('#logoutBtn').addEventListener('click', () => {
   location.reload();
 });
 /* ---------------- 搜索 ---------------- */
-// 之前这里是一句 toast('全局搜索待接入')——界面上明晃晃一句没做完。
-// 现在真的能搜：跨会话搜消息内容，点结果直接跳到那个群。
+// 跨会话搜消息内容，点结果直接跳到那个群。
 let spHits = [];
 let spSel = -1;
 let spTimer = null;
@@ -780,13 +868,23 @@ function renderHits(q) {
         <span>·</span>
         <span>${h.role === 'conv' ? '群' : esc(h.agent || '你')}</span>
         <span>·</span>
-        <span>${esc(h.createdAt)}</span>
+        <span>${esc(hitTime(h.createdAt))}</span>
       </span>
       <span class="h-txt">${mark(h.snippet)}</span>
     </button>`).join('');
   box.querySelectorAll('[data-hit]').forEach(b => {
     b.addEventListener('click', () => jumpToHit(Number(b.dataset.hit)));
   });
+}
+
+// 搜索结果的时间是后端格式化好的「2026-10-22 14:30」。
+// 和消息区统一成「今天 14:30 / 昨天 09:12 / 10月18日 20:05」，
+// 两边对不上会让人怀疑是不是两套数据。
+function hitTime(s) {
+  const m = /(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(s || ''));
+  if (!m) return s || '';
+  const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  return fullTimeStr(d) || s;
 }
 
 async function doSearch(q) {
@@ -813,7 +911,16 @@ async function jumpToHit(i) {
   await openConv(h.convId);
   // 滚到那条消息（历史分页可能还没加载到，找不到就算了）
   setTimeout(() => {
-    const el = document.querySelector(`[data-mid="${h.msgId}"]`);
+    let el = document.querySelector(`[data-mid="${h.msgId}"]`);
+    // 兜底：自己刚发的消息是乐观渲染，data-mid 是临时 id，和服务端的对不上。
+    // 用摘要文本匹配一次——摘要就是消息内容的子串。
+    if (!el && h.snippet) {
+      const key = h.snippet.replace(/^…+|…+$/g, '').slice(0, 16);
+      if (key) {
+        el = [...document.querySelectorAll('#msgWrap .msg')]
+          .find(m => (m._raw || '').includes(key));
+      }
+    }
     if (el) {
       el.scrollIntoView({ block: 'center', behavior: 'smooth' });
       el.classList.add('flash');
@@ -823,6 +930,14 @@ async function jumpToHit(i) {
 }
 
 $('#searchBtn').addEventListener('click', openSearch);
+// 移动端顶栏的搜索图标：820px 以下文字搜索框被收起，没有这个入口就再也搜不了
+const searchBtnM = $('#searchBtnM');
+if (searchBtnM) searchBtnM.addEventListener('click', openSearch);
+// 顶栏 ⌘K 标签跟着平台走（Windows 上写 ⌘ 是误导）
+{
+  const kbd = $('#searchBtn kbd');
+  if (kbd && !/Mac|iPhone|iPad|iPod/.test(navigator.platform || '')) kbd.textContent = 'Ctrl K';
+}
 $('#spClose').addEventListener('click', closeSearch);
 $('#searchPanel').addEventListener('click', e => {
   if (e.target.id === 'searchPanel') closeSearch();
@@ -879,9 +994,9 @@ function clearKbFocus() {
   convEls().forEach(el => el.classList.remove('kb-on'));
 }
 
-// 有没有浮层开着（场景页 / 角色编辑器 / 抽屉 / 弹层）
+// 有没有浮层开着（场景页 / 角色编辑器 / 抽屉 / 弹层 / 搜索）
 function overlayOpen() {
-  return ['#scenes', '#forge', '#drawer', '#ctxMenu', '.ui-mask-demo']
+  return ['#scenes', '#forge', '#drawer', '#ctxMenu', '#searchPanel', '.ui-mask-demo']
     .some(sel => {
       const el = $(sel);
       if (!el) return false;
@@ -890,7 +1005,7 @@ function overlayOpen() {
 }
 
 function closeTopOverlay() {
-  const order = ['.ui-mask-demo', '#ctxMenu', '#forge', '#drawer', '#scenes'];
+  const order = ['#searchPanel', '.ui-mask-demo', '#ctxMenu', '#forge', '#drawer', '#scenes'];
   for (const sel of order) {
     const el = $(sel);
     if (!el) continue;
@@ -900,6 +1015,7 @@ function closeTopOverlay() {
     if (sel === '#forge') { $('#forge').classList.remove('on'); return true; }
     if (sel === '#drawer') { closeDrawer(); return true; }
     if (sel === '#ctxMenu') { closeCtxMenu(); return true; }
+    if (sel === '#searchPanel') { closeSearch(); return true; }
     if (sel === '.ui-mask-demo') { el.remove(); return true; }
   }
   return false;
@@ -967,13 +1083,17 @@ document.addEventListener('keydown', e => {
 
 function showShortcuts() {
   if ($('.ui-mask-demo')) return;
+  // 平台键：Mac 显示 ⌘，其他显示 Ctrl
+  const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform || '');
+  const MOD = isMac ? '⌘' : 'Ctrl';
   const rows = [
-    ['⌘ K', '搜索'],
-    ['⌘ N', '新建群'],
+    [MOD + ' K', '搜索'],
+    [MOD + ' N', '新建群'],
     ['↑ ↓', '在会话列表里移动'],
     ['Enter', '打开选中的群'],
     ['Esc', '关闭浮层 / 回到输入框'],
-    ['⌘ Enter', '发送'],
+    ['Enter', '发送'],
+    ['Shift Enter', '换行'],
     ['?', '打开这个列表'],
   ];
   const mask = document.createElement('div');
@@ -1021,12 +1141,13 @@ function reflectNet(on) {
   }
   if (!on) {
     if (ta) ta.disabled = true;
-    if (send) send.disabled = true;
+    // 一轮进行中断网也保留「停止」可用：abort 是本地动作，断网时更需要能停
+    if (send && !state.busy) send.disabled = true;
     wasOffline = true;
   } else {
     if (ta) {
       ta.disabled = false;
-      send.disabled = !ta.value.trim() || state.busy;
+      send.disabled = state.busy ? false : !ta.value.trim();
     }
     if (wasOffline) {
       wasOffline = false;

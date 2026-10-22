@@ -138,7 +138,14 @@ func Access(next http.Handler) http.Handler {
 // Auth 解析 Bearer token，写入 context。
 type AuthResolver func(token string) (*domain.User, error)
 
-func Auth(resolve AuthResolver) Middleware {
+// authMiddleware 认证三件事，缺一不可：
+//  1. 验 token —— 没登录的请求进不来；
+//  2. 限流 —— 每用户一个令牌桶。之前限流器建好了却没人调用，
+//     单个账号可以无限速地打满上游，等于没有防线；
+//  3. 节流刷新在线时间 —— 让协作面板的「在线」反映真实活跃，
+//     而不是只在登录后的 5 分钟内为真。
+func (s *Server) authMiddleware() Middleware {
+	resolve := s.auth.Verify
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
@@ -151,10 +158,39 @@ func Auth(resolve AuthResolver) Middleware {
 				unauthorized(w, err.Error())
 				return
 			}
+			if !s.allow("u:" + u.ID) {
+				tooManyRequests(w)
+				return
+			}
+			s.touchLastSeen(u)
 			ctx := context.WithValue(r.Context(), userKey, u)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// allow 限流判定。limiter 未注入时放行（兼容只用部分依赖的调用方）。
+func (s *Server) allow(key string) bool {
+	return s.limiter == nil || s.limiter.Allow(key)
+}
+
+// touchLastSeen 每 60 秒最多落一次在线时间。
+// 每个请求都 Touch 的话：高并发下全是「只改一个字段」的写盘，
+// 而协作面板的在线窗口是 5 分钟，60 秒的精度完全够用。
+// map 只按用户数增长，进程生命周期内可控，无需额外清理。
+func (s *Server) touchLastSeen(u *domain.User) {
+	now := time.Now()
+	s.seenMu.Lock()
+	last, has := s.seenAt[u.ID]
+	if has && now.Sub(last) < time.Minute {
+		s.seenMu.Unlock()
+		return
+	}
+	s.seenAt[u.ID] = now
+	s.seenMu.Unlock()
+
+	_ = s.store.TouchLastSeen(u.ID)
+	u.LastSeen = now
 }
 
 // UserFrom 取当前登录用户。

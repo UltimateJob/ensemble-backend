@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
@@ -162,7 +163,9 @@ func (c *Chat) MessagesPage(userID, convID, beforeID string, limit int) ([]*doma
 	return msgs, hasMore, nil
 }
 
-// Send 发一条消息并返回模型流。同时预扣额度。
+// Send 发一条消息并返回模型流。
+// 额度不在这里扣——之前在发起上游调用前预扣，上游挂了也照扣；
+// 现在改到 SaveAssistant 拿到完整回复并落库后才扣。
 func (c *Chat) Send(ctx context.Context, user *domain.User, convID, content string) (<-chan domain.Chunk, *domain.Conversation, error) {
 	conv, err := c.Get(user.ID, convID)
 	if err != nil {
@@ -195,8 +198,6 @@ func (c *Chat) Send(ctx context.Context, user *domain.User, convID, content stri
 		Content:        content,
 	})
 
-	_ = c.store.IncrementUsed(user.ID, 1)
-
 	stream, err := c.gw.Stream(ctx, req)
 	if err != nil {
 		return nil, nil, err
@@ -204,8 +205,14 @@ func (c *Chat) Send(ctx context.Context, user *domain.User, convID, content stri
 	return stream, conv, nil
 }
 
-// SaveAssistant 把模型回包落库。
+// SaveAssistant 把模型回包落库，成功后才扣额度。
+// 这个方法由 HTTP 层在流结束后调用——是 service 里唯一能确认
+// 「拿到了完整回复」的时机。拿不到 userID（历史签名），按会话创建者扣。
 func (c *Chat) SaveAssistant(convID, model, content string, tokens int, latency int) {
+	if strings.TrimSpace(content) == "" {
+		// 上游什么都没吐出来：不落空消息，也不扣费
+		return
+	}
 	_ = c.store.AppendMessage(&domain.Message{
 		ConversationID: convID,
 		Role:           domain.RoleAssistant,
@@ -215,6 +222,9 @@ func (c *Chat) SaveAssistant(convID, model, content string, tokens int, latency 
 		TokensOut:      tokens,
 		LatencyMS:      latency,
 	})
+	if conv, ok := c.store.GetConv(convID); ok {
+		_ = c.store.IncrementUsed(conv.UserID, 1)
+	}
 }
 
 func systemPrompt(conv *domain.Conversation) string {

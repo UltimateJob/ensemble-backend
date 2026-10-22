@@ -185,8 +185,12 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 				continue
 			}
 
-			// 首块即成功，后续错误由下游处理
+			// 首块即成功，后续错误由下游处理。
+			// forwarded 记录是否已把正文转发给调用方：
+			// 一旦转发过半个回答，就不能再整单重试——
+			// 第二次回答会接在同一条消息后面，落库变成「半截+完整再来一遍」。
 			first := true
+			forwarded := false
 			broken := false
 			for chunk := range stream {
 				if chunk.Err != nil {
@@ -206,6 +210,9 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 				}
 				select {
 				case out <- chunk:
+					if chunk.Content != "" {
+						forwarded = true
+					}
 				case <-ctx.Done():
 					return
 				}
@@ -226,6 +233,13 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 				return
 			}
 			g.registry.Report(providerName, false, time.Since(start), lastErr.Error(), g.threshold, g.openFor)
+
+			// 调用方已收到部分正文，撤不回来：中途断流只能以错误收场，
+			// 不再重试。只有一行都没转发出去（对端还没吐过字）时，
+			// 重试才是无副作用的。
+			if forwarded {
+				break
+			}
 		}
 
 		g.errors.Add(1)

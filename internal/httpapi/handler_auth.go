@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,12 @@ type authReq struct {
 }
 
 func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
+	// 发验证码发生在登录之前，没有 userID 可用，只能按 IP 限。
+	// 不限的话，一个脚本就能借这个接口刷短信（真通道按条计费）。
+	if !s.allow("ip:" + ClientIP(r)) {
+		tooManyRequests(w)
+		return
+	}
 	var req struct {
 		Kind   string `json:"kind"`
 		Target string `json:"target"`
@@ -31,6 +38,11 @@ func (s *Server) handleSendCode(w http.ResponseWriter, r *http.Request) {
 	}
 	code, err := s.auth.SendCode(r.Context(), req.Target)
 	if err != nil {
+		if errors.Is(err, service.ErrCodeTooFrequent) {
+			// 同一目标 60 秒内的重复发码是客户端问题，不是服务端故障
+			tooManyRequests(w)
+			return
+		}
 		serverErr(w, err.Error())
 		return
 	}

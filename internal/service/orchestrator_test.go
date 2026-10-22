@@ -1,7 +1,16 @@
 package service
 
 import (
+	"context"
+	"errors"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/UltimateJob/ensemble-backend/internal/domain"
+	"github.com/UltimateJob/ensemble-backend/internal/gateway"
+	"github.com/UltimateJob/ensemble-backend/internal/store"
 )
 
 func TestIsPass(t *testing.T) {
@@ -12,10 +21,16 @@ func TestIsPass(t *testing.T) {
 	}{
 		{"空字符串算沉默", "", true},
 		{"纯括号 PASS", "[PASS]", true},
-		{"裸 PASS", "PASS", true},
+		{"裸 PASS 不再算沉默", "PASS", false},
+		{"英文句子以 Pass 开头不能吞", "Pass me the docs, I'll review them.", false},
 		{"小写", "[pass]", true},
+		{"全角中括号", "【PASS】", true},
+		{"圆括号", "(PASS)", true},
+		{"全角圆括号", "（PASS）", true},
 		{"带前后空格", "  [PASS]  \n", true},
 		{"中文空", "（无）", true},
+		{"中文无整条", "无", true},
+		{"以无开头的正文不吞", "无论怎么优化都得先复现。", false},
 		{"短句里带 PASS", "[PASS] 这个话题我不懂", true},
 		{"真正说话", "先睡够，缓存不清理第二天更卡。", false},
 		{"提到 pass 词的正常句子", "这个方案我 pass 掉，因为口径不对，需要重新核对原文的限定词。", false},
@@ -30,15 +45,73 @@ func TestIsPass(t *testing.T) {
 }
 
 func TestLooksLikePass(t *testing.T) {
-	// 缓冲阶段：前缀像 PASS 就不推流
+	// 缓冲阶段：前缀像沉默标记就不推流
 	if !looksLikePass("[PA") {
-		t.Fatal("未完整 PASS 前缀应判定为疑似沉默")
+		t.Fatal("半截 [PASS] 前缀应判定为疑似沉默")
 	}
-	if !looksLikePass("PAS") {
-		t.Fatal("裸大写前缀应判定为疑似沉默")
+	if !looksLikePass("【P") {
+		t.Fatal("半截全角标记应判定为疑似沉默")
+	}
+	if !looksLikePass("(PAS") {
+		t.Fatal("半角圆括号标记开头应判定为疑似沉默")
+	}
+	if !looksLikePass("[PASS] 后面还跟解释") {
+		t.Fatal("完整标记开头应判定为疑似沉默")
+	}
+	// 裸 "P" 开头是正常英文的概率远大于沉默标记，立即放行
+	if looksLikePass("PAS") {
+		t.Fatal("裸 PASS 前缀不再按疑似沉默缓冲，否则 'Pass me...' 会被憋住")
+	}
+	if looksLikePass("Pass me the docs") {
+		t.Fatal("正常英文句子不应被当成沉默缓冲")
 	}
 	if looksLikePass("先睡够") {
 		t.Fatal("正常内容不应被当成沉默")
+	}
+}
+
+func TestStartsWithMention(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"@用户 开头", "@用户 你想要哪个版本？", true},
+		{"@你 开头", "@你 觉得这样行吗", true},
+		{"容忍前导空白", "  @用户 补个邮箱", true},
+		{"正文中间提到不算", "我觉得@用户说得对，先按这个来", false},
+		{"后半句提到不算", "这事先问@你之外的人", false},
+		{"普通发言", "这版口径没问题，可以发。", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := startsWithMention(c.in); got != c.want {
+				t.Fatalf("startsWithMention(%q) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestHistoryWindow(t *testing.T) {
+	t.Setenv("ORCHESTRA_HISTORY", "")
+	if got := historyWindow(); got != 32 {
+		t.Fatalf("默认窗口应为 32，得到 %d", got)
+	}
+	t.Setenv("ORCHESTRA_HISTORY", "16")
+	if got := historyWindow(); got != 16 {
+		t.Fatalf("环境变量应生效，得到 %d", got)
+	}
+	t.Setenv("ORCHESTRA_HISTORY", "4") // 低于下限
+	if got := historyWindow(); got != 8 {
+		t.Fatalf("下限应为 8，得到 %d", got)
+	}
+	t.Setenv("ORCHESTRA_HISTORY", "999") // 超过上限
+	if got := historyWindow(); got != 64 {
+		t.Fatalf("上限应为 64，得到 %d", got)
+	}
+	t.Setenv("ORCHESTRA_HISTORY", "oops") // 非法值
+	if got := historyWindow(); got != 32 {
+		t.Fatalf("非法值应回退默认 32，得到 %d", got)
 	}
 }
 
@@ -282,5 +355,163 @@ func TestSlowLog(t *testing.T) {
 	}
 	if got := empty.List(5); got != nil {
 		t.Fatal("nil 日志应返回 nil")
+	}
+}
+
+/* ---------- 编排器与网关的集成行为（用假上游验证） ---------- */
+
+// fakeProvider 测试用上游：可按脚本失败，记录每次收到的模型名。
+type fakeProvider struct {
+	mu     sync.Mutex
+	calls  int
+	models []string // 每次调用经网关映射后的 req.Model
+	// fail 前 N 次调用直接失败
+	fail int
+	// failName 系统提示里「你的名字是「X」」的角色永远失败（模拟某个角色上游必挂）
+	failName string
+	reply    string
+}
+
+func (f *fakeProvider) Name() string { return "fake" }
+
+func (f *fakeProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	f.mu.Lock()
+	f.calls++
+	n := f.calls
+	f.models = append(f.models, req.Model)
+	failName := f.failName
+	f.mu.Unlock()
+
+	// 系统提示（第一条消息）里有唯一的「你的名字是「X」」，据此认角色，
+	// 不能简单 Contains 角色名——别的角色的提示里也会提到他。
+	targetsMe := failName != "" && len(req.Messages) > 0 &&
+		strings.Contains(req.Messages[0].Content, "你的名字是「"+failName+"」")
+	if n <= f.fail || targetsMe {
+		return nil, errors.New("fake upstream boom")
+	}
+	ch := make(chan domain.Chunk, 2)
+	ch <- domain.Chunk{Content: f.reply}
+	ch <- domain.Chunk{Done: true}
+	close(ch)
+	return ch, nil
+}
+
+// newTestOrch 搭一个带假上游的编排器。
+// retries=0：网关不重试，测的是编排层自己的重试；threshold 放大，熔断不会在测试里打开。
+func newTestOrch(t *testing.T, p gateway.Provider) (*Orchestrator, *store.Memory) {
+	t.Helper()
+	reg := gateway.NewRegistry()
+	reg.Add(p)
+	mt := gateway.NewModelTable([]domain.ModelInfo{
+		{Key: "m-a", Upstream: "up-a", Provider: "fake", Enabled: true, Weight: 2},
+		{Key: "m-b", Upstream: "up-b", Provider: "fake", Enabled: true, Weight: 1},
+	})
+	gw := gateway.New(reg, mt, 0, 100, time.Minute)
+	st := store.NewMemory()
+	return NewOrchestrator(st, gw, NewSlowLog(4, 3600_000)), st
+}
+
+// newTestConv 建一个自定义群（Studio 不存在 → 中性场景，角色全来自 conv.Agents）。
+func newTestConv(t *testing.T, st *store.Memory, model string, quota int, agents ...domain.ConvAgent) (*domain.User, *domain.Conversation) {
+	t.Helper()
+	user := &domain.User{ID: "u1", Name: "评委", Quota: quota}
+	if err := st.CreateUser(user); err != nil {
+		t.Fatal(err)
+	}
+	conv := &domain.Conversation{
+		ID: "c1", UserID: user.ID, Title: "测试群", Studio: "no-such", Model: model,
+		Agents: agents,
+	}
+	if err := st.CreateConv(conv); err != nil {
+		t.Fatal(err)
+	}
+	return user, conv
+}
+
+func TestOrchestratorPassesConvModel(t *testing.T) {
+	fp := &fakeProvider{reply: "收到，这就核对。"}
+	o, st := newTestOrch(t, fp)
+	_, conv := newTestConv(t, st, "m-b", 10,
+		domain.ConvAgent{Key: "only", Name: "甲", Title: "拆解", Prompt: "你负责拆解任务。"})
+
+	o.Run(context.Background(), conv, &domain.User{ID: "u1", Quota: 10}, "开始吧", func(Event) {})
+
+	if len(fp.models) == 0 {
+		t.Fatal("应至少发起一次上游调用")
+	}
+	// 网关会把 key 映射成 Upstream 名。若编排器传空模型，
+	// 默认加权轮询第一次会命中 m-a（up-a），所以「每次都是 up-b」才能证明透传生效。
+	for _, m := range fp.models {
+		if m != "up-b" {
+			t.Fatalf("会话选定的模型应透传给网关，本次用了 %q（全部 %v）", m, fp.models)
+		}
+	}
+}
+
+func TestOrchestratorRetriesFailedAgent(t *testing.T) {
+	// 第一次上游失败，重试同一角色成功：发言要落库，不发错误事件
+	fp := &fakeProvider{fail: 1, reply: "上游抖了一下，重试成功。"}
+	o, st := newTestOrch(t, fp)
+	_, conv := newTestConv(t, st, "m-a", 10,
+		domain.ConvAgent{Key: "only", Name: "甲", Title: "拆解", Prompt: "你负责拆解任务。"})
+
+	var errs []Event
+	o.Run(context.Background(), conv, &domain.User{ID: "u1", Quota: 10}, "开始吧", func(e Event) {
+		if e.Type == "error" {
+			errs = append(errs, e)
+		}
+	})
+
+	if fp.calls != 2 {
+		t.Fatalf("失败后应重试一次同一角色，期望 2 次上游调用，得到 %d", fp.calls)
+	}
+	var spoke bool
+	for _, m := range st.ListMessages(conv.ID, 10) {
+		if m.Role == domain.RoleAssistant && m.Agent == "甲" {
+			spoke = true
+		}
+	}
+	if !spoke {
+		t.Fatal("重试成功后角色发言应落库")
+	}
+	if len(errs) != 0 {
+		t.Fatalf("重试成功不应发错误事件，得到 %v", errs)
+	}
+}
+
+func TestOrchestratorPartialFailureSoftHint(t *testing.T) {
+	// 甲的上游永远挂、乙正常：整轮有话（乙），但要给软提示说明甲没接上
+	fp := &fakeProvider{failName: "甲", reply: "我来说两句。"}
+	o, st := newTestOrch(t, fp)
+	_, conv := newTestConv(t, st, "m-a", 1, // 额度 1 → 本轮只 1 人说话，跳过发言间隔等待
+		domain.ConvAgent{Key: "a", Name: "甲", Title: "拆解", Prompt: "你负责拆解任务。"},
+		domain.ConvAgent{Key: "b", Name: "乙", Title: "审校", Prompt: "你负责审校文档。"},
+	)
+
+	var hints []Event
+	o.Run(context.Background(), conv, &domain.User{ID: "u1", Quota: 1}, "开始吧", func(e Event) {
+		if e.Type == "error" {
+			hints = append(hints, e)
+		}
+	})
+
+	// 甲初始 + 重试共 2 次，乙 1 次
+	if fp.calls != 3 {
+		t.Fatalf("期望甲尝试 2 次、乙 1 次共 3 次上游调用，得到 %d", fp.calls)
+	}
+	if len(hints) != 1 || !strings.Contains(hints[0].Content, "没接上话") {
+		t.Fatalf("部分失败应发一条软提示，得到 %v", hints)
+	}
+	var spokeB bool
+	for _, m := range st.ListMessages(conv.ID, 10) {
+		if m.Agent == "甲" {
+			t.Fatal("持续失败的角色不应有落库发言")
+		}
+		if m.Agent == "乙" {
+			spokeB = true
+		}
+	}
+	if !spokeB {
+		t.Fatal("正常的角色应照常发言")
 	}
 }

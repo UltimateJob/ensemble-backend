@@ -15,6 +15,9 @@ import "fmt"
 // DefaultAdminToken 是开发用的默认令牌。
 const DefaultAdminToken = "admin-dev-token"
 
+// DefaultJWTSecret 是开发用的默认会话签名密钥。
+const DefaultJWTSecret = "change-me-in-production"
+
 // ProdProblems 返回生产模式下所有不安全配置。
 // 空切片表示可以启动。
 func (c Config) ProdProblems() []string {
@@ -31,6 +34,14 @@ func (c Config) ProdProblems() []string {
 	}
 	if len(c.AdminToken) < 16 {
 		out = append(out, fmt.Sprintf("ADMIN_TOKEN 太短（%d 字符）——建议至少 16 位", len(c.AdminToken)))
+	}
+	// 会话 token 全靠这个密钥签名：默认值或太短的密钥意味着
+	// 任何人都能伪造任意用户的登录态，鉴权形同虚设。
+	if c.JWTSecret == "" || c.JWTSecret == DefaultJWTSecret {
+		out = append(out, "JWT_SECRET 为空或还是默认值——任何人都能伪造登录态。换一个随机串")
+	}
+	if len(c.JWTSecret) < 32 {
+		out = append(out, fmt.Sprintf("JWT_SECRET 太短（%d 字节）——建议至少 32 字节随机串", len(c.JWTSecret)))
 	}
 	if !c.UpstreamConfigured() {
 		out = append(out, "没有配置 DEEPSEEK_API_KEY——对外服务会一直返回演示台词")

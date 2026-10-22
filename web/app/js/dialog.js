@@ -4,6 +4,8 @@
    原生弹窗是浏览器灰色的方块，和产品视觉完全断层。
    ============================================================ */
 
+import { esc } from './core.js';
+
 function shell(html) {
   const mask = document.createElement('div');
   mask.className = 'ui-dlg';
@@ -18,13 +20,13 @@ function close(mask) {
   setTimeout(() => mask.remove(), 180);
 }
 
-/** 单行输入。返回 Promise<string|null> */
+/** 单行输入。返回 Promise<string|null>（取消返回 null） */
 export function uiPrompt(title, value = '', opts = {}) {
   return new Promise(resolve => {
-    const { placeholder = '', okText = '确定', hint = '' } = opts;
+    const { placeholder = '', okText = '确定', hint = '', allowEmpty = false } = opts;
     const mask = shell(`
-      <h3>${title}</h3>
-      ${hint ? `<p class="ui-dlg-hint">${hint}</p>` : ''}
+      <h3>${esc(title)}</h3>
+      ${hint ? `<p class="ui-dlg-hint">${esc(hint)}</p>` : ''}
       <input class="ui-dlg-input" id="dlgInput" value="${String(value).replace(/"/g, '&quot;')}"
              placeholder="${placeholder}" maxlength="80">
       <div class="ui-dlg-act">
@@ -36,7 +38,12 @@ export function uiPrompt(title, value = '', opts = {}) {
     input.select();
 
     const done = v => { close(mask); document.removeEventListener('keydown', onKey); resolve(v); };
-    const ok = () => done(input.value.trim() || null);
+    // allowEmpty：留空也算确认（比如「让他们聊什么」可以不填），
+    // 默认留空等同取消，保持旧行为。
+    const ok = () => {
+      const v = input.value.trim();
+      done(v || allowEmpty ? v : null);
+    };
 
     mask.querySelector('[data-x=ok]').onclick = ok;
     mask.querySelector('[data-x=cancel]').onclick = () => done(null);
@@ -45,6 +52,38 @@ export function uiPrompt(title, value = '', opts = {}) {
     function onKey(e) {
       if (e.key === 'Enter') { e.preventDefault(); ok(); }
       if (e.key === 'Escape') { e.preventDefault(); done(null); }
+    }
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+/** 多行文本编辑。返回 Promise<string|null>（取消返回 null，空串是有效值） */
+export function uiEditText(title, value = '', opts = {}) {
+  return new Promise(resolve => {
+    const { placeholder = '', okText = '保存', hint = '', maxlength = 4000 } = opts;
+    const mask = shell(`
+      <h3>${esc(title)}</h3>
+      ${hint ? `<p class="ui-dlg-hint">${esc(hint)}</p>` : ''}
+      <textarea class="ui-dlg-area" id="dlgArea" placeholder="${placeholder}" maxlength="${maxlength}"></textarea>
+      <div class="ui-dlg-act">
+        <button class="ui-dlg-btn" data-x="cancel">取消</button>
+        <button class="ui-dlg-btn primary" data-x="ok">${okText}</button>
+      </div>`);
+    const area = mask.querySelector('#dlgArea');
+    area.value = value;
+    area.focus();
+    area.setSelectionRange(value.length, value.length);
+
+    const done = v => { close(mask); document.removeEventListener('keydown', onKey); resolve(v); };
+    const ok = () => done(area.value.trim());
+
+    mask.querySelector('[data-x=ok]').onclick = ok;
+    mask.querySelector('[data-x=cancel]').onclick = () => done(null);
+    mask.addEventListener('click', e => { if (e.target === mask) done(null); });
+
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); done(null); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); ok(); }
     }
     document.addEventListener('keydown', onKey);
   });

@@ -3,7 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
-	"math/rand"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,7 +119,7 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		return
 	}
 
-	history := o.store.ListMessages(conv.ID, 16)
+	history := o.store.ListMessages(conv.ID, historyWindow())
 	maxSpeakers := sc.Round
 	if maxSpeakers <= 0 {
 		maxSpeakers = 3
@@ -143,10 +144,15 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	spoken := map[string]bool{}
 	speakers := 0
 	failed := 0
+	// attempts 每个角色的上游失败次数：失败不烧名额，重试一次再放弃
+	attempts := map[string]int{}
+	// failedAgents 重试后仍失败的角色，整轮结束时用来发软提示
+	failedAgents := map[string]bool{}
 	var lastErr error
 	lastKey := ""
 
-	// 最多尝试 2 倍于发言人数的次数，允许一部分人沉默
+	// 最多尝试 2 倍于发言人数的次数，允许一部分人沉默。
+	// 失败重试由 attempts 兜底（每人最多 2 次），总尝试数不会超过这个上限。
 	for attempt := 0; attempt < len(agents)*2 && speakers < maxSpeakers; attempt++ {
 		select {
 		case <-ctx.Done():
@@ -168,7 +174,14 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 			logx.Req(ctx).Warn("agent speak failed", "agent", agent.Name, "err", err.Error())
 			failed++
 			lastErr = err
-			spoken[agent.Key] = true
+			// 上游抖一下（超时/限流）不该直接烧掉这个角色的名额：
+			// 不标记 spoken，pickSpeaker 之后还能抽到他，最多重试 1 次。
+			attempts[agent.Key]++
+			if attempts[agent.Key] >= 2 {
+				// 重试过还是失败：放弃这个角色，别让循环反复抽到同一个人
+				spoken[agent.Key] = true
+				failedAgents[agent.Key] = true
+			}
 			continue
 		}
 
@@ -233,10 +246,35 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 			msg = friendlyUpstreamErr(lastErr)
 		}
 		emit(Event{Type: "error", Name: "系统", Content: msg})
+	} else if speakers > 0 && len(failedAgents) > 0 {
+		// 群里话没断，但有角色重试后仍没接上。不提示的话，
+		// 评委会以为这个角色「不理人」，其实只是上游波动。
+		emit(Event{Type: "error", Name: "系统",
+			Content: fmt.Sprintf("有 %d 位角色这轮没接上话（上游波动），再说一句让他们跟上", len(failedAgents))})
 	}
 
 	_ = o.store.UpdateConv(conv)
 	emit(Event{Type: "done"})
+}
+
+// historyWindow 一轮编排带多少条历史上下文。
+// 之前写死 16 条太健忘：评委深聊几轮角色就忘了开头说过什么
+// （DeepSeek 的上下文远不止这点，历史多带一些更连贯）。
+// 默认 32，可用环境变量 ORCHESTRA_HISTORY 调，夹在 [8, 64] 防呆。
+func historyWindow() int {
+	n := 32
+	if v := strings.TrimSpace(os.Getenv("ORCHESTRA_HISTORY")); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			n = p
+		}
+	}
+	if n < 8 {
+		n = 8
+	}
+	if n > 64 {
+		n = 64
+	}
+	return n
 }
 
 // friendlyUpstreamErr 把上游错误翻成用户能看懂的一句话。
@@ -280,8 +318,9 @@ func pickSpeaker(agents []Agent, spoken map[string]bool, lastKey string, first b
 	if len(pool) == 0 {
 		return nil
 	}
-	// 带一点随机，避免每次都是同一个顺序
-	i := rand.Intn(len(pool))
+	// 带一点随机，避免每次都是同一个顺序。
+	// 用包里统一的 crypto randInt，别再混 math/rand。
+	i := randInt(len(pool))
 	return &pool[i]
 }
 
@@ -335,7 +374,9 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 	msgs = append(msgs, domain.ChatMessage{Role: "user", Content: trigger + "\n\n" + instruction})
 
 	start := time.Now()
-	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: "", Messages: msgs, Stream: true})
+	// conv.Model 透传：会话里选了哪个模型就用哪个；
+	// 为空则维持现状，由网关按权重挑默认。
+	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: conv.Model, Messages: msgs, Stream: true})
 	if err != nil {
 		if o.slow != nil {
 			o.slow.MaybeRecord(SlowEntry{
@@ -402,7 +443,7 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 	// 不然用户会看到一句莫名其妙的话后面跟一个 [PASS]
 	text = stripPassMarkers(text)
 
-	asksUser := strings.Contains(text, "@用户") || strings.Contains(text, "@你")
+	asksUser := startsWithMention(text)
 	if asksUser {
 		emit(Event{Type: "ask", Agent: agent.Key, Name: agent.Name, Color: agent.Color, Content: text})
 	}
@@ -435,34 +476,44 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 }
 
 // looksLikePass 前缀判定，用于流式缓冲阶段。
-// 传入的是还没读完的片段，所以要判断「它可能是 [PASS] 的开头」。
+// 传入的是还没读完的片段：只有可能是某个沉默标记的开头（如 "[P"、"【P"）
+// 才继续憋着，否则立刻放行 flush——普通正文不能被无限缓冲。
 func looksLikePass(s string) bool {
 	u := strings.ToUpper(strings.TrimSpace(s))
 	if u == "" {
 		return true
 	}
-	// 片段本身还是标记的开头（如 "[PA"、"PAS"）
-	if strings.HasPrefix("[PASS]", u) || strings.HasPrefix("PASS", u) {
-		return true
+	for _, m := range passMarkers {
+		// 片段是标记的前缀（还在写标记），或已以完整标记开头（后面跟解释）
+		if strings.HasPrefix(m, u) || strings.HasPrefix(u, m) {
+			return true
+		}
 	}
-	// 片段已经以标记开头（如 "[PASS] 我不懂"、"PASS 跳过"）
-	return strings.HasPrefix(u, "[PASS") || strings.HasPrefix(u, "PASS")
+	return false
 }
 
+// passMarkers 明确的沉默标记，只认带括号的写法。
+// 裸 "PASS" 开头不能算沉默——评委用英文正常说话（"Pass me the docs"）
+// 整条会被吞掉，之前就是这么丢回复的。
+var passMarkers = []string{"[PASS]", "【PASS】", "(PASS)", "（PASS）"}
+
 // isPass 完整判定。
-// 只要以 [PASS] 或 PASS 开头就算沉默——模型有时会补一句解释，
+// 括号标记认前缀：模型有时会补一句解释（"[PASS] 这个我不熟"），
 // 那也是在表达「我不参与」，不该当成发言推给用户。
+// 中文「无」只认整条匹配，避免误吞「无论如何都要先复现」这类正文。
 func isPass(text string) bool {
 	t := strings.TrimSpace(text)
 	if t == "" {
 		return true
 	}
-	u := strings.ToUpper(t)
-	if u == "（无）" || u == "无" {
+	if t == "无" || t == "（无）" {
 		return true
 	}
-	if strings.HasPrefix(u, "[PASS]") || strings.HasPrefix(u, "PASS") {
-		return true
+	u := strings.ToUpper(t)
+	for _, m := range passMarkers {
+		if strings.HasPrefix(u, m) {
+			return true
+		}
 	}
 	return false
 }
@@ -472,6 +523,14 @@ func forceLine(force bool) string {
 		return "\n6. 现在群里冷场了，你必须开口起个头——问一句、抛个话题、或者对刚才的事表态。"
 	}
 	return ""
+}
+
+// startsWithMention 判断角色是否在向用户提问。
+// 模型被要求「用 @用户 开头来提问」，所以只认开头——
+// 正文中间随口提到「@你说得对」不该提前结束整轮。
+func startsWithMention(text string) bool {
+	t := strings.TrimSpace(text)
+	return strings.HasPrefix(t, "@用户") || strings.HasPrefix(t, "@你")
 }
 
 // stripSpeakerPrefix 去掉行首的「某某：」。
@@ -502,10 +561,11 @@ func stripSpeakerPrefix(text string, sc Scenario, self Agent) string {
 
 // stripPassMarkers 去掉正文里的 [PASS] 标记。
 // 只在「已经说了话」的情况下调用——整条就是 [PASS] 的那种由 isPass 处理。
+// 标记列表与 isPass 认的保持一致（全角圆括号也算），不然同一份文本两处判得不一样。
 func stripPassMarkers(text string) string {
-	text = strings.ReplaceAll(text, "[PASS]", "")
-	text = strings.ReplaceAll(text, "【PASS】", "")
-	text = strings.ReplaceAll(text, "(PASS)", "")
+	for _, m := range passMarkers {
+		text = strings.ReplaceAll(text, m, "")
+	}
 	return strings.TrimSpace(text)
 }
 
