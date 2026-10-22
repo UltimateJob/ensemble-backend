@@ -53,14 +53,24 @@ type ModelTable struct {
 	rows map[string]domain.ModelInfo
 	// round-robin 游标
 	cursor uint64
+	// onChange 变更回调（main 用来把模型表落到 data/models.json）。
+	// 在锁外调用，回调里可以安全地读 List()。
+	onChange func()
 }
 
 func NewModelTable(seed []domain.ModelInfo) *ModelTable {
-	t := &ModelTable{rows: make(map[string]domain.ModelInfo)}
+	t := &ModelTable{rows: make(map[string]domain.ModelInfo, len(seed))}
 	for _, m := range seed {
 		t.rows[m.Key] = m
 	}
 	return t
+}
+
+// SetOnChange 注册变更回调。必须在服务开始接请求前调用一次。
+func (t *ModelTable) SetOnChange(fn func()) {
+	t.mu.Lock()
+	t.onChange = fn
+	t.mu.Unlock()
 }
 
 func (t *ModelTable) List() []domain.ModelInfo {
@@ -83,20 +93,29 @@ func (t *ModelTable) Get(key string) (domain.ModelInfo, bool) {
 
 func (t *ModelTable) Upsert(m domain.ModelInfo) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if m.Weight <= 0 {
 		m.Weight = 1
 	}
 	t.rows[m.Key] = m
+	onChange := t.onChange
+	t.mu.Unlock()
+	if onChange != nil {
+		onChange()
+	}
 }
 
 func (t *ModelTable) Delete(key string) bool {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	if _, ok := t.rows[key]; !ok {
+		t.mu.Unlock()
 		return false
 	}
 	delete(t.rows, key)
+	onChange := t.onChange
+	t.mu.Unlock()
+	if onChange != nil {
+		onChange()
+	}
 	return true
 }
 

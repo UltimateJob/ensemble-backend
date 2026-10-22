@@ -7,12 +7,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -49,6 +51,11 @@ func main() {
 	reg := gateway.NewRegistry()
 	ds := gateway.NewDeepSeek(cfg.DeepSeekBaseURL, cfg.DeepSeekAPIKey, cfg.DeepSeekModel, cfg.UpstreamTimeout)
 	reg.Add(ds)
+	// OpenAI 兼容中转池：每个中转一个名字，注册表/熔断/管理台都按名字区分。
+	for _, ep := range cfg.ExtraProviders {
+		reg.Add(gateway.NewDeepSeek(ep.BaseURL, ep.APIKey, ep.Model, cfg.UpstreamTimeout).WithName(ep.Name))
+		log.Info("已注册中转上游", "name", ep.Name, "base", ep.BaseURL)
+	}
 
 	models := []domain.ModelInfo{
 		{Key: "deepseek-chat", Provider: "deepseek", Upstream: "deepseek-chat", Enabled: true, Weight: 10, CostPer1K: 0.001, Note: "通用对话"},
@@ -85,7 +92,29 @@ func main() {
 		}
 	}
 
+	// 模型表持久化：管理台加的模型（中转池这类）重启不能丢。
+	// data/models.json 存在时整体取代内置种子——管理台的修改就是事实。
+	modelsFile := filepath.Join(dataDir, "models.json")
+	if b, err := os.ReadFile(modelsFile); err == nil && len(b) > 0 {
+		var saved []domain.ModelInfo
+		if err := json.Unmarshal(b, &saved); err == nil && len(saved) > 0 {
+			models = saved
+			log.Info("已加载模型表", "来源", modelsFile, "条数", len(saved))
+		}
+	}
 	table := gateway.NewModelTable(models)
+	table.SetOnChange(func() {
+		b, err := json.Marshal(table.List())
+		if err != nil {
+			return
+		}
+		tmp := modelsFile + ".tmp"
+		if err := os.WriteFile(tmp, b, 0o644); err != nil {
+			log.Warn("模型表落盘失败", "err", err.Error())
+			return
+		}
+		_ = os.Rename(tmp, modelsFile)
+	})
 	gw := gateway.New(reg, table, cfg.MaxRetries, cfg.BreakerError, cfg.BreakerOpen)
 
 	// ---- 业务 ----
@@ -109,7 +138,9 @@ func main() {
 	memSvc := service.NewMemoryService(memStore, gw)
 	orch := service.NewOrchestrator(st, gw, slow, memSvc)
 	var searcher *service.SearchClient
-	if cfg.SearchEnabled && cfg.UpstreamConfigured() {
+	// Search API 走官方 Key 和官方地址——中转池未必代理这个端点，
+	// 不能因为配了中转就误以为联网搜索可用。
+	if cfg.SearchEnabled && strings.TrimSpace(cfg.DeepSeekAPIKey) != "" {
 		searcher = service.NewSearchClient(cfg.DeepSeekBaseURL, cfg.DeepSeekAPIKey, cfg.UpstreamTimeout)
 	}
 	drafter := service.NewDrafter(gw, searcher)

@@ -37,6 +37,11 @@ type Config struct {
 	// 是否允许无 Key 时使用 mock 上游（本地演示）
 	AllowMock bool
 
+	// ExtraProviders OpenAI 兼容中转池：EXTRA_PROVIDERS=
+	//   name1|https://a.example.com|sk-xxx|deepseek-chat,name2|https://b.example|sk-yyy
+	// 第 4 段（默认模型）可省。管理台再按名字建模型、调权重，即成请求池。
+	ExtraProviders []ExtraProvider
+
 	// 数据目录（分片存储）
 	DataDir string
 
@@ -80,8 +85,9 @@ func Load() Config {
 		DeepSeekModel:   env("DEEPSEEK_MODEL", "deepseek-chat"),
 		SearchEnabled:   boolEnv("DEEPSEEK_SEARCH", true),
 
-		AllowMock: boolEnv("ALLOW_MOCK", true),
-		DataDir:   env("DATA_DIR", "data"),
+		AllowMock:      boolEnv("ALLOW_MOCK", true),
+		ExtraProviders: parseExtraProviders(os.Getenv("EXTRA_PROVIDERS")),
+		DataDir:        env("DATA_DIR", "data"),
 
 		SlowThresholdMS: intEnv("SLOW_THRESHOLD_MS", 10000),
 
@@ -99,8 +105,51 @@ func Load() Config {
 }
 
 // UpstreamConfigured 上游是否已配置真实 Key。
+// 中转池也算真实上游：配了 EXTRA_PROVIDERS 就不该再降级 mock。
 func (c Config) UpstreamConfigured() bool {
-	return strings.TrimSpace(c.DeepSeekAPIKey) != ""
+	if strings.TrimSpace(c.DeepSeekAPIKey) != "" {
+		return true
+	}
+	return len(c.ExtraProviders) > 0
+}
+
+// ExtraProvider 一个 OpenAI 兼容中转。
+type ExtraProvider struct {
+	Name    string
+	BaseURL string
+	APIKey  string
+	Model   string // 默认模型，可空（建模型时在管理台指定 Upstream）
+}
+
+// parseExtraProviders 解析 EXTRA_PROVIDERS。格式不对的条目跳过并容忍——
+// 写错一个名字不该让整个服务起不来，日志里能看出来（main 会打注册数）。
+func parseExtraProviders(raw string) []ExtraProvider {
+	var out []ExtraProvider
+	seen := map[string]bool{}
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		parts := strings.Split(item, "|")
+		if len(parts) < 3 {
+			continue
+		}
+		p := ExtraProvider{
+			Name:    strings.TrimSpace(parts[0]),
+			BaseURL: strings.TrimSpace(parts[1]),
+			APIKey:  strings.TrimSpace(parts[2]),
+		}
+		if len(parts) >= 4 {
+			p.Model = strings.TrimSpace(parts[3])
+		}
+		if p.Name == "" || p.BaseURL == "" || p.APIKey == "" || seen[p.Name] {
+			continue
+		}
+		seen[p.Name] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 func env(k, def string) string {

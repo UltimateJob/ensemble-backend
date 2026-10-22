@@ -736,6 +736,7 @@ node scripts/walk.mjs
 | `ADMIN_TOKEN` | `admin-dev-token` | 运维台令牌 |
 | `JWT_SECRET` | `change-me-in-production` | 会话签名 |
 | `DEEPSEEK_API_KEY` | 空 | 留空启用 mock；Search API 也用这把 Key |
+| `EXTRA_PROVIDERS` | 空 | OpenAI 兼容中转池：`名字\|地址\|Key\|默认模型(可省)`，逗号分隔。注册后在管理台「模型」里按名字建模型、调权重即成请求池（每 provider 独立熔断，权重轮询自动分流） |
 | `DEEPSEEK_SEARCH` | `true` | 角色润色是否调用 DeepSeek Search API；`false` 退回纯模型知识 |
 | `DATA_DIR` | `data` | 数据目录 |
 | `SMS_PROVIDER` | `log` | 验证码通道：`log` 写日志回显，`aliyun`/`tencent` 接真短信 |

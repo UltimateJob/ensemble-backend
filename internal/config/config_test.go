@@ -63,3 +63,31 @@ func TestUpstreamConfigured(t *testing.T) {
 		t.Fatal("有 Key 应判定为已配置")
 	}
 }
+
+// EXTRA_PROVIDERS 是请求池的入口：格式错一条跳一条，
+// 但写对的那些必须一个不落地注册上。
+func TestParseExtraProviders(t *testing.T) {
+	got := parseExtraProviders("a|https://a.com|sk-1|deepseek-chat, b |https://b.com|sk-2|,bad|https://c.com,a|https://dup.com|sk-3,,d||sk-4")
+	if len(got) != 2 {
+		t.Fatalf("应解析出 2 个（缺 key/重名/缺段全跳过），得到 %d: %+v", len(got), got)
+	}
+	if got[0].Name != "a" || got[0].BaseURL != "https://a.com" || got[0].APIKey != "sk-1" || got[0].Model != "deepseek-chat" {
+		t.Fatalf("第一条解析错误: %+v", got[0])
+	}
+	if got[1].Name != "b" || got[1].Model != "" {
+		t.Fatalf("第二条应允许省默认模型: %+v", got[1])
+	}
+	if parseExtraProviders("") != nil {
+		t.Fatal("空串应返回 nil")
+	}
+}
+
+// 配了中转池就算真实上游，不该降级 mock。
+func TestUpstreamConfiguredWithRelays(t *testing.T) {
+	t.Setenv("EXTRA_PROVIDERS", "r|https://r.com|sk-x")
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	c := Load()
+	if !c.UpstreamConfigured() {
+		t.Fatal("只配中转池也应算已配置上游")
+	}
+}

@@ -16,6 +16,7 @@ import (
 
 // DeepSeek DeepSeek 上游（OpenAI 兼容协议）。
 type DeepSeek struct {
+	name   string
 	base   string
 	key    string
 	model  string
@@ -27,6 +28,7 @@ func NewDeepSeek(base, key, model string, timeout time.Duration) *DeepSeek {
 		base = "https://api.deepseek.com"
 	}
 	return &DeepSeek{
+		name:  "deepseek",
 		base:  strings.TrimRight(base, "/"),
 		key:   key,
 		model: model,
@@ -42,7 +44,16 @@ func NewDeepSeek(base, key, model string, timeout time.Duration) *DeepSeek {
 	}
 }
 
-func (d *DeepSeek) Name() string { return "deepseek" }
+// WithName 自定义注册名。EXTRA_PROVIDERS 注册的 OpenAI 兼容中转
+// 各占一个名字：注册表、熔断统计、管理台的 provider 下拉都按名字区分。
+func (d *DeepSeek) WithName(name string) *DeepSeek {
+	if name != "" {
+		d.name = name
+	}
+	return d
+}
+
+func (d *DeepSeek) Name() string { return d.name }
 
 type dsRequest struct {
 	Model       string      `json:"model"`
