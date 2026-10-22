@@ -11,26 +11,26 @@ const STEPS = [
   {
     sel: '#newTeam',
     route: 'lobby',
-    title: '从这里开始',
-    text: '点「新建自定义团队」，挑几个角色组一个团队。',
-  },
-  {
-    sel: '#avatarRow',
-    route: 'room',
-    title: '角色状态',
-    text: '灰环空闲、蓝环在干活、绿环刚完成、红环等你审批。',
+    title: '先组一个团队',
+    text: '点「新建自定义团队」，或者从下面四张卡里直接选一组现成的角色。',
   },
   {
     sel: '#navList .nav-item[data-key="goals"]',
     route: null,
     title: '目标看板',
-    text: '把目标挂上角色和任务，进度自动派生，不用手填。',
+    text: '把目标挂上角色和任务，进度从真实执行记录派生，不用手填。',
   },
   {
     sel: '#navList .nav-item[data-key="library"]',
     route: null,
     title: '资料库',
-    text: '角色产出的标书、代码、文案都会自动归档到这里。',
+    text: '角色产出的标书、代码、文案都会自动归档到这里，随时能翻回去。',
+  },
+  {
+    sel: '#navList .nav-item[data-key="room"]',
+    route: null,
+    title: '进房间说话',
+    text: '在房间顶栏能看到每个角色的状态：灰环空闲、蓝环在干活、绿环刚完成、红环等你审批。',
   },
 ];
 
