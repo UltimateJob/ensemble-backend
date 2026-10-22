@@ -536,12 +536,52 @@ export function renderMembers() {
       ${iAmOwner ? `<button class="collab-x" data-rm="${p.id}" title="移除协作者">×</button>` : ''}
     </div>`).join('');
 
+  // 模型选择：群主可换（PATCH {model}，下一轮发言生效）。
+  // 模型列表来自运维台——那里增删/启停模型，这里的选择器跟着变。
+  const models = state.models || [];
+  let modelRows = '';
+  if (models.length > 0) {
+    const cur = (conv && conv.model) || '';
+    const curInfo = models.find(m => m.key === cur);
+    const opts = (cur && !curInfo ? `<option value="${esc(cur)}" selected>${esc(cur)}（当前）</option>` : '')
+      + models.map(m => `<option value="${esc(m.key)}"${m.key === cur ? ' selected' : ''}>${esc(m.key)}${m.note ? ' · ' + esc(m.note) : ''}</option>`).join('');
+    modelRows = `
+      <div class="member-sep">模型</div>
+      <div class="member">
+        <div class="mm">
+          <div class="mn">${cur ? esc(cur) : '自动'}</div>
+          <div class="mt">${curInfo ? esc(curInfo.note || '') : '按权重自动分配'}</div>
+        </div>
+        ${iAmOwner ? `<select class="model-sel" id="convModel" title="切换后从下一轮发言开始生效">${opts}</select>` : ''}
+      </div>`;
+  } else {
+    modelRows = '';
+  }
+
   box.innerHTML = agentRows
     + (iAmOwner ? `
       <button class="member-add" id="memberAdd">${icon('plus', 13)} 从角色库添加</button>` : '')
     + (collabRows
       ? `<div class="member-sep">协作者 · ${others.length}</div>${collabRows}`
-      : '');
+      : '')
+    + modelRows;
+
+  // 换模型：立即 PATCH，成功后刷新本行显示
+  const modelSel = $('#convModel');
+  if (modelSel) {
+    modelSel.addEventListener('change', async () => {
+      const model = modelSel.value;
+      try {
+        await api(`/v1/conversations/${conv.id}`, { method: 'PATCH', body: { model } });
+        conv.model = model;
+        toast('模型已切换，下一轮发言生效');
+        renderMembers();
+      } catch (e) {
+        toast(humanError(e));
+        renderMembers();
+      }
+    });
+  }
 
   $('#memberCount').textContent = state.agents.length + others.length;
   $('#topAvatars').innerHTML = state.agents.slice(0, 5)

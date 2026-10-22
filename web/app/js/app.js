@@ -159,6 +159,12 @@ async function enterApp() {
   } catch (e) {
     state.scenarios = [];
   }
+  // 可选模型（群设置里的模型选择器用）。运维台增删模型后刷新页面即更新。
+  try {
+    state.models = await api('/v1/models');
+  } catch (e) {
+    state.models = [];
+  }
   await loadLibrary();
   await loadConvs();
   renderDemoBadge();

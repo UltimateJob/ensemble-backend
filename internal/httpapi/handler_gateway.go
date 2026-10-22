@@ -91,3 +91,20 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// handleUserModels 给普通用户的可选模型列表（建群/换模型的选择器用）。
+// 只给 key 和备注，不给成本、上游名这些内部账——那是运维台的事。
+func (s *Server) handleUserModels(w http.ResponseWriter, r *http.Request) {
+	type userModel struct {
+		Key  string `json:"key"`
+		Note string `json:"note,omitempty"`
+	}
+	out := []userModel{}
+	for _, m := range s.gw.Models().List() {
+		if !m.Enabled {
+			continue
+		}
+		out = append(out, userModel{Key: m.Key, Note: m.Note})
+	}
+	ok(w, out)
+}

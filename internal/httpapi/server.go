@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	// ---- 需要登录 ----
 	userMux := http.NewServeMux()
 	userMux.HandleFunc("GET /v1/scenarios", s.handleScenariosAll)
+	userMux.HandleFunc("GET /v1/models", s.handleUserModels)
 	userMux.HandleFunc("GET /v1/search", s.handleSearch)
 	userMux.HandleFunc("GET /v1/characters", s.handleSearchCharacters)
 	userMux.HandleFunc("POST /v1/characters/to-agent", s.handleCharacterToAgent)
@@ -164,7 +165,7 @@ func (s *Server) Handler() http.Handler {
 	// authMiddleware 在基础鉴权之上叠了限流与在线时间节流
 	authMW := s.authMiddleware()
 	for _, p := range []string{
-		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
+		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/models", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
 		"/v1/conversations", "/v1/conversations/", "/v1/memories",
 		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/",
 	} {
