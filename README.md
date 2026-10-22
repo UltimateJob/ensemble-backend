@@ -10,6 +10,38 @@
 
 ---
 
+## 用真实 Key 启动
+
+```bash
+cd ensemble-backend
+DEEPSEEK_API_KEY=sk-你的key ./scripts/dev.sh
+```
+
+看到这一行就说明接的是真模型：
+
+```
+→ 上游：DeepSeek (deepseek-chat)
+{"msg":"合奏后端已启动", ..., "mock":false}
+```
+
+没有 `mock:false`、或者顶栏有橙色「演示」标记，就是还在用预置台词。
+
+然后打开 **http://localhost:8080/app/**，用手机号 `13800000000` 登录（验证码随便填 6 位，`DEV_BYPASS=true` 下不校验）。
+
+也可以直接用 `make`：
+
+```bash
+DEEPSEEK_API_KEY=sk-... make run    # 环境变量会透传给 go run
+DEEPSEEK_API_KEY=sk-... make run-real
+```
+
+停掉：`Ctrl-C`。换端口：`ADDR=:8081 DEEPSEEK_API_KEY=sk-... ./scripts/dev.sh`。
+
+> 注意：`make demo` 会清空并替换 `data/`（原来的数据挪到 `data.bak/`）。
+> 想保留自己的群，先 `make backup`。
+
+---
+
 ## 先看一眼成品
 
 不想自己建群？装一份演示数据，打开就是「已经用过一段时间」的样子：
