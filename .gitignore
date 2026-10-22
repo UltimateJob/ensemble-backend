@@ -16,3 +16,11 @@ data.bak/
 
 # 本地密钥配置（API Key），不入库
 .env
+
+# 桌面包：构建产物不进仓库（11MB 二进制 + 每次重编都变）
+desktop/build/
+desktop/AppIcon.icns
+
+# 头像原图体积大，按需本地生成；manifest 入库
+web/app/avatars/characters/*.png
+web/app/avatars/covers/*.png

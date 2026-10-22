@@ -380,8 +380,8 @@ type Provider interface {
 ## 原生桌面端
 
 ```bash
-./desktop/build.sh          # 产出 desktop/build/Ensemble.app
-open desktop/build/Ensemble.app
+./desktop/build.sh          # 产出 desktop/build/智团.app
+open desktop/build/智团.app
 ```
 
 WKWebView 包一层原生壳（约 200KB，不是 Electron）：原生菜单、⌘O 目录选择器、后端没起来时自动拉起。

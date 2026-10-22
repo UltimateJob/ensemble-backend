@@ -1,0 +1,61 @@
+/* ============================================================
+   智团 · 设计 token
+   所有颜色 / 圆角 / 阴影只从这里取。改主题只改这一份。
+   风格：纯白底、20px 圆角、0 2px 10px 柔和阴影、2px 线性图标。
+   ============================================================ */
+
+:root{
+  /* 主色 */
+  --pri:#367BED;
+  --pri-hover:#2A6ADC;
+  --pri-press:#245CB8;
+  --pri-soft:#EAF2FE;
+  --pri-soft-2:#D8E7FD;
+
+  /* 面 */
+  --bg:#FFFFFF;
+  --surface:#F7F7F8;
+  --surface-2:#F2F3F5;
+  --surface-3:#ECEEF1;
+  --line:#EDEDF0;
+  --line-2:#E1E2E6;
+
+  /* 文字 */
+  --tx:#1A1A1D;
+  --tx-2:#5A5A63;
+  --tx-3:#86868B;
+  --tx-4:#A6A6AD;
+
+  /* 状态：环/点/图标用原色，正文用 *-tx（白底对比度够） */
+  --ok:#4CAF50;      --ok-tx:#2E7D32;   --ok-soft:#EDF7EE;
+  --warn:#E6A23C;    --warn-tx:#8A5A00; --warn-soft:#FDF3E6;
+  --bad:#F56C6C;     --bad-tx:#B3261E;  --bad-soft:#FDEDED;
+  --idle:#86868B;    --idle-soft:#F0F0F2;
+
+  /* 圆角 */
+  --r-xs:6px;
+  --r-sm:10px;
+  --r-md:12px;
+  --r-lg:20px;
+  --r-pill:999px;
+
+  /* 阴影 */
+  --sh:0 2px 10px rgba(0,0,0,.06);
+  --sh-lift:0 4px 16px rgba(0,0,0,.08);
+  --sh-pop:0 12px 32px rgba(0,0,0,.12);
+
+  /* 布局 */
+  --nav-w:232px;
+  --panel-w:380px;
+  --panel-w-lg:480px;
+  --content-max:1080px;
+
+  /* 字体 */
+  --font:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+
+  /* 动效 */
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --t-fast:.14s var(--ease);
+  --t:.2s var(--ease);
+}

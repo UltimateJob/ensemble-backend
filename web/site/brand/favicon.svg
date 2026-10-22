@@ -1,11 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-<defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0" stop-color="#5B5BF0"/><stop offset=".55" stop-color="#6D4FE8"/><stop offset="1" stop-color="#8B5CF6"/>
-</linearGradient></defs>
-<rect width="256" height="256" fill="url(#tg)"/>
-<rect x="42" y="48" width="172" height="136" rx="40" fill="#fff"/>
-<path d="M 76,182 L 54,220 L 120,184 Z" fill="#fff"/>
-<circle cx="128" cy="96" r="17" fill="url(#tg)"/>
-<circle cx="103" cy="136" r="17" fill="url(#tg)"/>
-<circle cx="153" cy="136" r="17" fill="url(#tg)"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="智团">
+  <rect width="64" height="64" rx="15" fill="#367BED"/>
+  <path d="M32 13c-9.4 0-17 6.3-17 14.1 0 4.3 2.4 8.1 6.1 10.6l-1.4 7.2a1.4 1.4 0 0 0 2 1.5l8.5-4.6c.6.1 1.2.1 1.8.1 9.4 0 17-6.3 17-14.1S41.4 13 32 13Z" fill="#FFFFFF"/>
+  <circle cx="24.5" cy="27.5" r="2.9" fill="#367BED"/>
+  <circle cx="32" cy="27.5" r="2.9" fill="#367BED"/>
+  <circle cx="39.5" cy="27.5" r="2.9" fill="#367BED"/>
 </svg>

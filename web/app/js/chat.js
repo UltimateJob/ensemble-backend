@@ -7,6 +7,7 @@ import {
   $, API, api, state, toast, esc, timeStr, fullTimeStr, makeAv, icon, setDocTitle, humanError } from './core.js';
 import { uiConfirm, uiEditText, uiEditAgent } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
+import { avatarHTML } from './avatars.js';
 
 /* ---------------- 复制 ---------------- */
 // 演示环境可能跑在 http 非 localhost 下，navigator.clipboard 那时不可用，
@@ -90,13 +91,16 @@ export function mdRender(text) {
 const NEAR_BOTTOM_PX = 80;
 let unreadNew = 0;   // 不在底部期间新到的消息条数
 
+// 新壳里消息滚动容器是 #msgStream；旧 id #msgs 保留兼容。
+function streamEl() { return $('#msgStream') || $('#msgs'); }
+
 export function scrollBottom() {
-  const box = $('#msgs');
+  const box = streamEl();
   if (box) box.scrollTop = box.scrollHeight;
 }
 
 function nearBottom() {
-  const box = $('#msgs');
+  const box = streamEl();
   if (!box) return true;
   return box.scrollHeight - box.scrollTop - box.clientHeight < NEAR_BOTTOM_PX;
 }
@@ -123,9 +127,14 @@ function trackNew() {
   updateJump();
 }
 
-{
-  const box = $('#msgs');
-  if (box) box.addEventListener('scroll', updateJump, { passive: true });
+// 只在文档加载后绑一次；chat.js 也可能被 library.js 之类 import，
+// 那时 #msgStream 还不存在，不能依赖模块顶层执行顺序。
+function bindStreamScroll() {
+  const box = $('#msgStream') || $('#msgs');
+  if (box && !box.dataset.scrollBound) {
+    box.dataset.scrollBound = '1';
+    box.addEventListener('scroll', updateJump, { passive: true });
+  }
   const jb = $('#jumpBtn');
   if (jb) jb.addEventListener('click', () => {
     unreadNew = 0;
@@ -183,13 +192,12 @@ export async function openConv(id) {
     if (dw) dw.classList.remove('on');
     if (dm) dm.classList.remove('on');
   }
-  $('#chatEmpty').style.display = 'none';
+  $('#chatEmpty')?.style && ($('#chatEmpty').style.display = 'none');
   document.body.classList.remove('no-conv');
-  $('#chatHead').style.display = 'flex';
-  $('#msgs').style.display = 'block';
-  $('#composer').style.display = 'block';
-  $('#chatTitle').textContent = conv.title;
-  $('#crumbName').textContent = conv.title;
+  document.body.classList.add('in-room');
+  // 新壳里房间容器始终可见，这里只负责标题；旧元素不存在时不能崩。
+  const titleEl = $('#chatTitle');
+  if (titleEl) titleEl.textContent = conv.title;
   setChatStatus('');
   setDocTitle(conv.title, false);
 
@@ -209,6 +217,7 @@ export async function openConv(id) {
     if (!state.cur || state.cur.id !== id) return;
     // 拿到数据后再清空：放在 await 之前的话，并发调用会互相覆盖
     $('#msgWrap').innerHTML = '';
+    bindStreamScroll();
     lastMsgTime = 0;
     const msgs = page.messages || [];
     state.oldestID = msgs.length ? msgs[0].id : null;
@@ -287,9 +296,9 @@ export async function loadEarlier() {
   const bar = document.getElementById('loadMore');
   if (bar) bar.textContent = '加载中…';
 
-  const box = $('#msgs');
-  const prevHeight = box.scrollHeight;
-  const prevTop = box.scrollTop;
+  const box = streamEl();
+  const prevHeight = box ? box.scrollHeight : 0;
+  const prevTop = box ? box.scrollTop : 0;
 
   try {
     const page = await api(
@@ -371,7 +380,7 @@ export function buildMsgEl(o) {
   // 原文挂在元素上：复制按钮和「点击重发」都用它，渲染后的 HTML 不能反推原文
   el._raw = o.text || '';
   el.innerHTML = `
-    ${o.me ? '' : makeAv(o.name, o.color)}
+    ${o.me ? '' : avatarHTML(o.name, o.color, { size: 32 })}
     <div class="msg-body">
       <div class="msg-head">
         <span class="msg-name" ${o.color ? `style="color:${esc(o.color)}"` : ''}>${esc(o.name)}</span>
@@ -502,7 +511,10 @@ function markSpeakingMember(agentName) {
 }
 
 export function renderMembers() {
+  // 新壳里成员列表在右面板里；面板收起时容器不存在，直接跳过。
+  // 之前这里直接 box.innerHTML，未开面板时整个 openConv 会抛异常。
   const box = $('#memberList');
+  if (!box) return;
   const conv = state.cur;
   const iAmOwner = !!(conv && state.user && conv.userId === state.user.id);
 
@@ -583,9 +595,11 @@ export function renderMembers() {
     });
   }
 
-  $('#memberCount').textContent = state.agents.length + others.length;
-  $('#topAvatars').innerHTML = state.agents.slice(0, 5)
-    .map(a => makeAv(a.name, a.color, 'av-sm')).join('');
+  // 新壳没有右栏计数；旧壳有。两个都兼容。
+  const mc = $('#memberCount');
+  if (mc) mc.textContent = state.agents.length + others.length;
+  const ta2 = $('#topAvatars');
+  if (ta2) ta2.innerHTML = state.agents.slice(0, 5).map(a => makeAv(a.name, a.color, 'av-sm')).join('');
 
   box.querySelectorAll('[data-rm]').forEach(b => {
     b.addEventListener('click', async () => {
@@ -739,7 +753,8 @@ export function renderPipeline(reset) {
       <span class="r">${i < pipeDone ? '✓' : ''}</span>
     </div>`;
   }).join('');
-  $('#pipeCount').textContent = pipeDone + '/' + state.agents.length;
+  const pc = $('#pipeCount');
+  if (pc) pc.textContent = pipeDone + '/' + state.agents.length;
 }
 
 const artifacts = [];
@@ -827,8 +842,10 @@ export function addArtifact(name, title, detail) {
     artifacts.push(item);
   }
 
-  $('#artifactCount').textContent = artifacts.length;
+  const ac = $('#artifactCount');
+  if (ac) ac.textContent = artifacts.length;
   const box = $('#artifactList');
+  if (!box) return;   // 新壳没有右栏产物列表；产物卡仍在消息流里
   box.innerHTML = artifacts.map((a, i) => `
     <button class="art-item" data-art="${i}" title="${esc((a.detail || '').slice(0, 80))}">
       <span class="art-ic">${icon('file-text', 13)}</span>
@@ -872,6 +889,8 @@ export function stopRound(silent) {
 /* 发送按钮在「发送 / 停止」之间切换。
    之前一轮里按钮整个禁用，中途说错了话只能干等一分钟。 */
 export function setBusyUI(on) {
+  // 通知房间视图同步按钮（它自己也会监听这个事件）
+  document.dispatchEvent(new CustomEvent('round:state'));
   const btn = $('#sendBtn');
   if (!btn) return;
   const ta = $('#ta');
@@ -895,8 +914,10 @@ export async function runRound(path, body, opts = {}) {
   // 本轮消息都挂在这个容器下；中途切群后容器脱离文档，
   // 迟到的 SSE 事件写进来也不会污染新群
   const container = document.createElement('div');
-  $('#msgWrap').appendChild(container);
+  container.className = 'round';
+  $('#msgWrap')?.appendChild(container);
   renderPipeline(true);
+  document.dispatchEvent(new CustomEvent('round:state'));
 
   let curEl = null;
   let curText = '';

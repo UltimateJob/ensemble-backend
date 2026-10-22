@@ -1,4 +1,4 @@
-.PHONY: run build clean test
+.PHONY: run build clean test shots
 
 # 本地启动：没有 Key 也能跑（自动降级 mock）
 run:
@@ -51,6 +51,10 @@ resilience:
 # 新用户走查（不是测试，输出给人看）
 walk:
 	@node scripts/walk.mjs
+
+# 逐屏截图（需要后端在 :8092 跑着）
+shots:
+	@node scripts/ui-shots.mjs
 
 # 界面完整性：按钮/菜单项/图标都有活的逻辑
 audit:

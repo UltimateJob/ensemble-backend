@@ -293,17 +293,35 @@ func (s *Server) Handler() http.Handler {
 	return LimitBody(h, 2<<20)
 }
 
+// exeDirFn 返回可执行文件所在目录。抽成变量便于测试覆盖。
+var exeDirFn = func() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(exe), nil
+}
+
 // webDir 定位 web/ 下的静态资源子目录。
-// 先看可执行文件旁边（部署成系统服务时 CWD 不可控，二进制和 web/ 一起拷贝），
-// 再看当前工作目录（go run / 本地开发）。两处都没有时打一条显眼的 Error：
-// 不拒启动（API 还能用），但页面全 404 的原因必须能从日志里一眼看到。
+// 依次尝试三处：
+//  1. 可执行文件旁边（部署成系统服务时 CWD 不可控，二进制和 web/ 一起拷贝）；
+//  2. macOS .app 包的 Contents/Resources/web（二进制在 Contents/MacOS/）；
+//  3. 当前工作目录（go run / 本地开发）。
+//
+// 都没有时打一条显眼的 Error：不拒启动（API 还能用），
+// 但页面全 404 的原因必须能从日志里一眼看到。
 func webDir(sub string) http.Dir {
 	var tried []string
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Join(filepath.Dir(exe), "web", sub)
+	if exeDir, err := exeDirFn(); err == nil {
+		dir := filepath.Join(exeDir, "web", sub)
 		tried = append(tried, dir)
 		if st, err := os.Stat(dir); err == nil && st.IsDir() {
 			return http.Dir(dir)
+		}
+		bundleDir := filepath.Join(exeDir, "..", "Resources", "web", sub)
+		tried = append(tried, bundleDir)
+		if st, err := os.Stat(bundleDir); err == nil && st.IsDir() {
+			return http.Dir(bundleDir)
 		}
 	}
 	dir := filepath.Join("web", sub)
