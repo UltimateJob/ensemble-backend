@@ -27,6 +27,11 @@ export function unmount() {
 }
 
 // preferences 挂在 user 上；state.me 是 /v1/me 的整个响应，两处都兼容。
+// 内部枚举值不该直接给用户看。
+function planLabel(plan) {
+  return ({ free: '免费版', pro: '专业版', team: '团队版' })[plan] || '免费版';
+}
+
 function prefs() {
   return state.me?.preferences || state.user?.preferences || {};
 }
@@ -47,10 +52,10 @@ function render() {
       <section class="profile-card">
         <div class="pf-av">${localAvatar
           ? `<img src="${esc(localAvatar)}" alt="头像">`
-          : avatarHTML(u.name || '我', '#367BED', { size: 64 })}</div>
+          : avatarHTML(u.name || '我', '#8B8377', { size: 64 })}</div>
         <div class="pf-body">
           <div class="pf-name">${esc(u.name || '未命名')}</div>
-          <div class="pf-id">${esc(u.phone || u.email || '未绑定手机号或邮箱')} · ${esc(u.plan || 'free')}</div>
+          <div class="pf-id">${esc(u.phone || u.email || '未绑定手机号或邮箱')} · ${esc(planLabel(u.plan))}</div>
           <div class="pf-usage">剩余额度 ${esc(state.me?.remaining ?? '-')} 次</div>
         </div>
         <label class="btn btn-line">更换头像

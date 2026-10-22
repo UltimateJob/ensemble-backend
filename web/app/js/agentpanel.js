@@ -19,25 +19,42 @@ export function openAgentPanel(agent, conv) {
     subtitle: agent.title || '角色工作面板',
     render: el => {
       el.innerHTML = `
-        <div style="display:flex;justify-content:center;padding:4px 0 18px">
-          ${avatarHTML(agent.name, agent.color, { size: 56 })}
+        <div class="ap-hero">
+          ${avatarHTML(agent.name, agent.color, { size: 64 })}
+          <div class="ap-hero-body">
+            <div class="ap-hero-name">${esc(agent.name)}</div>
+            <div class="ap-hero-title">${esc(agent.title || '角色')}</div>
+            <div class="ap-hero-state" id="apHeroState">空闲中</div>
+          </div>
         </div>
+
         <section class="panel-sec">
           <h4>当前任务</h4>
-          <div id="apTask"><div class="panel-empty">还没有在跑的任务</div></div>
+          <div id="apTask"><div class="ap-idle">现在没有在跑的任务。派一句指令给他，或者让他在群里接话。</div></div>
         </section>
+
         <section class="panel-sec">
           <h4>最近产出</h4>
-          <div id="apArts"><div class="panel-empty">暂无产出</div></div>
+          <div id="apArts"><div class="ap-idle">这个角色还没有产出文件。标书、文案、代码这类交付会出现在这里。</div></div>
         </section>
+
         <section class="panel-sec">
           <h4>单独发指令</h4>
-          <textarea id="apCmd" class="ap-cmd" rows="3" placeholder="只发给 ${esc(agent.name)}…"></textarea>
-          <button class="btn btn-primary" id="apSend" style="width:100%;margin-top:8px">发送</button>
-          <div class="hint" style="margin-top:8px">房间绑了工作区时，会以这个角色的身份起一次执行任务；否则作为一条群消息发出。</div>
+          <div class="ap-compose">
+            <textarea id="apCmd" rows="3" placeholder="只发给 ${esc(agent.name)}，群里其他人不会接这句话…"></textarea>
+            <button class="btn btn-primary" id="apSend">发送给 ${esc(agent.name)}</button>
+          </div>
+          <div class="hint ap-hint">房间绑了工作区时，会以这个角色的身份起一次执行任务；否则作为一条群消息发出。</div>
         </section>`;
       loadCurrent(agent, conv, el);
       el.querySelector('#apSend').addEventListener('click', () => sendDirect(agent, conv, el));
+      // Cmd+Enter 直接发
+      el.querySelector('#apCmd').addEventListener('keydown', e => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          sendDirect(agent, conv, el);
+        }
+      });
     },
   });
 
@@ -51,8 +68,20 @@ async function loadCurrent(agent, conv, el) {
   try {
     const acts = await api('/v1/conversations/' + conv.id + '/activity');
     const a = (acts || []).find(x => x.key === agent.key);
+    const hero = el.querySelector('#apHeroState');
+    const st = a?.state || 'idle';
+    if (hero) {
+      // 后端会区分「正在发言」和「正在处理任务」，直接用它的 detail，
+      // 不要用前端的状态词覆盖——否则两个状态看起来一样。
+      hero.textContent = a?.detail || stateLabel(st);
+      hero.className = 'ap-hero-state ' + st;
+    }
+    // 只有「发言中」而没有 Run 时，任务区应该说明原因，而不是矛盾地说「没有在跑的任务」。
     if (!a || !a.runId) {
-      box.innerHTML = `<div class="panel-empty">${stateLabel(a?.state)}</div>`;
+      const speaking = st === 'working';
+      box.innerHTML = `<div class="ap-idle">${speaking
+        ? '他正在群里发言。发言结束后如果有执行任务，会在这里显示进度和工具调用。'
+        : '现在没有在跑的任务。派一句指令给他，或者让他在群里接话。'}</div>`;
       return;
     }
     trackRun(a.runId);
@@ -86,8 +115,14 @@ async function loadCurrent(agent, conv, el) {
     const ab = el.querySelector('#apArts');
     if (!ab) return;
     ab.innerHTML = list.length
-      ? list.map(a => `<button class="art-item" data-id="${esc(a.id)}">${icon('file-text', 14)}<span class="art-n">${esc(a.title)}</span></button>`).join('')
-      : '<div class="panel-empty">这个角色还没有产出</div>';
+      ? list.map(a => `<button class="ap-art" data-id="${esc(a.id)}">
+          <span class="ap-art-ic">${icon('file-text', 15)}</span>
+          <span class="ap-art-body">
+            <span class="ap-art-t">${esc(a.title)}</span>
+            <span class="ap-art-s">${esc((a.summary || '').slice(0, 40))}</span>
+          </span>
+        </button>`).join('')
+      : '<div class="ap-idle">这个角色还没有产出文件。标书、文案、代码这类交付会出现在这里。</div>';
     ab.querySelectorAll('[data-id]').forEach(b => b.addEventListener('click', async () => {
       try {
         const a = await api('/v1/library/' + b.dataset.id);

@@ -287,12 +287,22 @@ func firstOr(a, b string) string {
 	return b
 }
 
+// defaultName 给新账号一个能看的名字。
+//
+// 之前是「用户」+ 手机号后四位，所有人看起来都像测试账号。
+// 邮箱取 @ 前的部分；手机号给一个简短易记的编号（避开 0000 这类占位感）。
 func defaultName(target string) string {
-	if len(target) >= 4 && strings.Contains(target, "@") {
-		return target[:strings.Index(target, "@")]
+	if i := strings.Index(target, "@"); i > 0 {
+		return target[:i]
 	}
-	if len(target) > 4 {
-		return "用户" + target[len(target)-4:]
+	// 手机号：用后四位生成「纸友 3847」这样的名字，
+	// 既保留可识别性，又不像系统占位符。
+	if len(target) >= 4 {
+		tail := target[len(target)-4:]
+		if tail == "0000" {
+			return "纸友"
+		}
+		return "纸友 " + tail
 	}
-	return "用户"
+	return "纸友"
 }

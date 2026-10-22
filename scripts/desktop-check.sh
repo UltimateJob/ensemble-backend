@@ -22,12 +22,23 @@ fi
 
 cp -R "$SRC" "$APP"
 
-# 后端日志落在应用支持目录，重启会追加。按启动时间之后的行来找端口，
-# 避免读到上一次运行残留的记录（按字节偏移会撞上多字节 UTF-8 边界）。
+# 端口上有别的后端在跑时，壳会直接复用、不写新日志，
+# 脚本就会误判「没起来」。先要求端口干净，让测试结果可信。
+if lsof -iTCP:8080 -sTCP:LISTEN -n -P 2>/dev/null | grep -q LISTEN; then
+  echo "✗ 8080 已被占用，冒烟会连到别人的后端。先停掉它："
+  lsof -iTCP:8080 -sTCP:LISTEN -n -P 2>/dev/null | tail -1
+  exit 1
+fi
+
+# 后端日志落在应用支持目录，重启会追加。先把已有内容备份掉，
+# 只从本次启动后新增的行里找端口——否则会读到上一次运行的残留，
+# 拿着一个早已不监听的端口去 curl，结果误报「后端没起来」。
 LOG="$HOME/Library/Application Support/纸团/ensemble.log"
 mkdir -p "$(dirname "$LOG")"
-: >> "$LOG"
-SINCE=$(date '+%Y-%m-%dT%H:%M:%S')
+if [ -f "$LOG" ]; then
+  mv "$LOG" "$LOG.prev" 2>/dev/null || true
+fi
+: > "$LOG"
 
 # 用 ASCII 名字的副本启动：中文路径不影响壳本身，但方便脚本引用。
 "$APP/Contents/MacOS/纸团" > "$TMP/app.log" 2>&1 &

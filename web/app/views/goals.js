@@ -56,7 +56,9 @@ function card(g) {
     <div class="gc-title">${esc(g.title)}</div>
     ${g.description ? `<div class="gc-desc">${esc(g.description)}</div>` : ''}
     <div class="gc-meta">
-      <div class="gc-avs">${agents.map(a => avatarHTML(a.name, a.color, { size: 22 })).join('')}</div>
+      ${agents.length
+        ? `<div class="gc-avs">${agents.map(a => avatarHTML(a.name, a.color, { size: 22 })).join('')}</div>`
+        : '<span class="gc-unassigned">未指派角色</span>'}
       <span class="gc-pct">${pct(g)}%</span>
     </div>
     <div class="gc-bar"><i style="width:${pct(g)}%"></i></div>

@@ -276,8 +276,8 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
    ============================================================ */
 .modal-mask{
   position:fixed;inset:0;z-index:8000;display:grid;place-items:center;padding:24px;
-  background:rgba(23,23,26,.32);
-  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  background:rgba(23,23,26,.26);
+  backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
   opacity:0;transition:opacity var(--t);
 }
 .modal-mask.on{opacity:1}
@@ -291,10 +291,10 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
   transition:transform var(--t) var(--spring-bounce),opacity var(--t);
 }
 .modal-mask.on .modal-card{transform:none;opacity:1}
-.modal-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:24px 26px 0}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:26px 28px 0}
 .modal-head h3{font-family:var(--font-display);font-size:20px;font-weight:680;letter-spacing:-.02em}
-.modal-body{padding:20px 26px;overflow-y:auto}
-.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:0 26px 24px}
+.modal-body{padding:22px 28px;overflow-y:auto}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:0 28px 26px}
 .modal-text{font-size:14.5px;color:var(--ink-2);line-height:1.7}
 
 .apv-sum{font-size:15.5px;font-weight:600;margin-bottom:12px;letter-spacing:-.01em}

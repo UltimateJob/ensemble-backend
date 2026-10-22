@@ -39,6 +39,19 @@ const FIELD_LABEL = {
   password: '密码',
 };
 
+// 每个字段的填写示例。比把字段名再写一遍有意义。
+const FIELD_HINT = {
+  appId: 'cli_xxxxxxxxxxxx',
+  appSecret: '在飞书开放平台 › 应用凭证 里获取',
+  token: 'ntn_xxxxxxxxxxxx',
+  databaseId: '32 位十六进制 ID',
+  repo: 'your-org/your-repo',
+  url: 'https://example.com/hook',
+  secret: '用于校验请求来源',
+  username: '可选',
+  password: '可选',
+};
+
 let root = null;
 let list = [];
 let serverKinds = null;
@@ -272,7 +285,7 @@ function addConn(presetKind) {
         const k = KIND[el.querySelector('#cKind').value] || { fields: [] };
         fieldsBox.innerHTML = k.fields.map(f => `
           <label class="field"><span>${esc(FIELD_LABEL[f] || f)}</span>
-            <input data-secret="${esc(f)}" placeholder="${esc(f)}" autocomplete="off">
+            <input data-secret="${esc(f)}" placeholder="${esc(FIELD_HINT[f] || '')}" autocomplete="off">
           </label>`).join('');
       };
       el.querySelector('#cKind').addEventListener('change', drawFields);
