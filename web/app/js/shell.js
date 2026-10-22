@@ -42,9 +42,14 @@ export function renderNav(convs = []) {
   setActiveNav(currentName());
 }
 
+const KNOWN = ['lobby', 'room', 'goals', 'connectors', 'library', 'settings'];
+
+// 未知路由一律当作 notfound：否则 #/nope 这类地址会让导航失去高亮，
+// 用户会以为自己「不在任何页面里」。
 function currentName() {
   const h = (location.hash || '#/lobby').replace(/^#\/?/, '');
-  return h.split('/')[0].split('?')[0] || 'lobby';
+  const head = h.split('/')[0].split('?')[0] || 'lobby';
+  return KNOWN.includes(head) ? head : 'notfound';
 }
 
 export function renderNavFoot(user) {
