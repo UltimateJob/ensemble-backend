@@ -51,6 +51,7 @@ type entry struct {
 	latSum   atomic.Int64 // 累计毫秒
 	latCount atomic.Int64
 	lastErr  atomic.Value // string
+	inflight atomic.Int64 // 此刻在途请求数（选路用）
 }
 
 func NewRegistry() *Registry {
@@ -150,6 +151,43 @@ func (r *Registry) Report(name string, ok bool, d time.Duration, errMsg string, 
 	}
 	// 不管成败，探测名额都已释放
 	e.probing = false
+}
+
+// State 只读探查某渠道的熔断状态，不产生状态迁移——
+// 选路时用它筛掉已熔断的渠道，真正的放行/探测仍由 Allow 负责。
+func (r *Registry) State(name string) string {
+	r.mu.RLock()
+	e, ok := r.providers[name]
+	r.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	e.mu.Lock()
+	st := e.state
+	e.mu.Unlock()
+	return st
+}
+
+// BusyAdd 调整渠道在途计数（进入 +1 / 结束 -1）。未知渠道忽略。
+func (r *Registry) BusyAdd(name string, delta int64) {
+	r.mu.RLock()
+	e, ok := r.providers[name]
+	r.mu.RUnlock()
+	if !ok {
+		return
+	}
+	e.inflight.Add(delta)
+}
+
+// Busy 当前在途请求数。
+func (r *Registry) Busy(name string) int64 {
+	r.mu.RLock()
+	e, ok := r.providers[name]
+	r.mu.RUnlock()
+	if !ok {
+		return 0
+	}
+	return e.inflight.Load()
 }
 
 // Stats 返回各上游状态快照。

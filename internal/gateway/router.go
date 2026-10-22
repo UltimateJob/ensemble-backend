@@ -119,6 +119,60 @@ func (t *ModelTable) Delete(key string) bool {
 	return true
 }
 
+// PickAmong 在给定候选里按权重轮询选一个（与 Pick 共用游标）。
+// 「同样空闲的渠道之间」用它保持加权公平。
+func (t *ModelTable) PickAmong(cands []domain.ModelInfo) domain.ModelInfo {
+	if len(cands) == 0 {
+		return domain.ModelInfo{}
+	}
+	if len(cands) == 1 {
+		return cands[0]
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	total := 0
+	for _, m := range cands {
+		total += m.Weight
+	}
+	if total <= 0 {
+		return cands[0]
+	}
+	t.cursor++
+	idx := int(t.cursor % uint64(total))
+	acc := 0
+	for _, m := range cands {
+		acc += m.Weight
+		if idx < acc {
+			return m
+		}
+	}
+	return cands[len(cands)-1]
+}
+
+// Candidates 返回候选模型：指定了 prefer 且存在且启用 → 只返回它；
+// 否则返回全部启用模型（按 key 排序，选路确定性）。选哪个由网关按
+// 渠道空闲度决定——模型表只管「有哪些可选」。
+func (t *ModelTable) Candidates(prefer string) ([]domain.ModelInfo, bool) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if prefer != "" {
+		if m, ok := t.rows[prefer]; ok && m.Enabled {
+			return []domain.ModelInfo{m}, true
+		}
+	}
+	out := make([]domain.ModelInfo, 0, len(t.rows))
+	for _, m := range t.rows {
+		if m.Enabled {
+			out = append(out, m)
+		}
+	}
+	if len(out) == 0 {
+		return nil, false
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, true
+}
+
 // Pick 按权重与启用状态挑一个模型。空模型名时用默认。
 func (t *ModelTable) Pick(prefer string) (domain.ModelInfo, bool) {
 	t.mu.Lock()
@@ -160,22 +214,17 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 	g.requests.Add(1)
 	g.inFlight.Add(1)
 
-	model, ok := g.models.Pick(req.Model)
+	// 选路：会话指定了模型就用它；否则在启用模型里按「渠道空闲度」挑——
+	// 先剔除已熔断的渠道，再选在途请求最少的，同样空闲时按权重轮询。
+	// 这样四个渠道（官方/中转们）谁空闲走谁，慢的渠道自然少接新请求。
+	model, providerName, ok := g.pickModel(req)
 	if !ok {
 		g.inFlight.Add(-1)
 		g.errors.Add(1)
 		return nil, ErrNoProvider
 	}
-
-	providerName := req.Provider
-	if providerName == "" {
-		providerName = model.Provider
-	}
-	if _, exists := g.registry.Get(providerName); !exists {
-		g.inFlight.Add(-1)
-		g.errors.Add(1)
-		return nil, ErrNoProvider
-	}
+	// 在途计数：进入 +1，流结束 -1（选路依据）
+	g.registry.BusyAdd(providerName, 1)
 
 	req.Model = model.Upstream
 	if req.Model == "" {
@@ -186,6 +235,7 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 
 	go func() {
 		defer g.inFlight.Add(-1)
+		defer g.registry.BusyAdd(providerName, -1)
 		defer close(out)
 
 		var lastErr error
@@ -266,6 +316,65 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 	}()
 
 	return out, nil
+}
+
+// pickModel 选路：显式指定优先；否则剔除熔断渠道后选在途最少的，
+// 同闲按权重轮询。返回选中的模型、provider 名。
+func (g *Gateway) pickModel(req domain.ChatRequest) (domain.ModelInfo, string, bool) {
+	cands, ok := g.models.Candidates(req.Model)
+	if !ok {
+		return domain.ModelInfo{}, "", false
+	}
+	prov := func(m domain.ModelInfo) string {
+		if req.Provider != "" {
+			return req.Provider
+		}
+		return m.Provider
+	}
+	// 会话/直通指定了模型：尊重指定，只校验 provider 已注册，
+	// 熔断放行交给后面的 Allow——用户点名要走哪家是他的决定。
+	if req.Model != "" && len(cands) == 1 {
+		m := cands[0]
+		p := prov(m)
+		if _, exists := g.registry.Get(p); !exists {
+			return domain.ModelInfo{}, "", false
+		}
+		return m, p, true
+	}
+	var eligible []domain.ModelInfo
+	for _, m := range cands {
+		p := prov(m)
+		if _, exists := g.registry.Get(p); !exists {
+			continue
+		}
+		// 已熔断的渠道这轮不接新流量（半开探测由 Allow 负责）
+		if g.registry.State(p) == "open" {
+			continue
+		}
+		eligible = append(eligible, m)
+	}
+	// 全部熔断时退回全量候选：让 Allow 报出明确的 circuit open，
+	// 比这里静默 no_provider 更可诊断。
+	if len(eligible) == 0 {
+		eligible = cands
+	}
+	var minBusy int64 = -1
+	for _, m := range eligible {
+		if b := g.registry.Busy(prov(m)); minBusy < 0 || b < minBusy {
+			minBusy = b
+		}
+	}
+	var idle []domain.ModelInfo
+	for _, m := range eligible {
+		if g.registry.Busy(prov(m)) == minBusy {
+			idle = append(idle, m)
+		}
+	}
+	m := g.models.PickAmong(idle)
+	if m.Key == "" {
+		return domain.ModelInfo{}, "", false
+	}
+	return m, prov(m), true
 }
 
 func (g *Gateway) callProvider(ctx context.Context, name string, req domain.ChatRequest) (<-chan domain.Chunk, error) {

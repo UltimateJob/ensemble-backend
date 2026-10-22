@@ -666,6 +666,7 @@ button:disabled{opacity:.55;cursor:default}
           <div>成功<b>${nf(p.success)}</b></div>
           <div>失败<b>${nf(p.failure)}</b></div>
           <div>平均延迟<b>${ms(p.latencyMs || 0)}</b></div>
+          <div title="此刻正在这个渠道上执行的请求数；自动选路优先走最空闲的渠道">在途<b>${nf(p.inFlight || 0)}</b></div>
         </div>
         ${p.lastErr ? `<div style="margin-top:10px;font-size:11px;color:#B91C1C;font-family:var(--mono)">${esc(String(p.lastErr).slice(0,120))}</div>` : ''}
       </div>`;

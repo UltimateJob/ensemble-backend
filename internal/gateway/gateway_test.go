@@ -406,3 +406,124 @@ func TestHalfOpenProbeTimeout(t *testing.T) {
 		t.Fatal("探测超时后应放行新探测")
 	}
 }
+
+// echoProvider 立即返回一句话的可命名假上游。
+type echoProvider struct{ name string }
+
+func (p *echoProvider) Name() string { return p.name }
+func (p *echoProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	ch := make(chan domain.Chunk, 2)
+	ch <- domain.Chunk{Content: "ok"}
+	ch <- domain.Chunk{Done: true}
+	close(ch)
+	return ch, nil
+}
+
+// gatingProvider 慢渠道：第一个 chunk 要等 release 才发——用来占住在途名额。
+type gatingProvider struct {
+	name string
+	gate chan struct{}
+}
+
+func (g *gatingProvider) Name() string { return g.name }
+func (g *gatingProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	ch := make(chan domain.Chunk, 2)
+	go func() {
+		defer close(ch)
+		<-g.gate
+		ch <- domain.Chunk{Content: "slow reply"}
+		ch <- domain.Chunk{Done: true}
+	}()
+	return ch, nil
+}
+
+// 自动选路应避开在途占满的渠道：slow 渠道忙时，第二个请求走 fast 渠道。
+func TestLeastBusyRouting(t *testing.T) {
+	reg := NewRegistry()
+	slow := &gatingProvider{name: "slow", gate: make(chan struct{})}
+	fast := &echoProvider{name: "fast"}
+	reg.Add(slow)
+	reg.Add(fast)
+	mt := NewModelTable([]domain.ModelInfo{
+		{Key: "m-slow", Provider: "slow", Upstream: "up-slow", Enabled: true, Weight: 5},
+		{Key: "m-fast", Provider: "fast", Upstream: "up-fast", Enabled: true, Weight: 5},
+	})
+	gw := New(reg, mt, 0, 100, time.Minute)
+
+	// 第一个请求：两边都空闲，按权重轮询落在其中一个；
+	// 用在途计数确认它真的占住了渠道。
+	s1, err := gw.Stream(context.Background(), domain.ChatRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 等选路落地（goroutine 启动后 BusyAdd 生效需要一点时间）
+	deadline := time.Now().Add(2 * time.Second)
+	var busySlow, busyFast int64
+	for time.Now().Before(deadline) {
+		busySlow, busyFast = reg.Busy("slow"), reg.Busy("fast")
+		if busySlow+busyFast == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if busySlow+busyFast != 1 {
+		t.Fatalf("第一个请求应占用恰好一个渠道，slow=%d fast=%d", busySlow, busyFast)
+	}
+	busyName := "slow"
+	idleName := "fast"
+	if busyFast == 1 {
+		busyName, idleName = "fast", "slow"
+	}
+
+	// 第二个请求：必须落在空闲的那个渠道上。
+	s2, err := gw.Stream(context.Background(), domain.ChatRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s2
+	deadline = time.Now().Add(2 * time.Second)
+	var busyIdle int64
+	for time.Now().Before(deadline) {
+		if busyIdle = reg.Busy(idleName); busyIdle == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if busyIdle != 1 {
+		t.Fatalf("第二个请求应路由到空闲渠道 %s（在途=%d）", idleName, busyIdle)
+	}
+	if b := reg.Busy(busyName); b != 1 {
+		t.Fatalf("忙渠道 %s 在途应为 1，得到 %d", busyName, b)
+	}
+	close(slow.gate)
+	<-s1
+	<-s2
+}
+
+// 熔断打开的渠道不接新流量；全部打开时退回全量候选（由 Allow 报错）。
+func TestOpenCircuitExcludedFromPick(t *testing.T) {
+	reg := NewRegistry()
+	reg.Add(&echoProvider{name: "a"})
+	reg.Add(&echoProvider{name: "b"})
+	mt := NewModelTable([]domain.ModelInfo{
+		{Key: "m-a", Provider: "a", Enabled: true, Weight: 1},
+		{Key: "m-b", Provider: "b", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, mt, 0, 2, time.Minute)
+
+	// 连续失败把 a 打开熔断
+	for i := 0; i < 3; i++ {
+		reg.Report("a", false, time.Millisecond, "boom", 2, time.Minute)
+	}
+	if st := reg.State("a"); st != "open" {
+		t.Fatalf("a 应已熔断，状态 %q", st)
+	}
+	m, p, ok := gw.pickModel(domain.ChatRequest{})
+	if !ok {
+		t.Fatal("应能选出模型")
+	}
+	if p == "a" {
+		t.Fatalf("已熔断的渠道 a 不应被自动选中（选中 %s/%s）", p, m.Key)
+	}
+	_ = m
+}

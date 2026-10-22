@@ -253,7 +253,9 @@ type ProviderStat struct {
 	Success   int64   `json:"success"`
 	Failure   int64   `json:"failure"`
 	LatencyMS float64 `json:"latencyMs"`
-	LastErr   string  `json:"lastErr,omitempty"`
+	// InFlight 此刻正在这个渠道上执行的请求数——「路由到空闲渠道」依据的就是它
+	InFlight int64  `json:"inFlight"`
+	LastErr  string `json:"lastErr,omitempty"`
 }
 
 // Event 互动/行为记录。前端埋点与业务事件共用。
