@@ -15,13 +15,17 @@ body{
   overflow:hidden;
   position:relative;
 }
+/* 背景只留一层极淡的斜向暖光。之前是蓝 + 橙两团光晕，
+   那是「AI 产品」的典型指纹——真实的高级感是几乎看不出光从哪来。 */
 body::before{
-  content:"";position:fixed;inset:-20%;z-index:-1;pointer-events:none;
-  background:
-    radial-gradient(42% 38% at 12% 4%, rgba(47,107,255,.10), transparent 70%),
-    radial-gradient(38% 34% at 92% 96%, rgba(255,107,61,.09), transparent 70%),
-    radial-gradient(30% 26% at 70% 12%, rgba(120,200,255,.07), transparent 70%);
-  filter:blur(20px);
+  content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:linear-gradient(168deg,#FBFAF7 0%,#F4F2EE 42%,#EFEBE4 100%);
+}
+/* 纸纹：几乎看不见，但让大块浅色面不再像塑料 */
+body::after{
+  content:"";position:fixed;inset:0;z-index:var(--z-grain);pointer-events:none;
+  background-image:var(--grain);background-size:240px 240px;
+  opacity:.035;mix-blend-mode:multiply;
 }
 
 button{font-family:inherit;font-size:inherit;color:inherit;background:none;border:0;cursor:pointer}
@@ -65,16 +69,20 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
 
 .btn-primary{
   background:var(--pri-deep);color:#fff;
-  box-shadow:0 1px 2px rgba(31,87,224,.3),0 6px 16px -6px rgba(31,87,224,.5);
+  box-shadow:0 1px 2px rgba(31,87,224,.22),0 4px 12px -6px rgba(31,87,224,.38);
 }
-.btn-primary:hover:not(:disabled){
-  background:var(--pri);
-  box-shadow:0 2px 4px rgba(31,87,224,.3),0 10px 24px -8px rgba(31,87,224,.55);
+.btn-primary:hover:not(:disabled){background:#2563E8}
+.btn-primary:active:not(:disabled){
+  background:var(--pri-press);
+  box-shadow:0 1px 1px rgba(31,87,224,.2);
+  transform:scale(.97);
 }
-.btn-primary:active:not(:disabled){background:var(--pri-press);box-shadow:0 1px 2px rgba(31,87,224,.3)}
 
-.btn-line{background:var(--sheet);color:var(--ink);box-shadow:var(--sh-1),var(--sh-inset)}
-.btn-line:hover:not(:disabled){background:#fff;box-shadow:var(--sh-2),var(--sh-inset)}
+.btn-line{
+  background:var(--sheet);color:var(--ink);
+  box-shadow:inset 0 0 0 1px var(--hair),var(--sh-1);
+}
+.btn-line:hover:not(:disabled){background:#FFFEFC;box-shadow:inset 0 0 0 1px rgba(74,62,44,.16),var(--sh-2)}
 .btn-line.danger,.btn.danger{color:var(--bad-tx)}
 
 .btn-ghost{color:var(--ink-2);padding:0 12px}
@@ -156,7 +164,7 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
 /* ============================================================
    卡片 / 页面
    ============================================================ */
-.card{background:var(--sheet);border-radius:var(--r-lg);box-shadow:var(--sh-1),var(--sh-inset)}
+.card{background:var(--sheet);border-radius:var(--r-lg);box-shadow:var(--sh-1)}
 .sec{margin-bottom:36px}
 .sec-h{
   font-size:13px;font-weight:650;color:var(--ink-3);
@@ -179,9 +187,16 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
 }
 .page-head h1{
   font-family:var(--font-display);
-  font-size:34px;font-weight:700;letter-spacing:-.028em;line-height:1.15;
+  font-size:36px;font-weight:700;letter-spacing:-.032em;line-height:1.12;
+  text-wrap:balance;
 }
-.page-sub{font-size:14.5px;color:var(--ink-3);margin-top:6px;letter-spacing:-.01em}
+/* 标题右侧一条极淡的纸色渐变，让大标题不显得孤零零 */
+.page-head h1::after{
+  content:"";display:block;width:44px;height:3px;border-radius:2px;
+  margin-top:14px;background:linear-gradient(90deg,var(--pri) 0%,rgba(47,107,255,0) 100%);
+  opacity:.6;
+}
+.page-sub{font-size:14.5px;color:var(--ink-3);margin-top:8px;letter-spacing:-.01em;text-wrap:pretty}
 .page-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 
 /* ============================================================

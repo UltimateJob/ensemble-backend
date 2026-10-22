@@ -71,11 +71,19 @@
 /* ============================================================
    团队大厅
    ============================================================ */
+/* 预设团队：2×2 的大卡。封面是这些卡的主要价值（一眼看出团队在干什么），
+   所以保留大幅面；克制的地方在边框、阴影和字号，而不是把图缩小。 */
 .team-grid{
   display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;
 }
-/* 四个预设刚好 2×2。三列会在第二行留一张孤卡，视觉上不平衡。 */
 @media (max-width:760px){.team-grid{grid-template-columns:minmax(0,1fr)}}
+
+/* 封面下沿压一层极淡的暖色，让图片和卡片白底过渡不生硬 */
+.team-cover::after{
+  content:"";position:absolute;inset:auto 0 0 0;height:36%;
+  background:linear-gradient(to top,rgba(255,255,255,.9),transparent);
+  pointer-events:none;
+}
 @media (max-width:700px){
   .team-grid,.kanban,.lib-grid{grid-template-columns:minmax(0,1fr)}
 }
@@ -83,12 +91,24 @@
 .team-card{
   display:flex;flex-direction:column;overflow:hidden;position:relative;
   background:var(--sheet);border-radius:var(--r-xl);
-  box-shadow:var(--sh-1),var(--sh-inset);
+  box-shadow:var(--sh-1);
   transition:transform var(--t),box-shadow var(--t);
   will-change:transform;
 }
-.team-card:hover{transform:translateY(-4px);box-shadow:var(--sh-2)}
-.team-card:active{transform:translateY(-1px) scale(.995)}
+/* 三张纸叠在一起：后面两层是伪元素，只露出边缘。
+   这是「纸团」这个品牌唯一允许的装饰语言。 */
+/* 两张「垫纸」用实色投影堆出来：比伪元素可靠，
+   也不会被卡片自己的 overflow:hidden 裁掉。 */
+.team-card:hover{
+  transform:translateY(-5px);
+  box-shadow:
+    var(--sh-2),
+    0 7px 0 -2px #FCFBF8,
+    0 8px 0 -2px var(--hair),
+    0 14px 0 -4px #F7F5F0,
+    0 15px 0 -4px rgba(74,62,44,.06);
+}
+.team-card:active{transform:translateY(-1px) scale(.995);box-shadow:var(--sh-1)}
 .team-cover{aspect-ratio:16/9;background:var(--paper-2);overflow:hidden;position:relative}
 .team-cover img{
   width:100%;height:100%;object-fit:cover;display:block;
@@ -96,10 +116,10 @@
 }
 .team-card:hover .team-cover img{transform:scale(1.045)}
 .team-cover--empty{display:grid;place-items:center;color:var(--ink-4)}
-.team-body{padding:18px 18px 10px;flex:1}
+.team-body{padding:16px 18px 8px;flex:1;position:relative;z-index:1}
 .team-body h3{
   font-family:var(--font-display);
-  font-size:17px;font-weight:660;letter-spacing:-.02em;margin-bottom:5px;
+  font-size:18px;font-weight:670;letter-spacing:-.022em;margin-bottom:4px;
 }
 .team-body p{font-size:13px;color:var(--ink-3);line-height:1.6;min-height:42px}
 .team-agents{display:flex;align-items:center;gap:7px;margin-top:14px}

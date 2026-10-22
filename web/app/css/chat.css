@@ -106,7 +106,7 @@
 .msg .av b{font-size:14px}
 .msg-body{min-width:0;max-width:min(620px,calc(100% - 46px))}
 .msg-head{display:flex;align-items:baseline;gap:8px;margin-bottom:5px;padding:0 4px}
-.msg-name{font-size:12.5px;font-weight:620;letter-spacing:-.01em}
+.msg-name{font-size:12.5px;font-weight:620;letter-spacing:-.01em;color:var(--ink-2)}
 .msg-title{font-size:11px;color:var(--ink-4)}
 .msg-time{font-size:10.5px;color:var(--ink-4);font-variant-numeric:tabular-nums}
 .msg-copy{
@@ -231,9 +231,9 @@
 /* ---------------- 产物卡 ---------------- */
 .artifact{
   display:flex;align-items:center;gap:13px;
-  padding:15px 17px;margin-left:45px;
-  background:var(--sheet);border-radius:var(--r-md);
-  box-shadow:var(--sh-1),var(--sh-inset);cursor:pointer;
+  padding:14px 16px;margin-left:45px;margin-top:-4px;
+  background:var(--sheet);border-radius:4px var(--r-md) var(--r-md) var(--r-md);
+  box-shadow:var(--sh-1);cursor:pointer;
   transition:transform var(--t),box-shadow var(--t);
 }
 .artifact:hover{transform:translateY(-2px);box-shadow:var(--sh-2)}

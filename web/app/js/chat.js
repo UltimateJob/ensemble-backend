@@ -4,7 +4,7 @@
    ============================================================ */
 
 import {
-  $, API, api, state, toast, esc, timeStr, fullTimeStr, makeAv, icon, setDocTitle, humanError } from './core.js';
+  $, API, api, state, toast, esc, timeStr, fullTimeStr, icon, setDocTitle, humanError } from './core.js';
 import { uiConfirm, uiEditText, uiEditAgent } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
 import { avatarHTML } from './avatars.js';
@@ -383,7 +383,7 @@ export function buildMsgEl(o) {
     ${o.me ? '' : avatarHTML(o.name, o.color, { size: 32 })}
     <div class="msg-body">
       <div class="msg-head">
-        <span class="msg-name" ${o.color ? `style="color:${esc(o.color)}"` : ''}>${esc(o.name)}</span>
+        <span class="msg-name">${esc(o.name)}</span>
         ${o.title ? `<span class="msg-title">${esc(o.title)}</span>` : ''}
         <span class="msg-time">${o.time ? timeStr(o.time) : ''}</span>
         <button class="msg-copy" title="复制这条消息">${icon('copy', 13)}</button>
@@ -521,7 +521,7 @@ export function renderMembers() {
   // 场景页说「创建后可以随时换人、改设定」——这里就是兑现的地方（群主可见）
   const agentRows = state.agents.map((a, i) => `
     <div class="member" data-agent="${esc(a.name)}">
-      ${makeAv(a.name, a.color, 'av-sm')}
+      ${avatarHTML(a.name, a.color, { size: 26 })}
       <div class="mm">
         <div class="mn">${esc(a.name)}${a.upgraded ? '<span class="up-badge" title="发言走更强的任务模型">⚡升级</span>' : ''}</div>
         <div class="mt">${esc(a.title)}</div>
@@ -539,7 +539,7 @@ export function renderMembers() {
   const others = people.filter(p => p.role === 'member');
   const collabRows = others.map(p => `
     <div class="member">
-      ${makeAv(p.name || '人', '#4F46E5', 'av-sm')}
+      ${avatarHTML(p.name || '人', '#8A8A92', { size: 26 })}
       <div>
         <div class="mn">${esc(p.name || p.id.slice(-6))}</div>
         <div class="mt">${p.online ? '在线' : '离线'}</div>
@@ -599,7 +599,7 @@ export function renderMembers() {
   const mc = $('#memberCount');
   if (mc) mc.textContent = state.agents.length + others.length;
   const ta2 = $('#topAvatars');
-  if (ta2) ta2.innerHTML = state.agents.slice(0, 5).map(a => makeAv(a.name, a.color, 'av-sm')).join('');
+  if (ta2) ta2.innerHTML = state.agents.slice(0, 5).map(a => avatarHTML(a.name, a.color, { size: 24 })).join('');
 
   box.querySelectorAll('[data-rm]').forEach(b => {
     b.addEventListener('click', async () => {
@@ -695,7 +695,7 @@ function pickLibAgent() {
         : `<div class="lib-pick-list">
             ${cands.map(a => `
               <button class="lp-item" data-id="${esc(a.id)}">
-                ${makeAv(a.name, a.color, 'av-sm')}
+                ${avatarHTML(a.name, a.color, { size: 26 })}
                 <span class="lp-n">${esc(a.name)}</span>
                 <span class="lp-t">${esc(a.title || '')}</span>
               </button>`).join('')}
@@ -942,10 +942,10 @@ export async function runRound(path, body, opts = {}) {
       curEl = document.createElement('div');
       curEl.className = 'msg';
       curEl.innerHTML = `
-        ${makeAv(ev.name, ev.color)}
+        ${avatarHTML(ev.name, ev.color, { size: 34 })}
         <div class="msg-body">
           <div class="msg-head">
-            <span class="msg-name" style="color:${esc(ev.color)}">${esc(ev.name)}</span>
+            <span class="msg-name">${esc(ev.name)}</span>
             <span class="msg-time"></span>
             <button class="msg-copy" title="复制这条消息">${icon('copy', 13)}</button>
           </div>
