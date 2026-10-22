@@ -1,7 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0" stop-color="#4F46E5"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs><rect width="256" height="256" rx="58" fill="url(#tg)"/><g stroke="#fff" stroke-width="18" stroke-linecap="round" fill="none">
-  <path d="M 82.9,82.1 A 66,66 0 0 1 173.1,82.1"/>
-  <path d="M 191.0,114.0 A 66,66 0 0 1 145.6,191.5"/>
-  <path d="M 110.4,191.5 A 66,66 0 0 1 65.0,114.0"/>
-</g>
-<path transform="translate(128,128)" d="M 0,-32 C 3.8,-8.3 8.3,-3.8 32,0 C 8.3,3.8 3.8,8.3 0,32 C -3.8,8.3 -8.3,3.8 -32,0 C -8.3,-3.8 -3.8,-8.3 0,-32 Z" fill="#fff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#17171E"/><stop offset="1" stop-color="#0A0A0D"/>
+</linearGradient>
+<radialGradient id="spg" cx=".5" cy=".3" r=".9">
+<stop offset="0" stop-color="#FFFFFF"/><stop offset=".55" stop-color="#D9DAFB"/><stop offset="1" stop-color="#8B5CF6"/>
+</radialGradient>
+</defs>
+<rect width="256" height="256" rx="58" fill="url(#tile)" stroke="#2A2A33" stroke-width="1.5"/>
+<circle cx="128" cy="128" r="88" fill="none" stroke="#FFFFFF" stroke-opacity=".13" stroke-width="1.4"/>
+<circle cx="128" cy="27" r="4.5" fill="#A78BFA" opacity=".95"/>
+<path transform="translate(128,128)" d="M 0,-62 C 9,-26 26,-9 62,0 C 26,9 9,26 0,62 C -9,26 -26,9 -62,0 C -26,-9 -9,-26 0,-62 Z" fill="url(#spg)"/>
+</svg>
