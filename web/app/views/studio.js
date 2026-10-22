@@ -65,7 +65,19 @@ export async function mountStudio(host, id) {
 
         <section class="sv-tl">
           <h2 class="sec-h">执行时间线</h2>
-          <div class="timeline" id="runTimeline"><div class="tl-empty">还没有任务</div></div>
+          <div class="timeline" id="runTimeline">
+            <div class="tl-empty sv-empty">
+              <div class="sv-empty-ic">${icon('terminal', 24)}</div>
+              <b>还没有任务</b>
+              <span>左边填一个本机目录和一句任务，点「开始执行」。<br>
+              每一步的工具调用、输出和 diff 都会按顺序出现在这里。</span>
+              <div class="sv-empty-steps">
+                <span>① 选目录</span>
+                <span>② 写任务</span>
+                <span>③ 跑起来</span>
+              </div>
+            </div>
+          </div>
           <h2 class="sec-h" style="margin-top:24px">改动</h2>
           <div class="diff-box" id="runDiff"></div>
         </section>

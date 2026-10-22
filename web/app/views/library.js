@@ -129,11 +129,16 @@ function render() {
 
 function card(a) {
   const ic = a.kind === 'code' ? 'code' : a.kind === 'sheet' ? 'chart' : 'file-text';
+  // 缩略图放正文的前几行，而不是一个图标——
+  // 六个图标长得一样，卡片之间就没有任何区分度。
+  const preview = (a.preview || a.content || a.summary || '').replace(/\s+/g, ' ').trim().slice(0, 300);
   return `<article class="lib-card" data-id="${esc(a.id)}">
-    <div class="lib-thumb">${icon(ic, 28)}</div>
+    <div class="lib-thumb lib-thumb--${esc(a.kind || 'doc')}">
+      <div class="lt-kind">${icon(ic, 13)}<span>${esc(kindLabel(a.kind))}</span></div>
+      <div class="lt-text">${esc(preview || '（空文档）')}</div>
+    </div>
     <div class="lib-body">
       <div class="lib-title">${esc(a.title || '未命名')}</div>
-      <div class="lib-sum">${esc(a.summary || '')}</div>
       <div class="lib-meta">
         ${a.agentName ? avatarHTML(a.agentName, '', { size: 20 }) : ''}
         <span>${esc(a.agentName || '')}</span>
@@ -141,6 +146,10 @@ function card(a) {
       </div>
     </div>
   </article>`;
+}
+
+function kindLabel(kind) {
+  return ({ doc: '文档', code: '代码', sheet: '表格', note: '笔记' })[kind] || '文档';
 }
 
 async function openArtifact(id) {

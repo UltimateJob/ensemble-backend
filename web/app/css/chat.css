@@ -57,8 +57,8 @@
   background:
     radial-gradient(60% 40% at 50% 0%, rgba(255,255,255,.9), transparent 70%),
     var(--paper);
-  mask-image:linear-gradient(to bottom,transparent 0,#000 20px,#000 calc(100% - 4px),transparent 100%);
-  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 20px,#000 calc(100% - 4px),transparent 100%);
+  mask-image:linear-gradient(to bottom,transparent 0,#000 14px,#000 100%);
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 14px,#000 100%);
 }
 .msg-wrap{
   width:100%;max-width:760px;margin:0 auto;

@@ -30,6 +30,9 @@ type ArtifactView struct {
 	domain.Artifact
 	// ConversationTitle 便于列表直接显示「哪个群的产出」。
 	ConversationTitle string `json:"conversationTitle,omitempty"`
+	// Preview 正文前几百字，用于资料库卡片的缩略图。
+	// 不返回全文：列表 60 条 × 完整文档会让响应变成几 MB。
+	Preview string `json:"preview,omitempty"`
 }
 
 // List 列出产物。
@@ -49,6 +52,9 @@ func (l *Library) List(userID, convID string, limit int) []ArtifactView {
 	for _, a := range arts {
 		v := ArtifactView{Artifact: *a}
 		v.Content = "" // 列表不返回全文
+		// 但预览需要比 Summary 更多的内容：摘要只有一句话，
+		// 资料库卡片靠它区分不出六份同类文档。截 400 字，够填满缩略图。
+		v.Preview = trimRunes(a.Content, 400)
 		v.ConversationTitle = titles[a.ConversationID]
 		out = append(out, v)
 	}
