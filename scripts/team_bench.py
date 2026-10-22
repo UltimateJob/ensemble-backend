@@ -13,6 +13,8 @@
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 import urllib.error
@@ -77,6 +79,18 @@ def sse(path, body, token, idle_timeout=240):
                 for line in chunk.decode().splitlines():
                     if line.startswith("data:"):
                         yield json.loads(line[5:].strip())
+
+
+def local_test(root):
+    """在宿主机跑 go test ./...，返回 (是否全绿, 失败的包目录名, 输出)。"""
+    try:
+        p = subprocess.run(["go", "test", "./..."], cwd=root,
+                           capture_output=True, text=True, timeout=300)
+    except Exception as e:
+        return False, [], f"go test 执行失败: {e}"
+    out = (p.stdout or "") + (p.stderr or "")
+    failed = sorted(set(re.findall(r"^FAIL\s+\S*?([a-z0-9_]+)\s", out, re.M)))
+    return p.returncode == 0, failed, out
 
 
 def login():
@@ -210,8 +224,35 @@ def team(token, ws, conv, task, args_root="."):
     review = run_agent(token, ws, review_prompt(), "audit", "架构师", max_steps=6)
     print(f"  架构师审核 {review['seconds']}s")
 
+    # ---- 闭环：红了就派回给对应的 worker 修，最多 2 轮 ----
+    fix_rounds = []
+    ok, failed, out = local_test(args_root)
+    for rnd in range(2):
+        if ok or not failed:
+            break
+        print(f"  第 {rnd+1} 轮：红了 {failed} → 派回修复")
+        fixes = []
+        for pkg in failed:
+            if pkg not in WORK:
+                continue
+            name, scope_dir, _ = WORK[pkg]
+            snippet = "\n".join([l for l in out.splitlines() if pkg in l or "FAIL" in l][:12])
+            task = (f"你的模块 {scope_dir} 测试没通过，真实输出：\n```\n{snippet}\n```\n"
+                    f"请修到 `go test ./...` 通过。只改 {scope_dir} 下的文件。"
+                    "注意：如果发现是测试本身写得太死（比如用正则解析 JS 结构、断言依赖实现细节），"
+                    "修测试，不要为了迁就测试去改正确的实现。")
+            fixes.append(run_agent(token, ws, task,
+                                   next(a[5] for a in AGENTS if a[0] == pkg), pkg,
+                                   [scope_dir], max_steps=10))
+        ok, failed, out = local_test(args_root)
+        fix_rounds.append({"round": rnd + 1, "failedBefore": failed, "greenAfter": ok,
+                           "runs": fixes})
+        print(f"    修完 → {'全绿' if ok else '仍有红: ' + str(failed)}")
+
     return {"seconds": round(time.time() - t0, 1), "discussion": disc,
-            "parallelSeconds": par_wall, "runs": results, "review": review}
+            "parallelSeconds": par_wall, "runs": results, "review": review,
+            "fixRounds": fix_rounds, "allGreen": ok,
+            "finalFailed": failed if not ok else []}
 
 
 def main():
