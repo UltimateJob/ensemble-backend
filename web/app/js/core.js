@@ -1,5 +1,5 @@
 /* ============================================================
-   合奏 Ensemble · 基础层
+   智团 TeamWise · 基础层
    工具函数 / 头像生成 / 全局状态 / API 封装
    ============================================================ */
 
@@ -13,15 +13,15 @@ export const icon = (...a) => window.icon(...a);
 
 /* ---------------- 窗口标题 ---------------- */
 // 浏览器标签页/任务栏是用户随时在看的地方。
-// 永远显示「合奏 Ensemble」的话，开了几个标签页就分不清哪个是哪个。
+// 永远显示「智团 TeamWise」的话，开了几个标签页就分不清哪个是哪个。
 export function setDocTitle(convTitle, busy) {
-  const base = '合奏 Ensemble';
+  const base = '智团 TeamWise';
   if (!convTitle) {
     document.title = base;
     return;
   }
   const dot = busy ? '● ' : '';
-  document.title = `${dot}${convTitle} · 合奏`;
+  document.title = `${dot}${convTitle} · 智团`;
 }
 
 /* ---------------- 网络状态 ---------------- */

@@ -127,7 +127,7 @@ func (m *MemoryService) extract(ctx context.Context, conv *domain.Conversation, 
 		fmt.Fprintf(&transcript, "[%s] %s：%s\n", msg.CreatedAt.Format("01-02 15:04"), who, msg.Content)
 	}
 
-	sys := `你是合奏的长期记忆整理器。读取一段群聊，提取对以后聊天有用的记忆。
+	sys := `你是智团的长期记忆整理器。读取一段群聊，提取对以后聊天有用的记忆。
 
 规则：
 1. 只记录用户本人，以及每个角色自己说过/做过的事。不要把其他角色的私事写进某个角色的记忆。

@@ -1,13 +1,13 @@
 #!/bin/bash
-# 构建 Ensemble 桌面端（原生 WebKit 壳，无 Electron 依赖）。
+# 构建 TeamWise 桌面端（原生 WebKit 壳，无 Electron 依赖）。
 #
-# 产出：desktop/build/Ensemble.app
+# 产出：desktop/build/TeamWise.app
 # 用法：./desktop/build.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
-APP="desktop/build/Ensemble.app"
+APP="desktop/build/TeamWise.app"
 
 echo "==> 编译前端后端"
 make build >/dev/null
@@ -16,7 +16,7 @@ echo "==> 编译桌面壳"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -swift-version 5 \
   -framework Cocoa -framework WebKit \
-  -o "$APP/Contents/MacOS/Ensemble" \
+  -o "$APP/Contents/MacOS/TeamWise" \
   desktop/EnsembleDesktop.swift
 
 echo "==> 打包二进制"
@@ -27,10 +27,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Ensemble</string>
-  <key>CFBundleDisplayName</key><string>合奏 Ensemble</string>
-  <key>CFBundleIdentifier</key><string>com.ultimatejob.ensemble.desktop</string>
-  <key>CFBundleExecutable</key><string>Ensemble</string>
+  <key>CFBundleName</key><string>TeamWise</string>
+  <key>CFBundleDisplayName</key><string>智团 TeamWise</string>
+  <key>CFBundleIdentifier</key><string>com.ultimatejob.teamwise.desktop</string>
+  <key>CFBundleExecutable</key><string>TeamWise</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
   <key>CFBundleVersion</key><string>1</string>

@@ -1,6 +1,6 @@
-# 合奏 Ensemble
+# 智团 TeamWise
 
-> 五个声部，一个成品。
+> 五个 Agent，一个智团。
 
 **1.1.1** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
 
@@ -21,7 +21,7 @@ DEEPSEEK_API_KEY=sk-你的key ./scripts/dev.sh
 
 ```
 → 上游：DeepSeek (deepseek-chat)
-{"msg":"合奏后端已启动", ..., "mock":false}
+{"msg":"智团后端已启动", ..., "mock":false}
 ```
 
 没有 `mock:false`、或者顶栏有橙色「演示」标记，就是还在用预置台词。
@@ -608,9 +608,9 @@ node scripts/walk.mjs
 
 标签页和任务栏是用户随时在看的地方。
 
-- 未选群：`合奏 Ensemble`
-- 打开群：`华东医院数据中心投标 · 合奏`
-- 正在编排：`● 华东医院数据中心投标 · 合奏`
+- 未选群：`智团 TeamWise`
+- 打开群：`华东医院数据中心投标 · 智团`
+- 正在编排：`● 华东医院数据中心投标 · 智团`
 
 开了几个标签页时，一眼能分清哪个是哪个；切到别的窗口再回来，也能看出是否有新内容。
 

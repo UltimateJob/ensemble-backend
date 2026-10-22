@@ -1,4 +1,4 @@
-// Ensemble Desktop —— 本机桌面壳。
+// TeamWise Desktop —— 本机桌面壳。
 //
 // 只做三件事：
 //   1. 起一个窗口，加载本地后端的前端；
@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "合奏 · Ensemble"
+        window.title = "智团 · TeamWise"
         window.minSize = NSSize(width: 980, height: 680)
         window.center()
         window.titlebarAppearsTransparent = false
@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 Ensemble", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "关于 TeamWise", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "重新载入", action: #selector(reload), keyEquivalent: "r")
         appMenu.addItem(withTitle: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -203,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        window.title = "合奏 · Ensemble"
+        window.title = "智团 · TeamWise"
     }
 }
 

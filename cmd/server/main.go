@@ -1,4 +1,4 @@
-// 合奏后端入口。
+// 智团后端入口。
 //
 // 启动：go run ./cmd/server
 // 管理页：http://localhost:8080/admin/
@@ -200,7 +200,7 @@ func main() {
 		close(done)
 	}()
 
-	log.Info("合奏后端已启动",
+	log.Info("智团后端已启动",
 		"addr", cfg.Addr,
 		"version", version,
 		"admin", fmt.Sprintf("http://localhost%s/admin/", cfg.Addr),

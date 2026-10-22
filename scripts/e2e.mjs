@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 合奏 · 浏览器端到端测试
+ * 智团 · 浏览器端到端测试
  *
  * 不依赖 Playwright / Puppeteer：直接用 CDP（Chrome DevTools Protocol）
  * 连本机 Edge 的 headless 实例，Node 内置 WebSocket 就够。
@@ -226,7 +226,7 @@ async function run() {
     ok('会话空态有可点按钮', await cdp.eval('!!document.querySelector("#ceNew") || document.querySelectorAll(".conv").length > 0'));
     ok(
       '顶栏显示品牌',
-      (await cdp.eval('document.querySelector(".brand b")?.textContent')) === '合奏'
+      (await cdp.eval('document.querySelector(".brand b")?.textContent')) === '智团'
     );
 
     // ---- 场景选择 ----
