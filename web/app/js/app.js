@@ -441,7 +441,7 @@ function renderLibPick() {
     <div class="lib-head"><b>我的角色</b>勾选后一起拉进群 <span>${state.picked.length}/${state.library.length}</span></div>
     <div class="lib-row">
       ${state.library.map(a => `
-        <button class="lib-chip ${state.picked.includes(a.id) ? 'on' : ''}" data-lib="${a.id}">
+        <button class="lib-chip ${state.picked.includes(a.id) ? 'on' : ''}" data-lib="${a.id}" title="${a.upgraded ? '升级角色：发言走更强的任务模型' : ''}">${a.upgraded ? '⚡ ' : ''}
           ${makeAv(a.name, a.color)}
           <span>${esc(a.name)}</span>
         </button>`).join('')}

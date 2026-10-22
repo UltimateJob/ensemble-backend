@@ -521,6 +521,12 @@ body.no-conv .col-info{display:none}
 @keyframes talkingIn{from{background:transparent}to{background:rgba(79,70,229,.06)}}
 
 /* 成员面板里的协作者 */
+.up-badge{display:inline-block;margin-left:6px;font-size:10px;font-weight:600;color:#B45309;background:rgba(217,119,6,.1);border-radius:6px;padding:1px 6px;vertical-align:1px}
+.ui-dlg-up{display:flex;align-items:flex-start;gap:9px;padding:10px 12px;margin-top:10px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.ui-dlg-up input{margin-top:3px}
+.ui-dlg-up small{display:block;color:var(--tx-3);font-size:11px;margin-top:2px}
+.f-up{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--tx-2);cursor:pointer;margin-right:10px}
+.f-up input{accent-color:var(--pri)}
 .model-sel{
   margin-left:auto;max-width:150px;font-size:12px;color:var(--tx);
   background:var(--card);border:1px solid var(--line);border-radius:8px;

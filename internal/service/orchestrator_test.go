@@ -478,6 +478,7 @@ func newTestOrch(t *testing.T, p gateway.Provider) (*Orchestrator, *store.Memory
 	mt := gateway.NewModelTable([]domain.ModelInfo{
 		{Key: "m-a", Upstream: "up-a", Provider: "fake", Enabled: true, Weight: 2},
 		{Key: "m-b", Upstream: "up-b", Provider: "fake", Enabled: true, Weight: 1},
+		{Key: "m-task", Upstream: "up-task", Provider: "fake", Enabled: true, Weight: 1, TaskOnly: true},
 	})
 	gw := gateway.New(reg, mt, 0, 100, time.Minute)
 	st := store.NewMemory()
@@ -588,5 +589,38 @@ func TestOrchestratorPartialFailureSoftHint(t *testing.T) {
 	}
 	if !spokeB {
 		t.Fatal("正常的角色应照常发言")
+	}
+}
+
+// 升级角色发言必须走任务池模型；普通角色不受影响。
+func TestUpgradedAgentUsesTaskModel(t *testing.T) {
+	fp := &fakeProvider{reply: "收到。"}
+	o, st := newTestOrch(t, fp)
+	_, conv := newTestConv(t, st, "m-b", 10,
+		domain.ConvAgent{Key: "plain", Name: "甲", Title: "拆解", Prompt: "你负责拆解任务。", Permission: "readonly"},
+		domain.ConvAgent{Key: "pro", Name: "乙", Title: "审校", Prompt: "你负责审校文档。", Permission: "readonly", Upgraded: true},
+	)
+
+	o.Run(context.Background(), conv, &domain.User{ID: "u1", Quota: 10}, "开始吧", func(Event) {})
+
+	if len(fp.models) == 0 {
+		t.Fatal("应至少发起一次上游调用")
+	}
+	// 系统提示里区分角色：普通角色应命中会话模型 up-b，升级角色应命中任务池 up-task
+	var plainOK, proOK bool
+	for i, m := range fp.models {
+		_ = i
+		if m == "up-task" {
+			proOK = true
+		}
+		if m == "up-b" {
+			plainOK = true
+		}
+		if m == "up-a" {
+			t.Fatalf("不应命中加权默认 up-a（普通角色应走会话选定，升级角色应走任务池），得到 %v", fp.models)
+		}
+	}
+	if !plainOK || !proOK {
+		t.Fatalf("应同时看到普通角色(up-b)与升级角色(up-task)的调用，得到 %v", fp.models)
 	}
 }

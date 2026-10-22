@@ -117,6 +117,7 @@ func agentsFromConversation(conv *domain.Conversation) []Agent {
 		out = append(out, Agent{
 			Key: key, CharacterID: cid, Name: a.Name, Title: a.Title,
 			Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt, Permission: a.Permission, Scope: a.Scope,
+			Upgraded: a.Upgraded,
 		})
 	}
 	return out
@@ -589,9 +590,16 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 	msgs = append(msgs, domain.ChatMessage{Role: "user", Content: anchor + "\n\n" + instruction})
 
 	start := time.Now()
-	// 会话选定模型优先（群里选了 reasoner 就用 reasoner），
-	// 留空则由网关按权重挑默认。
-	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: conv.Model, Messages: msgs, Stream: true})
+	// 模型分两档：普通角色用会话选定的模型（默认官方对话模型）；
+	// 升级角色走任务池（deepseek-v4.1-flash 这类，Task 标记让网关
+	// 只在任务专用模型里挑）——处理文件、写代码这类高难度任务更强。
+	reqModel := conv.Model
+	var taskFlag bool
+	if agent.Upgraded {
+		reqModel = ""
+		taskFlag = true
+	}
+	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: reqModel, Messages: msgs, Stream: true, Task: taskFlag})
 	if err != nil {
 		if o.slow != nil {
 			o.slow.MaybeRecord(SlowEntry{

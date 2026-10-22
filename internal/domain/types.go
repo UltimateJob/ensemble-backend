@@ -85,14 +85,17 @@ type Conversation struct {
 // SavedAgent 用户角色库里的角色。可以反复拉进不同的群。
 // 创建群时会被复制成 ConvAgent（快照），之后改库不影响已有群。
 type SavedAgent struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	Name      string    `json:"name"`
-	Title     string    `json:"title"`
-	Emoji     string    `json:"emoji,omitempty"`
-	Color     string    `json:"color,omitempty"`
-	Prompt    string    `json:"prompt"`
-	Source    string    `json:"source,omitempty"` // draft（AI 生成）| manual（手写）
+	ID     string `json:"id"`
+	UserID string `json:"userId"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	Emoji  string `json:"emoji,omitempty"`
+	Color  string `json:"color,omitempty"`
+	Prompt string `json:"prompt"`
+	Source string `json:"source,omitempty"` // draft（AI 生成）| manual（手写）
+	// Upgraded 升级角色：发言走任务池模型（deepseek-v4.1-flash 这类），
+	// 处理文件、写代码等高难度任务能力更强。默认不升级。
+	Upgraded  bool      `json:"upgraded,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -121,6 +124,9 @@ type ConvAgent struct {
 	Emoji       string `json:"emoji,omitempty"`
 	Color       string `json:"color,omitempty"`
 	Prompt      string `json:"prompt"`
+	// Upgraded 升级角色：进群时从角色库快照带过来，群主可改。
+	// 升级后发言走任务池模型（deepseek-v4.1-flash 这类）。
+	Upgraded bool `json:"upgraded,omitempty"`
 	// Permission 该角色的执行权限：readonly / approval / full。
 	// 空值表示未设置，由工作层按场景默认（approval）。
 	Permission string `json:"permission,omitempty"`
@@ -227,11 +233,11 @@ type ChannelProbe struct {
 
 // ModelInfo 模型注册信息，管理员可改。
 type ModelInfo struct {
-	Key       string  `json:"key"`      // 唯一标识，如 deepseek-chat
-	Provider  string  `json:"provider"` // deepseek | mock
+	Key      string `json:"key"`      // 唯一标识，如 deepseek-chat
+	Provider string `json:"provider"` // deepseek | mock
 	// TaskOnly 任务专用模型：给执行器（代码开发这类真实任务）用，
 	// 不出现在用户的选择器里，聊天的自动选路也会跳过它。
-	TaskOnly  bool  `json:"taskOnly,omitempty"`
+	TaskOnly  bool    `json:"taskOnly,omitempty"`
 	Upstream  string  `json:"upstream"` // 上游模型名
 	Enabled   bool    `json:"enabled"`
 	Weight    int     `json:"weight"`    // 加权轮询权重

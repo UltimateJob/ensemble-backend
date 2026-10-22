@@ -5,7 +5,7 @@
 
 import {
   $, API, api, state, toast, esc, timeStr, fullTimeStr, makeAv, icon, setDocTitle, humanError } from './core.js';
-import { uiConfirm, uiEditText } from './dialog.js';
+import { uiConfirm, uiEditText, uiEditAgent } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
 
 /* ---------------- 复制 ---------------- */
@@ -511,7 +511,7 @@ export function renderMembers() {
     <div class="member" data-agent="${esc(a.name)}">
       ${makeAv(a.name, a.color, 'av-sm')}
       <div class="mm">
-        <div class="mn">${esc(a.name)}</div>
+        <div class="mn">${esc(a.name)}${a.upgraded ? '<span class="up-badge" title="发言走更强的任务模型">⚡升级</span>' : ''}</div>
         <div class="mt">${esc(a.title)}</div>
       </div>
       ${iAmOwner ? `
@@ -609,11 +609,9 @@ export function renderMembers() {
       const i = +b.dataset.i;
       const a = state.agents[i];
       if (!a) return;
-      const v = await uiEditText(`${a.name} 的人设`, a.prompt || '', {
-        okText: '保存', hint: '描述身份、语气、关注点。保存后从下一轮开始生效。',
-      });
+      const v = await uiEditAgent(a.name, a.prompt || '', !!a.upgraded);
       if (v === null) return;
-      const next = state.agents.map((x, k) => k === i ? { ...x, prompt: v } : x);
+      const next = state.agents.map((x, k) => k === i ? { ...x, prompt: v.prompt, upgraded: v.upgraded } : x);
       try {
         await patchAgents(next);
         state.agents = next;

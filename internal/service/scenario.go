@@ -32,6 +32,8 @@ type Agent struct {
 	Prompt      string `json:"-"`
 	// Aliases 用户可能用来直接称呼这个角色的短名/外号。只用于路由，不进提示词。
 	Aliases []string `json:"-"`
+	// Upgraded 升级角色：发言自动走任务池模型（高难度任务更强）
+	Upgraded bool `json:"upgraded,omitempty"`
 	// Artifact 该角色是否产出文件
 	Artifact string `json:"artifact,omitempty"`
 	// Permission 执行权限（readonly / approval / full）；空表示按场景默认。

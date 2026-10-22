@@ -169,7 +169,6 @@ func (s *Server) handleAdminEvents(w http.ResponseWriter, r *http.Request) {
 	ok(w, s.admin.Events(r.URL.Query().Get("kind"), queryInt(r, "limit", 200)))
 }
 
-
 // handleAdminProviderCheck 渠道体检：真发一次小流式请求，
 // 量连通性、首字延迟、吐字量，顺带查剩余额度（best-effort）。
 // 可选 query 参数 model 指定用哪个模型测，默认用渠道的默认模型。

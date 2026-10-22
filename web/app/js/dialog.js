@@ -89,6 +89,34 @@ export function uiEditText(title, value = '', opts = {}) {
   });
 }
 
+/** 编辑角色：人设 + 是否升级。返回 {prompt, upgraded} 或 null（取消） */
+export function uiEditAgent(name, prompt = '', upgraded = false) {
+  return new Promise(resolve => {
+    const mask = shell(`
+      <h3>${esc(name)} 的人设</h3>
+      <textarea class="ui-dlg-area" id="dlgArea" placeholder="描述身份、语气、关注点" maxlength="4000"></textarea>
+      <label class="ui-dlg-up" id="upRow" title="升级后发言走更强的任务模型（处理文件、写代码这类高难度任务）">
+        <input type="checkbox" id="dlgUp">
+        <span><b>升级角色</b><small>发言用更强的模型（高难度任务全面增强），消耗的额度略高</small></span>
+      </label>
+      <div class="ui-dlg-act">
+        <button class="ui-dlg-btn" data-x="cancel">取消</button>
+        <button class="ui-dlg-btn primary" data-x="ok">保存</button>
+      </div>`);
+    const area = mask.querySelector('#dlgArea');
+    const up = mask.querySelector('#dlgUp');
+    area.value = prompt; up.checked = !!upgraded;
+    area.focus(); area.setSelectionRange(prompt.length, prompt.length);
+    const done = v => { close(mask); document.removeEventListener('keydown', onKey); resolve(v); };
+    const ok = () => done({ prompt: area.value.trim(), upgraded: up.checked });
+    mask.querySelector('[data-x=ok]').onclick = ok;
+    mask.querySelector('[data-x=cancel]').onclick = () => done(null);
+    mask.addEventListener('click', e => { if (e.target === mask) done(null); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); done(null); } }
+    document.addEventListener('keydown', onKey);
+  });
+}
+
 /** 确认。返回 Promise<boolean> */
 export function uiConfirm(title, desc = '', opts = {}) {
   return new Promise(resolve => {
