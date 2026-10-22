@@ -161,12 +161,18 @@ async function run() {
 
   mkdirSync(OUT, { recursive: true });
 
-  const { cdp, proc, profile, ws } = await launch();
   const written = [];
   const empty = [];
   const skipped = [];
+  // 浏览器或连接在 launch() 中途失败时也要能收尾，所以放在 try 外先占位
+  let cdp;
+  let proc;
+  let profile;
+  let ws;
 
   try {
+    ({ cdp, proc, profile, ws } = await launch());
+
     await cdp.send('Page.navigate', { url: `${BASE}/app/` });
     await cdp.waitFor('document.readyState === "complete"', 20000, '页面加载');
     await cdp.waitFor('!!document.querySelector("#phone")', 15000, '登录页');
@@ -287,12 +293,12 @@ async function run() {
     if (skipped.length) console.log(`\n跳过：${skipped.join('、')}`);
     if (empty.length) console.log(`\n内容偏空：${empty.join('、')}`);
   } finally {
-    ws.close();
-    proc.kill();
+    ws?.close();
+    proc?.kill();
     await sleep(300);
     // Chrome 退出时可能还攥着 profile 里的文件，删不掉不影响结果
     try {
-      rmSync(profile, { recursive: true, force: true });
+      if (profile) rmSync(profile, { recursive: true, force: true });
     } catch {
       /* 忽略 */
     }
