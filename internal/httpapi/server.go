@@ -35,6 +35,13 @@ type Server struct {
 
 	mem    *service.MemoryService
 	agents *agent.Manager
+
+	// 手机端相关。devices 为 nil 时远程路由不注册（单机模式不受影响）。
+	devices  *service.Devices
+	goals    *service.Goals
+	conns    *service.Connectors
+	library  *service.Library
+	activity *service.Activity
 }
 
 func NewServer(
@@ -56,6 +63,24 @@ func NewServer(
 		seenAt:  make(map[string]time.Time),
 		mem:     mem,
 	}
+}
+
+// SetRemoteServices 注入手机端所需的服务。
+//
+// 用 setter 而不是加构造参数：NewServer 已经是 11 个参数了，
+// 再往里塞会波及所有测试的调用点。这些服务只有远程场景才需要。
+func (s *Server) SetRemoteServices(
+	devices *service.Devices,
+	goals *service.Goals,
+	conns *service.Connectors,
+	library *service.Library,
+	activity *service.Activity,
+) {
+	s.devices = devices
+	s.goals = goals
+	s.conns = conns
+	s.library = library
+	s.activity = activity
 }
 
 // Handler 构建完整路由。
@@ -162,12 +187,44 @@ func (s *Server) Handler() http.Handler {
 		userMux.HandleFunc("POST /v1/runs/{id}/revert", s.handleRevert)
 	}
 
+	// ---- 手机端：目标 / 连接器 / 资料库 / 状态环 ----
+	if s.goals != nil {
+		userMux.HandleFunc("GET /v1/goals", s.handleListGoals)
+		userMux.HandleFunc("POST /v1/goals", s.handleCreateGoal)
+		userMux.HandleFunc("PATCH /v1/goals/{id}", s.handleUpdateGoal)
+		userMux.HandleFunc("DELETE /v1/goals/{id}", s.handleDeleteGoal)
+	}
+	if s.conns != nil {
+		userMux.HandleFunc("GET /v1/connectors", s.handleListConnectors)
+		userMux.HandleFunc("POST /v1/connectors", s.handleCreateConnector)
+		userMux.HandleFunc("PATCH /v1/connectors/{id}", s.handleUpdateConnector)
+		userMux.HandleFunc("DELETE /v1/connectors/{id}", s.handleDeleteConnector)
+		userMux.HandleFunc("POST /v1/connectors/{id}/probe", s.handleProbeConnector)
+	}
+	if s.library != nil {
+		userMux.HandleFunc("GET /v1/library", s.handleListArtifacts)
+		userMux.HandleFunc("GET /v1/library/{id}", s.handleGetArtifact)
+		userMux.HandleFunc("DELETE /v1/library/{id}", s.handleDeleteArtifact)
+	}
+	if s.devices != nil {
+		userMux.HandleFunc("POST /v1/devices/pair-code", s.handleIssuePairCode)
+		userMux.HandleFunc("GET /v1/devices", s.handleListDevices)
+		userMux.HandleFunc("DELETE /v1/devices/{id}", s.handleRevokeDevice)
+		userMux.HandleFunc("PATCH /v1/devices/{id}", s.handleDeviceApproval)
+		userMux.HandleFunc("GET /v1/conversations/{id}/activity", s.handleActivity)
+	}
+
+	// 配对接口免登录：手机首次配对时还没有任何凭证
+	mux.HandleFunc("POST /v1/devices/pair", s.handlePair)
+
 	// authMiddleware 在基础鉴权之上叠了限流与在线时间节流
 	authMW := s.authMiddleware()
 	for _, p := range []string{
 		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/models", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
 		"/v1/conversations", "/v1/conversations/", "/v1/memories",
 		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/",
+		"/v1/goals", "/v1/goals/", "/v1/connectors", "/v1/connectors/",
+		"/v1/library", "/v1/library/", "/v1/devices", "/v1/devices/",
 	} {
 		mux.Handle(p, authMW(userMux))
 	}

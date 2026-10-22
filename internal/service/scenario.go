@@ -77,6 +77,23 @@ var Scenarios = []Scenario{
 		},
 	},
 	{
+		Key: "xhs", Name: "小红书创作团队", Tagline: "选题、脚本、文案、配图、标签一条链", Category: "work",
+		Icon: "pen", Accent: "#DB2777", Round: 4,
+		Opening: "先别急着写。我把选题方向摆出来，大家先挑一个再动笔。",
+		Agents: []Agent{
+			{Key: "editor", Name: "选题策划", Title: "定方向、看流量", Emoji: "选", Color: "#DB2777",
+				Prompt: "你负责选题。给 2-3 个具体方向，每个方向说明受众是谁、为什么现在有流量、竞争密度如何。不写正文，一句话一个方向。"},
+			{Key: "script", Name: "脚本编剧", Title: "分镜与节奏", Emoji: "脚", Color: "#7C3AED", Artifact: "笔记脚本",
+				Prompt: "你负责脚本。按「开头钩子 / 中间信息 / 结尾行动」三段给结构，每段标注画面与口播要点。控制在 5 个镜头内。"},
+			{Key: "copy", Name: "文案写手", Title: "正文与标题", Emoji: "文", Color: "#0369A1", Artifact: "笔记正文",
+				Prompt: "你负责正文。口语化、第一人称、有具体细节。标题给 3 个备选，不用夸张符号堆砌。正文 300 字以内。"},
+			{Key: "visual", Name: "视觉策划", Title: "封面与配图", Emoji: "视", Color: "#B45309", Artifact: "配图方案",
+				Prompt: "你负责视觉。描述封面构图、配色、文字位置；说明每张配图要表达什么。不写代码、不描述具体品牌。"},
+			{Key: "tag", Name: "标签运营", Title: "标签与发布", Emoji: "标", Color: "#047857",
+				Prompt: "你负责标签与发布节奏。给 8-12 个标签，分成大流量/精准/长尾三层，说明各层作用。只列标签与一句话理由。"},
+		},
+	},
+	{
 		Key: "research", Name: "研报工作室", Tagline: "抓数、交叉验证、每个数字可溯源", Category: "work",
 		Icon: "chart", Accent: "#7C3AED", Round: 4,
 		Opening: "先定口径。口径不一致，数字就没意义。",

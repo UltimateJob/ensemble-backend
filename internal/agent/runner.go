@@ -41,6 +41,10 @@ type StartRequest struct {
 	MaxSteps    int
 	// SystemPrompt 由会话层注入角色人设与协作规则；为空时用默认 operator 提示。
 	SystemPrompt string
+	// ForceApproval 远程设备要求审批（设备策略，见 domain.Device.RequireApproval）。
+	ForceApproval bool
+	// Origin 指令来源，如 "device:d_abc"。
+	Origin string
 }
 
 // 工具名常量，避免字符串散落。
@@ -181,6 +185,8 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		Model:          req.Model,
 		Status:         StatusRunning,
 		MaxSteps:       maxSteps,
+		ForceApproval:  req.ForceApproval,
+		Origin:         req.Origin,
 		StartedAt:      time.Now(),
 		cancel:         cancel,
 	}
@@ -443,7 +449,7 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 
 	risk := toolRisk(call)
 	record.Risk = risk
-	allowed, needApproval, reason := permissionFor(r.Permission, call.Name, risk)
+	allowed, needApproval, reason := permissionFor(r.Permission, call.Name, risk, r.ForceApproval)
 
 	m.mu.Lock()
 	r.ToolCalls = append(r.ToolCalls, record)

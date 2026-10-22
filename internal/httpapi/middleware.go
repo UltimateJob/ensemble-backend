@@ -145,7 +145,6 @@ type AuthResolver func(token string) (*domain.User, error)
 //  3. 节流刷新在线时间 —— 让协作面板的「在线」反映真实活跃，
 //     而不是只在登录后的 5 分钟内为真。
 func (s *Server) authMiddleware() Middleware {
-	resolve := s.auth.Verify
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
@@ -153,17 +152,40 @@ func (s *Server) authMiddleware() Middleware {
 				unauthorized(w, "缺少登录凭证")
 				return
 			}
-			u, err := resolve(strings.TrimPrefix(h, "Bearer "))
+			raw := strings.TrimPrefix(h, "Bearer ")
+
+			// 先按账号令牌验，失败再按设备令牌验。
+			//
+			// 两个令牌走同一个头，是因为客户端（手机/浏览器）不需要
+			// 知道自己拿的是哪种——登录拿到什么就用什么。设备令牌
+			// 前缀 dev_，可以直接分流，避免在账号令牌上白跑一次 HMAC。
+			var (
+				u   *domain.User
+				err error
+				dev *domain.Device
+			)
+			if strings.HasPrefix(raw, "dev_") && s.devices != nil {
+				dev, u, err = s.devices.VerifyDevice(raw)
+				if err == nil {
+					s.devices.Touch(dev, ClientIP(r))
+				}
+			} else {
+				u, err = s.auth.Verify(raw)
+			}
 			if err != nil {
 				unauthorized(w, err.Error())
 				return
 			}
+
 			if !s.allow("u:" + u.ID) {
 				tooManyRequests(w)
 				return
 			}
 			s.touchLastSeen(u)
 			ctx := context.WithValue(r.Context(), userKey, u)
+			if dev != nil {
+				ctx = context.WithValue(ctx, deviceKey, dev)
+			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

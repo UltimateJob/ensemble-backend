@@ -165,6 +165,23 @@ func main() {
 		}
 	})
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc, shared.Limiter)
+
+	// ---- 手机端 ----
+	// 连接器凭据用 JWT_SECRET 派生密钥加密落盘：单独拿到 data/
+	// 或备份包解不开。生产自检保证 JWT_SECRET 不是默认值。
+	if err := store.SetSecretKey(cfg.JWTSecret); err != nil {
+		log.Error("连接器凭据加密初始化失败", "err", err.Error())
+		return
+	}
+	devices := service.NewDevices(st, cfg.JWTSecret)
+	goals := service.NewGoals(st)
+	conns := service.NewConnectors(st)
+	library := service.NewLibrary(st)
+	activity := service.NewActivity(agentMgr)
+	srv.SetRemoteServices(devices, goals, conns, library, activity)
+	orch.SetActivity(activity)
+	orch.SetLibrary(library)
+
 	agentMgr.SetModel(gw)
 	// 工作区与最近 100 个 Run 落盘：重启后不用重新绑目录
 	stateFile := filepath.Join(dataDir, "agent-state.json")

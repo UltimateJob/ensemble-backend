@@ -38,7 +38,18 @@ type Orchestrator struct {
 	locks *convLocks
 	slow  *SlowLog
 	mem   *MemoryService
+
+	// 手机端所需的两条可选链路。为 nil 时行为与之前完全一致，
+	// 单机版和现有测试不受影响。
+	activity *Activity // 角色状态环：谁在发言/干活
+	library  *Library  // 产物归档到资料库
 }
+
+// SetActivity 注入状态环（可选）。
+func (o *Orchestrator) SetActivity(a *Activity) { o.activity = a }
+
+// SetLibrary 注入资料库（可选）。
+func (o *Orchestrator) SetLibrary(l *Library) { o.library = l }
 
 // NewOrchestrator 创建编排器。mem 可选，不传时行为与之前一致（无长期记忆）。
 func NewOrchestrator(s store.Store, gw *gateway.Gateway, slow *SlowLog, mem ...*MemoryService) *Orchestrator {
@@ -530,6 +541,11 @@ type speakResult struct {
 // ask 让一个角色自己决定要不要说话、说什么。
 func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Scenario, agent Agent, history []*domain.Message, anchor string, emit func(Event), force, addressAll, casual bool, memoryCard, timeLine string) (speakResult, error) {
 	emit(Event{Type: "start", Agent: agent.Key, Name: agent.Name, Color: agent.Color})
+	// 状态环立即亮起：用户看到头像转蓝就知道「轮到它了」，
+	// 不用等第一个字出现（首字延迟 0.7-1.3s）。
+	if o.activity != nil {
+		o.activity.SetSpeaking(conv.ID, agent.Key)
+	}
 
 	mode := "这是工作群：先确认目标，再给结论；必要时问一句。"
 	if casual {
@@ -695,6 +711,19 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 			Type: "artifact", Agent: agent.Key, Name: agent.Name,
 			Title: agent.Artifact, Detail: summarize(text),
 		})
+		// 归档到资料库。之前产物只活在这一条 SSE 事件和消息正文里，
+		// 换个群就找不回来了。这里落成独立实体，MessageID 留空
+		// 是因为调用点拿不到消息 ID（编排器先流式发送、后落库）。
+		if o.library != nil {
+			o.library.Record(domain.Artifact{
+				UserID:         conv.UserID,
+				ConversationID: conv.ID,
+				AgentKey:       agent.Key,
+				AgentName:      agent.Name,
+				Title:          agent.Artifact,
+				Content:        text,
+			})
+		}
 	}
 
 	return speakResult{text: text, asksUser: asksUser, tokens: tokens, latency: latency}, nil
