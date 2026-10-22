@@ -17,6 +17,25 @@ export async function mount(host, params, query) {
   convId = params.id;
   const conv = (state.convs || []).find(c => c.id === convId);
   if (!conv) {
+    const convs = state.convs || [];
+    // ⌘2 或点「聊天房间」时没有具体 id：进最近那个房间，
+    // 而不是弹一句「房间不存在」——用户只是想去聊天。
+    if (!convId && convs.length) {
+      const recent = [...convs].sort((a, b) =>
+        new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0))[0];
+      location.replace('#/room/' + encodeURIComponent(recent.id));
+      return;
+    }
+    if (!convId) {
+      host.innerHTML = `<div class="page page--center">
+        <div class="empty-state">
+          <div class="es-ic">${icon('message-circle', 22)}</div>
+          <div class="es-t">还没有房间</div>
+          <div class="es-d">先去团队大厅选一组角色，房间会自动建好。</div>
+          <a class="btn btn-primary" href="#/lobby">去团队大厅</a>
+        </div></div>`;
+      return;
+    }
     host.innerHTML = `<div class="page page--center">
       <div class="empty-state">
         <div class="es-ic">${icon('message-circle', 22)}</div>

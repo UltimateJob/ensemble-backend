@@ -1,4 +1,4 @@
-.PHONY: run build clean test a11y contrast resilience-ui shots
+.PHONY: run build clean test a11y contrast resilience-ui keyboard-ui shots
 
 # 本地启动：没有 Key 也能跑（自动降级 mock）
 run:
@@ -71,6 +71,10 @@ contrast:
 # 弱网 / 断网下的界面表现（骨架屏、失败标记、错误提示）
 resilience-ui:
 	@node scripts/check-resilience.mjs
+
+# 键盘操作：⌘1–6 切页、⌘0 面板、Enter 发送、Shift+Enter 换行
+keyboard-ui:
+	@node scripts/check-keyboard.mjs
 
 # 逐屏验收截图（25 屏 × 3 宽度）
 qa-shots:
