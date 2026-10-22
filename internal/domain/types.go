@@ -184,6 +184,8 @@ type ChatRequest struct {
 	Temperature float64       `json:"temperature,omitempty"`
 	MaxTokens   int           `json:"maxTokens,omitempty"`
 	Stream      bool          `json:"stream"`
+	// Task 请求来自任务执行器：自动选路只在 TaskOnly 模型里挑
+	Task bool `json:"task,omitempty"`
 	// 路由提示：指定 provider 时优先使用
 	Provider string `json:"provider,omitempty"`
 	// Tools 非空时开启 tool calling；ToolChoice: auto | none | required
@@ -227,6 +229,9 @@ type ChannelProbe struct {
 type ModelInfo struct {
 	Key       string  `json:"key"`      // 唯一标识，如 deepseek-chat
 	Provider  string  `json:"provider"` // deepseek | mock
+	// TaskOnly 任务专用模型：给执行器（代码开发这类真实任务）用，
+	// 不出现在用户的选择器里，聊天的自动选路也会跳过它。
+	TaskOnly  bool  `json:"taskOnly,omitempty"`
 	Upstream  string  `json:"upstream"` // 上游模型名
 	Enabled   bool    `json:"enabled"`
 	Weight    int     `json:"weight"`    // 加权轮询权重

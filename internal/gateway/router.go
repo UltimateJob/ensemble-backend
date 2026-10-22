@@ -150,9 +150,10 @@ func (t *ModelTable) PickAmong(cands []domain.ModelInfo) domain.ModelInfo {
 }
 
 // Candidates 返回候选模型：指定了 prefer 且存在且启用 → 只返回它；
-// 否则返回全部启用模型（按 key 排序，选路确定性）。选哪个由网关按
-// 渠道空闲度决定——模型表只管「有哪些可选」。
-func (t *ModelTable) Candidates(prefer string) ([]domain.ModelInfo, bool) {
+// 否则按请求类型分池——任务请求只在 TaskOnly 模型里挑，聊天请求
+// 跳过 TaskOnly（聊天默认只走对话模型，任务专用渠道不掺和）。
+// 对应池为空时回退全部启用模型：标错池不该让请求直接失败。
+func (t *ModelTable) Candidates(prefer string, task bool) ([]domain.ModelInfo, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if prefer != "" {
@@ -160,11 +161,19 @@ func (t *ModelTable) Candidates(prefer string) ([]domain.ModelInfo, bool) {
 			return []domain.ModelInfo{m}, true
 		}
 	}
-	out := make([]domain.ModelInfo, 0, len(t.rows))
+	var out, other []domain.ModelInfo
 	for _, m := range t.rows {
-		if m.Enabled {
-			out = append(out, m)
+		if !m.Enabled {
+			continue
 		}
+		if m.TaskOnly == task {
+			out = append(out, m)
+		} else {
+			other = append(other, m)
+		}
+	}
+	if len(out) == 0 {
+		out = other
 	}
 	if len(out) == 0 {
 		return nil, false
@@ -321,7 +330,7 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 // pickModel 选路：显式指定优先；否则剔除熔断渠道后选在途最少的，
 // 同闲按权重轮询。返回选中的模型、provider 名。
 func (g *Gateway) pickModel(req domain.ChatRequest) (domain.ModelInfo, string, bool) {
-	cands, ok := g.models.Candidates(req.Model)
+	cands, ok := g.models.Candidates(req.Model, req.Task)
 	if !ok {
 		return domain.ModelInfo{}, "", false
 	}

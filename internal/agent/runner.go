@@ -292,6 +292,9 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 			Tools:      Tools(),
 			ToolChoice: "auto",
 			Stream:     true,
+			// 执行器跑的是真实任务（写代码/改文件）：自动选路
+			// 只在任务专用模型（TaskOnly）里挑，别占用聊天池。
+			Task: true,
 		})
 		if err != nil {
 			finish(StatusFailed, "model: "+err.Error())

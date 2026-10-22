@@ -714,7 +714,7 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
       const cost = m.costPer1K != null ? m.costPer1K : m.costPer1k;  // 新旧字段名都认
       return `
       <tr>
-        <td class="mono" data-label="模型">${esc(m.key)}</td>
+        <td class="mono" data-label="模型">${esc(m.key)}${m.taskOnly ? ' <span class="b b-warn" title="只给执行器用，用户不可见">任务</span>' : ''}</td>
         <td data-label="上游"><span class="b b-pri">${esc(m.provider)}</span></td>
         <td class="mono" data-label="模型名">${esc(m.upstream || '—')}</td>
         <td class="num" data-label="权重">${esc(m.weight)}</td>
@@ -797,6 +797,8 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
       </div>
       <div class="fld"><label>备注</label><input id="fNote" placeholder="可选" autocomplete="off"></div>
       <div class="fld fld-inline"><label>启用</label><button type="button" class="sw on" id="fOn"></button></div>
+      <div class="fld fld-inline"><label>任务专用</label><button type="button" class="sw" id="fTask"></button>
+        <small style="margin-left:8px;color:#7A7C90">只给执行器（代码开发等真实任务）用，不出现在用户的选择器里</small></div>
     `, '提交', submitModelForm);
 
     // Upstream 默认跟着 Key 走，手动改过就不再联动
@@ -804,6 +806,7 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
     $('#fKey').addEventListener('input', () => { if(!upDirty) $('#fUp').value = $('#fKey').value; });
     $('#fUp').addEventListener('input', () => { upDirty = true; });
     $('#fOn').addEventListener('click', function(){ this.classList.toggle('on'); });
+    $('#fTask').addEventListener('click', function(){ this.classList.toggle('on'); });
   }
 
   async function submitModelForm(){
@@ -824,7 +827,8 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
       await api('/models', { method:'POST', body:{
         key, provider, upstream, enabled,
         weight: Math.round(weight), costPer1k: cost,
-        note: $('#fNote').value.trim()
+        note: $('#fNote').value.trim(),
+        taskOnly: $('#fTask').classList.contains('on')
       }});
       $('#dlgMask').hidden = true; settleDialog();
       toast('已添加 ' + key);

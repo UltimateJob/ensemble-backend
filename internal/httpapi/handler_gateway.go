@@ -101,7 +101,8 @@ func (s *Server) handleUserModels(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []userModel{}
 	for _, m := range s.gw.Models().List() {
-		if !m.Enabled {
+		// 任务专用模型不进用户选择器——那是执行器的池子
+		if !m.Enabled || m.TaskOnly {
 			continue
 		}
 		out = append(out, userModel{Key: m.Key, Note: m.Note})

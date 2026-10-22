@@ -527,3 +527,37 @@ func TestOpenCircuitExcludedFromPick(t *testing.T) {
 	}
 	_ = m
 }
+
+// 聊天自动选路只走对话模型；任务请求只走任务专用模型；
+// 对应池为空时回退全量（标错池不该让请求失败）。
+func TestTaskModelRoutingPools(t *testing.T) {
+	reg := NewRegistry()
+	reg.Add(&echoProvider{name: "p1"})
+	reg.Add(&echoProvider{name: "p2"})
+	mt := NewModelTable([]domain.ModelInfo{
+		{Key: "chat-model", Provider: "p1", Enabled: true, Weight: 1},
+		{Key: "task-model", Provider: "p2", Enabled: true, Weight: 1, TaskOnly: true},
+	})
+	gw := New(reg, mt, 0, 100, time.Minute)
+
+	for i := 0; i < 6; i++ {
+		m, p, ok := gw.pickModel(domain.ChatRequest{})
+		if !ok || m.Key != "chat-model" {
+			t.Fatalf("聊天自动选路应始终落在 chat-model，得到 %s/%s (ok=%v)", m.Key, p, ok)
+		}
+	}
+	for i := 0; i < 6; i++ {
+		m, _, ok := gw.pickModel(domain.ChatRequest{Task: true})
+		if !ok || m.Key != "task-model" {
+			t.Fatalf("任务选路应始终落在 task-model，得到 %s (ok=%v)", m.Key, ok)
+		}
+	}
+	// 池空回退：全部标成任务专用时，聊天请求退回全量而不是失败
+	mt2 := NewModelTable([]domain.ModelInfo{
+		{Key: "only-task", Provider: "p1", Enabled: true, TaskOnly: true},
+	})
+	gw2 := New(reg, mt2, 0, 100, time.Minute)
+	if m, _, ok := gw2.pickModel(domain.ChatRequest{}); !ok || m.Key != "only-task" {
+		t.Fatalf("池空回退失败：%v %v", m.Key, ok)
+	}
+}
