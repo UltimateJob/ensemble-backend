@@ -41,7 +41,7 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
   transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast),transform var(--t-fast);
 }
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.btn-primary{background:var(--pri);color:#fff}
+.btn-primary{background:var(--pri-deep);color:#fff}
 .btn-primary:hover:not(:disabled){background:var(--pri-hover)}
 .btn-primary:active:not(:disabled){background:var(--pri-press)}
 .btn-line{border:1px solid var(--line-2);background:var(--bg);color:var(--tx-2)}

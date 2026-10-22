@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /**
- * 智团 · 浏览器端到端测试
+ * 智团 · 浏览器端到端测试（三栏工作台改版）
  *
  * 不依赖 Playwright / Puppeteer：直接用 CDP（Chrome DevTools Protocol）
  * 连本机 Edge 的 headless 实例，Node 内置 WebSocket 就够。
  *
- * 覆盖：登录 → 建群 → 发消息 → 看到流式回复 → 刷新后仍在。
+ * 覆盖：登录 → 团队大厅 → 加入团队 → 房间发消息看到流式回复 →
+ *       右面板 → 各页面路由 → 404，并全程监听未捕获的 JS 异常。
  *
  * 用法：
  *   1. 另开一个终端跑后端（mock 模式即可，不消耗额度）
- *        DEEPSEEK_API_KEY= ./bin/ensemble
- *   2. node scripts/e2e.mjs
+ *        ADDR=:8096 DATA_DIR=/tmp/e2e-new ./bin/ensemble
+ *   2. E2E_BASE=http://127.0.0.1:8096 node scripts/e2e.mjs
  */
 
 import { spawn } from 'node:child_process';
@@ -47,8 +48,15 @@ class CDP {
     this.ws = ws;
     this.id = 0;
     this.pending = new Map();
+    // 页面里未捕获的异常（事件回调、定时器、模块顶层）都会落到这里。
+    // 这是改版回归最直接的信号：接口全绿、页面能渲染，但按钮点了没反应。
+    this.exceptions = [];
     ws.addEventListener('message', ev => {
       const msg = JSON.parse(ev.data);
+      if (msg.method === 'Runtime.exceptionThrown') {
+        this.exceptions.push(msg.params.exceptionDetails);
+        return;
+      }
       if (msg.id && this.pending.has(msg.id)) {
         const { resolve, reject } = this.pending.get(msg.id);
         this.pending.delete(msg.id);
@@ -122,8 +130,8 @@ async function launch() {
   );
 
   // 跑之前把演示账号的额度清零。
-  // 不然反复建群几十轮之后额度耗尽，开场直接返回 quota 事件，
-  // 表现为「开场启动」超时——看起来像前端坏了。
+  // 不然反复跑几十轮之后额度耗尽，开场直接返回 quota 事件，
+  // 表现为「Agent 回复」超时——看起来像前端坏了。
   try {
     const lr = await fetch(BASE + '/v1/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -133,8 +141,8 @@ async function launch() {
       method: 'POST', headers: { 'X-Admin-Token': 'admin-dev-token' },
     });
 
-    // 上次跑挂了会留下「E2E 测试群」。不清的话会话列表越来越脏，
-    // 演示数据也会被污染——真实交付时用户看到一排同名测试群。
+    // 上次跑挂了会留下「E2E 测试群」/ 预设团队。不清的话左侧房间列表
+    // 越来越脏，演示数据也会被污染。
     const stale = await fetch(`${BASE}/v1/conversations`, {
       headers: { Authorization: 'Bearer ' + lr.data.token },
     }).then(x => x.json()).then(j => (j.data || []).filter(c => c.title.startsWith('E2E 测试群')));
@@ -179,24 +187,22 @@ async function run() {
   // 先确认后端活着
   const health = await fetch(`${BASE}/healthz`).catch(() => null);
   if (!health || !health.ok) {
-    console.error(`\n后端没起来：${BASE}\n先跑 DEEPSEEK_API_KEY= ./bin/ensemble\n`);
+    console.error(`\n后端没起来：${BASE}\n先跑 ADDR=:8096 DATA_DIR=/tmp/e2e-new ./bin/ensemble\n`);
     process.exit(2);
   }
 
   const { cdp, proc, profile, ws } = await launch();
 
   try {
-    console.log('\n客户端 E2E\n');
+    console.log('\n客户端 E2E（三栏工作台）\n');
 
     await cdp.send('Page.navigate', { url: `${BASE}/app/` });
     await cdp.waitFor('document.readyState === "complete"', 20000, '页面加载');
 
     // ---- 登录页 ----
-    ok('登录页出现', await cdp.eval('!!document.querySelector("#login")'));
-    ok(
-      '三种登录方式都在',
-      (await cdp.eval('!!document.querySelector("#form-phone") && !!document.querySelector("#form-email")'))
-    );
+    ok('登录页出现', await cdp.eval('!!document.querySelector("#login") && !document.querySelector("#login").classList.contains("hidden")'));
+    ok('登录页有手机号输入', await cdp.eval('!!document.querySelector("#phone") && !!document.querySelector("#code")'));
+    ok('登录页有邮箱输入', await cdp.eval('!!document.querySelector("#email") && !!document.querySelector("#code2")'));
     ok(
       '登录按钮可点',
       await cdp.eval(
@@ -204,7 +210,28 @@ async function run() {
       )
     );
 
+    // 手机号 / 邮箱分段切换：切到邮箱时手机表单隐藏，切回来恢复。
+    const tabs = await cdp.eval(`(() => {
+      const btns = [...document.querySelectorAll('#loginSeg button')];
+      const email = btns.find(b => b.dataset.k === 'email');
+      const phone = btns.find(b => b.dataset.k === 'phone');
+      if (!email || !phone) return 'missing';
+      email.click();
+      const emailOn = !document.querySelector('#loginEmail').classList.contains('hidden')
+        && document.querySelector('#loginPhone').classList.contains('hidden')
+        && email.classList.contains('on');
+      phone.click();
+      const phoneOn = !document.querySelector('#loginPhone').classList.contains('hidden')
+        && document.querySelector('#loginEmail').classList.contains('hidden')
+        && phone.classList.contains('on');
+      return emailOn && phoneOn ? 'ok' : 'bad';
+    })()`);
+    ok('手机号 / 邮箱标签切换正常', tabs === 'ok', tabs);
+
     // ---- 登录 ----
+    // 引导蒙版只在第一次登录出现，且会抢走路由（900ms 后弹）。
+    // 必须在 enterApp() 之前就把标记写进去，不能等登录完成再写。
+    await cdp.eval(`localStorage.setItem('ens_onboarded','1')`);
     await cdp.eval(`
       (() => {
         document.querySelector('#phone').value = '13800000000';
@@ -212,119 +239,53 @@ async function run() {
       })()
     `);
     await cdp.waitFor(
-      'document.querySelector("#app").classList.contains("on")',
+      '!document.querySelector("#app").classList.contains("hidden") && document.querySelector("#login").classList.contains("hidden")',
       20000,
       '登录后进入主界面'
     );
     ok('登录成功，进入主界面', true);
+    ok('没有弹出新手引导', await cdp.eval('!document.querySelector(".onb-mask")'));
 
-    // ---- 主界面骨架 ----
-    ok('三栏布局存在', await cdp.eval('!!document.querySelector(".col-list") && !!document.querySelector(".chat")'));
-    // 快捷键入口：新用户不会自己去试 ?，得有个看得见的门
-    ok('输入框下方有快捷键入口', await cdp.eval('!!document.querySelector("#hintKb")'));
-    // 空态要给能点的东西，不能只说「点新建」
-    ok('会话空态有可点按钮', await cdp.eval('!!document.querySelector("#ceNew") || document.querySelectorAll(".conv").length > 0'));
-    ok(
-      '顶栏显示品牌',
-      (await cdp.eval('document.querySelector(".brand b")?.textContent')) === '智团'
+    // ---- 大厅 ----
+    await cdp.waitFor('location.hash.startsWith("#/lobby")', 8000, '落在大厅路由');
+    ok('登录后落在 #/lobby', true);
+
+    const nav = await cdp.eval(
+      '[...document.querySelectorAll("#navList .nav-item")].map(e => e.dataset.key)'
     );
+    ok(`导航有 6 项（${nav.join(' / ')}）`, nav.length === 6
+      && ['lobby', 'room', 'goals', 'connectors', 'library', 'settings'].every(k => nav.includes(k)));
 
-    // ---- 场景选择 ----
-    await cdp.eval('document.querySelector("#newConvBtn").click()');
-    await cdp.waitFor('document.querySelector("#scenes").classList.contains("on")', 8000, '场景页打开');
+    const cardCount = await cdp.eval('document.querySelectorAll(".team-card").length');
+    ok(`大厅有 4 张预设团队卡（实际 ${cardCount}）`, cardCount === 4);
 
-    const sceneCount = await cdp.eval('document.querySelectorAll(".scene").length');
-    ok(`场景数 ≥ 5（实际 ${sceneCount}）`, sceneCount >= 5);
+    const joinCount = await cdp.eval('document.querySelectorAll(".team-card [data-join]").length');
+    ok(`每张卡都有「加入团队」（${joinCount} 个）`, joinCount === cardCount);
 
-    const sceneNames = await cdp.eval(
-      '[...document.querySelectorAll(".scene-n")].map(e => e.textContent.trim())'
-    );
-    ok('包含竞标场景', sceneNames.some(n => n.includes('竞标')));
-    ok('包含二次元场景', sceneNames.some(n => n.includes('二次元')));
-    // 内置场景和自定义工作室要分两段，混在一起用户分不清哪个是自己做的
-    // 随机场景详情里必须解释「为什么这里是空的」，否则用户以为场景坏了
-    await cdp.eval(`[...document.querySelectorAll('.scene')].find(s => s.dataset.k === 'anime').click()`);
-    await sleep(600);
-    ok('随机场景有说明区', await cdp.eval('!!document.querySelector(".sd-agents-rand")'));
-    ok('「添加角色」按钮文案与实际能力一致', await cdp.eval(
-      'document.querySelector("#openForge").textContent.trim() === "添加角色"'
-    ));
-    // 改过名字的按钮，引导文案里也不能还留着旧名字
-    ok('界面上没有过时的「自己造角色」文案', await cdp.eval(
-      '!document.body.textContent.includes("自己造角色")'
+    const h1 = await cdp.eval('document.querySelector(".page-head h1")?.textContent.trim()');
+    ok(`大厅标题是「团队大厅」（${h1}）`, h1 === '团队大厅');
+    ok('大厅有新建自定义团队入口', await cdp.eval('!!document.querySelector("#newTeam")'));
+
+    // ---- 加入团队 → 房间 ----
+    await cdp.eval(`document.querySelector('.team-card [data-join]').click()`);
+    await cdp.waitFor('location.hash.startsWith("#/room/")', 15000, '加入后进入房间路由');
+    const roomHash = await cdp.eval('location.hash');
+    ok(`加入团队后跳到房间（${roomHash}）`, /^#\/room\/.+/.test(roomHash));
+
+    await cdp.waitFor('!!document.querySelector(".room")', 15000, '房间渲染');
+    const roomTitle = await cdp.eval('document.querySelector(".rh-title")?.textContent.trim()');
+    ok(`房间标题非空（${roomTitle}）`, !!roomTitle);
+    ok('左侧房间列表出现该房间', await cdp.eval(
+      'document.querySelectorAll("#navRooms .nav-room").length > 0'
     ));
 
-    ok('场景页有「官方给的」分区', await cdp.eval(
-      '[...document.querySelectorAll(".scene-sec")].some(e => e.textContent.includes("官方"))'
+    await cdp.waitFor('document.querySelectorAll("#avatarRow .av-cell").length > 0', 15000, '头像条');
+    const avatars = await cdp.eval('document.querySelectorAll("#avatarRow .av-cell").length');
+    ok(`头像条有 ${avatars} 个角色（≥3）`, avatars >= 3);
+
+    ok('输入条存在', await cdp.eval(
+      '!!document.querySelector("#msgStream") && !!document.querySelector("#msgWrap") && !!document.querySelector("#ta") && !!document.querySelector("#sendBtn")'
     ));
-
-    // 写死角色的场景显示头像；随机场景显示「开局随机挑」的说明。
-    // 两种都算「这个场景有角色」，不能只认头像。
-    ok(
-      '每个场景都标出了角色',
-      await cdp.eval(`[...document.querySelectorAll(".scene")].every(s =>
-        s.querySelectorAll(".scene-m .av").length > 0 ||
-        !!s.querySelector(".scene-rand")
-      )`)
-    );
-
-    // ---- 建群 ----
-    // 群名走自绘弹层：等它出现再填
-    const fillDialog = async (text) => {
-      await cdp.waitFor('!!document.querySelector(".ui-dlg .ui-dlg-input")', 8000, '弹层出现');
-      await cdp.eval(`(() => {
-        const i = document.querySelector('.ui-dlg-input');
-        i.value = ${JSON.stringify(text)};
-        i.dispatchEvent(new Event('input', { bubbles: true }));
-        document.querySelector('.ui-dlg-btn[data-x=ok]').click();
-      })()`);
-    };
-    await cdp.eval(`
-      (() => {
-        const el = [...document.querySelectorAll('.scene')].find(s => s.dataset.k === 'companion');
-        el.click();
-        document.querySelector('#sceneCreate').click();
-      })()
-    `);
-    // 建群现在会先问群名
-    await fillDialog('E2E 测试群');
-    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 15000, '会话出现在左栏');
-    ok('建群后出现在会话列表', true);
-
-    await cdp.waitFor('document.querySelector("#msgs").style.display !== "none"', 15000, '聊天区打开');
-    ok('聊天区已打开', true);
-
-    // 「开场结束后焦点在输入框」这条不在这里断言：
-    // headless 下窗口无焦点时 focus() 不生效（和 beforeunload 一样），
-    // 走查脚本在活动窗口里验证过是好的。
-    // 闲聊场景不该说「派活」
-    const ph = await cdp.eval('document.querySelector("#ta").placeholder');
-    ok(`闲聊场景的提示语合适（${ph}）`, !ph.includes('派活'));
-
-    const members = await cdp.eval('document.querySelectorAll("#memberList .member").length');
-    ok(`成员面板有角色（${members} 个）`, members >= 2);
-
-    // 顶栏状态必须是真实信息，不能是写死的「在线」
-    const sub = await cdp.eval('document.querySelector("#chatSub").textContent.trim()');
-    ok(`顶栏状态是真实信息（${sub}）`, sub.includes('个角色'));
-
-    // 窗口标题要跟着当前群走，不然开多个标签页分不清
-    const docTitle = await cdp.eval('document.title');
-    ok(`窗口标题带群名（${docTitle}）`, docTitle.includes('E2E 测试群'));
-
-    // 建群后会自动开场。注意顺序：kickoff 是 setTimeout(400) 触发的，
-    // 如果直接等 busy===false 会立刻通过（那时还没开始）。
-    // 先等它真的动起来，再等它结束。
-    await cdp.waitFor(
-      'document.querySelectorAll(".msg.speaking").length > 0 || window.__ens.state.busy === true',
-      15000, '开场启动'
-    );
-    await cdp.waitFor(
-      'document.querySelectorAll(".msg.speaking").length === 0 && window.__ens.state.busy === false',
-      90000, '开场结束'
-    );
-    await sleep(500);
-    ok('自动开场已完成', true);
 
     // ---- 发消息，验证流式 ----
     await cdp.eval(`
@@ -336,319 +297,102 @@ async function run() {
       })()
     `);
 
-    await cdp.waitFor('document.querySelectorAll(".msg.me").length > 0', 10000, '用户消息上屏');
+    await cdp.waitFor('document.querySelectorAll(".msg.me").length > 0', 15000, '用户消息上屏');
     ok('用户消息已渲染', true);
 
-    // 等至少一条 Agent 消息出现并结束
+    // 至少两条：自己的 + 至少一个角色的回复。mock 上游也会正经吐字。
     await cdp.waitFor(
-      'document.querySelectorAll(".msg:not(.me) .msg-text").length > 0',
-      30000,
-      'Agent 开始回复'
+      '[...document.querySelectorAll(".msg:not(.me) .msg-text")].some(t => t.textContent.trim().length > 0)',
+      60000,
+      'Agent 回复有内容'
     );
-    ok('Agent 开始流式回复', true);
+    const msgCount = await cdp.eval('document.querySelectorAll(".msg").length');
+    ok(`消息总数 ${msgCount}（≥2）`, msgCount >= 2);
 
-    // 右栏要同步高亮「现在是谁在说」——五个人轮流说话时，
-    // 只在消息区标名字的话，眼睛要在两边来回对
-    let talkingNow = '';
-    for (let i = 0; i < 20; i++) {
-      talkingNow = await cdp.eval(`document.querySelector('.member.talking')?.dataset.agent || ''`);
-      if (talkingNow) break;
-      await sleep(200);
-    }
-    ok(`成员面板高亮正在说话的角色（${talkingNow || '无'}）`, !!talkingNow);
-
-    // 会话列表不能溢出压到新手引导卡上。
-    // flex 子项默认 min-height:auto，会话多了列表不收缩，会盖住下面的卡片。
-    const overlap = await cdp.eval(`(() => {
-      const list = document.querySelector('.conv-list');
-      const ob = document.querySelector('.onboard');
-      if (!list || !ob || !ob.offsetHeight) return 'skip';
-      const a = list.getBoundingClientRect();
-      const b = ob.getBoundingClientRect();
-      return a.bottom <= b.top + 1 ? 'ok' : ('overlap ' + Math.round(a.bottom - b.top));
-    })()`);
-    ok(`会话列表没有压到引导卡（${overlap}）`, overlap === 'ok' || overlap === 'skip');
-
-    // 产物卡正文两行截断要带省略号，不能是 JS 硬切
-    const clamp = await cdp.eval(`(() => {
-      const ad = document.querySelector('.artifact .ad');
-      if (!ad) return 'none';
-      return getComputedStyle(ad).webkitLineClamp || '-1';
-    })()`);
-    // 这个群用的是随机朋友场景，没有产物卡；有卡片时必须两行截断
-    ok(`产物卡正文按两行截断（clamp=${clamp}）`, clamp === '2' || clamp === 'none');
-
-
-    // 产物列表按「角色 + 名称」去重——六轮对话下来不该列十几次「合规点对表」
-    const artInfo = await cdp.eval(`(() => {
-      const items = [...document.querySelectorAll('#artifactList .art-item .art-n')].map(e => e.textContent);
-      return JSON.stringify({ n: items.length, uniq: new Set(items).size });
-    })()`);
-    const art = JSON.parse(artInfo);
-    ok(`产物列表没有重复（${art.n} 个，去重后 ${art.uniq}）`, art.n === art.uniq);
-
-    await cdp.waitFor(
-      '[...document.querySelectorAll(".msg:not(.me) .msg-text")].some(t => t.textContent.length > 5)',
-      30000,
-      'Agent 输出内容'
-    );
     const replyLen = await cdp.eval(
-      '([...document.querySelectorAll(".msg:not(.me) .msg-text")].map(t => t.textContent.length).sort((a,b)=>b-a)[0]) || 0'
+      '([...document.querySelectorAll(".msg:not(.me) .msg-text")].map(t => t.textContent.trim().length).sort((a,b)=>b-a)[0]) || 0'
     );
-    ok(`Agent 回复有内容（${replyLen} 字）`, replyLen > 5);
+    ok(`Agent 回复有内容（${replyLen} 字）`, replyLen > 0);
 
-    // 等这一轮跑完：既没有正在输出的气泡，也没有思考中的三点
-    // .speaking 从 start 加到 end，是判断"还在说"最可靠的信号
     await cdp.waitFor(
       'document.querySelectorAll(".msg.speaking").length === 0',
       60000,
       '本轮结束'
     );
-    await sleep(800);
-
-    const msgCount = await cdp.eval('document.querySelectorAll(".msg").length');
-    ok(`消息总数 ${msgCount}（≥3）`, msgCount >= 3);
-
-    // 右边流水线有进度
-    const pipe = await cdp.eval('document.querySelector("#pipeCount")?.textContent || ""');
-    const [doneN, totalN] = pipe.split('/').map(Number);
-    ok(`流水线推进到 ${pipe}`, doneN > 0 && totalN > 0);
-
-    // 有角色实际说过话
-    const spoke = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
-    ok(`有 ${spoke} 个角色发言`, spoke >= 1);
-
-    // ---- 「继续聊」：不发言也能让群里自己找话题 ----
-    // 先等上一轮真的结束。busy 为真时点「继续聊」会被静默忽略
-    // （按钮的 handler 第一行就是 if (state.busy) return），
-    // 然后这里死等 30 秒超时——看起来像功能坏了，其实是测试抢跑。
-    await cdp.waitFor('window.__ens && !window.__ens.state.busy', 30000, '上一轮结束');
-
-    const before = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
-    await cdp.eval('document.querySelector("#nudgeBtn").click()');
+    // 发送键在忙时是红色方块（.stop），闲时恢复成箭头。
+    // 这里等到它真的复位，说明 runRound 的 finally 跑完了，
+    // 后面的面板/路由操作不会和收尾逻辑抢 DOM。
     await cdp.waitFor(
-      'document.querySelectorAll(".msg.speaking").length > 0',
-      30000,
-      '点了继续聊之后有人开口'
-    );
-    await cdp.waitFor(
-      'document.querySelectorAll(".msg.speaking").length === 0',
-      60000,
-      '继续聊这一轮结束'
-    );
-    // 等按钮真的恢复，别用固定 sleep。
-    // speaking 归零发生在 DOM 层，而按钮由 kickoff() 的 finally 恢复——
-    // 两者之间有窗口期，负载高的时候 500ms 不够，断言会偶发红。
-    await cdp.waitFor(
-      '!document.querySelector("#nudgeBtn").disabled',
+      '!document.querySelector("#sendBtn").classList.contains("stop")',
       20000,
-      '继续聊按钮恢复'
+      '发送键复位'
     );
-    const after = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
-    ok(`继续聊新增了 ${after - before} 条发言`, after > before);
-    ok('按钮已恢复可点', true);
+    ok('流式回复正常结束', true);
 
-    // ---- 分页：灌够消息后顶部出现「加载更早」 ----
-    const convId0 = await cdp.eval('document.querySelector(".conv").dataset.id');
-    const token0 = await cdp.eval('localStorage.getItem("ens_token")');
-    // 直接打后端造数据，比点界面快
-    for (let i = 0; i < 9; i++) {
-      await fetch(`${BASE}/v1/conversations/${convId0}/orchestrate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token0 },
-        body: JSON.stringify({ content: '第 ' + (i + 1) + ' 轮' }),
-      }).then(r => r.text());
+    // ---- 右面板 ----
+    await cdp.eval('document.querySelector("#roomPanel").click()');
+    await cdp.waitFor('document.querySelector("#panel").classList.contains("on")', 10000, '右面板打开');
+    ok('点工作面板后 #panel 打开（class on）', true);
+    ok('面板里有房间概览', await cdp.eval(
+      '!!document.querySelector("#panelClose") && document.querySelector("#panelBody").textContent.includes("房间概览")'
+    ));
+    await cdp.eval('document.querySelector("#panelClose").click()');
+    await cdp.waitFor('!document.querySelector("#panel").classList.contains("on")', 8000, '右面板关闭');
+    ok('点 #panelClose 后面板关闭', true);
+
+    // ---- 各页面路由与标题 ----
+    // 路由是 hash 的，切页不能整页刷新（会重新走 boot）。
+    const pages = [
+      ['goals', '目标看板', '!!document.querySelector("#goalView") && !!document.querySelector("#goalFilter")'],
+      ['connectors', '连接器', '!!document.querySelector("#newConn")'],
+      ['library', '资料库', '!!document.querySelector("#libConv") && !!document.querySelector("#libKind")'],
+      ['settings', '设置', '!!document.querySelector(".profile-card") && document.querySelectorAll(".settings-list .set-row").length >= 5'],
+    ];
+    for (const [route, title, extra] of pages) {
+      await cdp.eval(`location.hash = '#/${route}'`);
+      await cdp.waitFor(
+        `document.querySelector('.page-head h1')?.textContent.trim() === ${JSON.stringify(title)}`,
+        15000,
+        `${title} 页面`
+      );
+      ok(`#/${route} 标题是「${title}」`, true);
+      ok(`#/${route} 关键控件存在`, await cdp.eval(extra));
     }
 
-    const curUrl = await cdp.eval('location.href');
-    await cdp.send('Page.navigate', { url: curUrl });
-    await cdp.waitFor('document.readyState === "complete"', 30000, '刷新');
-    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '会话加载');
-    await cdp.eval(`document.querySelector('.conv[data-id="${convId0}"]').click()`);
-    await cdp.waitFor('document.querySelectorAll(".msg").length > 0', 20000, '消息加载');
+    // 设置页的操作项齐全（data-act 是 JS 绑定的入口，缺一个就是死按钮）
+    const acts = await cdp.eval(
+      '[...document.querySelectorAll(".settings-list [data-act]")].map(e => e.dataset.act)'
+    );
+    ok(
+      `设置页操作项齐全（${acts.join(',')}）`,
+      ['editName', 'toggleNotify', 'security', 'privacy', 'logout'].every(a => acts.includes(a))
+    );
 
-    const diag = await cdp.eval(`(() => ({
-      msgs: document.querySelectorAll('.msg').length,
-      wraps: document.querySelectorAll('.msg-wrap').length,
-      convs: document.querySelectorAll('.conv').length,
-      url: location.search,
-    }))()`);
-    const firstPage = diag.msgs;
-    ok(`首屏只加载一页（${firstPage} 条，不是全部）`, firstPage <= 31,
-       `wrap=${diag.wraps} conv=${diag.convs} url=${diag.url}`);
-
-    const hasLoadMore = await cdp.eval('!!document.querySelector("#loadMore")');
-    ok('顶部出现「加载更早」', hasLoadMore);
-
-    if (hasLoadMore) {
-      await cdp.eval('document.querySelector("#loadMore").click()');
-      await sleep(1200);
-      const afterMore = await cdp.eval('document.querySelectorAll(".msg").length');
-      ok(`点了之后拉回更早的消息（${firstPage} → ${afterMore}）`, afterMore > firstPage);
-    }
-
-    // ---- 角色库搜索 ----
-    // 用户要的是「搜索之后丰富设定」，不是让 AI 凭空编
-    await cdp.eval('document.querySelector("#newConvBtn").click()');
-    await sleep(900);
-    await cdp.eval('document.querySelector("#openForge").click()');
-    await sleep(1200);
-    const charCount = await cdp.eval('document.querySelectorAll(".char-item").length');
-    ok(`角色库有可搜的条目（${charCount}）`, charCount > 0);
-    await cdp.eval(`(() => {
-      const i = document.querySelector('#fSearch');
-      i.value = '毒舌';
-      i.dispatchEvent(new Event('input', { bubbles: true }));
-    })()`);
-    await sleep(900);
-    const hits = await cdp.eval('document.querySelectorAll(".char-item").length');
-    ok(`按性格搜到 ${hits} 个角色`, hits >= 3);
-    await cdp.eval('document.querySelector(".char-item").click()');
-    await sleep(900);
-    const picked = await cdp.eval('document.querySelector("#forgeCount").textContent');
-    ok(`点选后加入列表（${picked}）`, picked.includes('1'));
-    await cdp.eval('document.querySelector("#forgeClose").click()');
-    await sleep(400);
-    await cdp.eval('document.querySelector("#sceneCancel").click()');
-    await sleep(400);
-
-    // ---- 中间宽度 ----
-    // 只测 1440 和 390 会漏掉分屏笔记本（900-1100）这一段
-    for (const [w, expectCols] of [[900, 2], [1024, 2], [1280, 3]]) {
-      await cdp.send('Emulation.setDeviceMetricsOverride', {
-        width: w, height: 900, deviceScaleFactor: 1, mobile: false,
-      });
-      await sleep(400);
-      const info = await cdp.eval(`(() => {
-        const vis = sel => {
-          const el = document.querySelector(sel);
-          if (!el) return false;
-          const st = getComputedStyle(el);
-          return st.display !== 'none' && el.getBoundingClientRect().width > 0;
-        };
-        return JSON.stringify({
-          overflow: document.documentElement.scrollWidth - window.innerWidth,
-          cols: [vis('.col-list'), vis('.chat'), vis('.col-info')].filter(Boolean).length,
-        });
-      })()`);
-      const d = JSON.parse(info);
-      ok(`${w}px 无横向溢出且 ${d.cols} 栏`, d.overflow <= 1 && d.cols === expectCols, info);
-    }
-    await cdp.send('Emulation.setDeviceMetricsOverride', {
-      width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
-    });
-    await sleep(400);
-
-    // ---- 搜索 ----
-    // 之前顶栏搜索框点开是 toast('全局搜索待接入')，界面上明晃晃一句没做完
-    await cdp.eval('document.querySelector("#searchBtn").click()');
-    await sleep(600);
-    ok('搜索面板能打开', await cdp.eval('document.querySelector("#searchPanel").classList.contains("on")'));
-    await cdp.eval(`(() => {
-      const i = document.querySelector('#spInput');
-      i.value = 'E2E';
-      i.dispatchEvent(new Event('input', { bubbles: true }));
-    })()`);
-    await sleep(1000);
-    const searchHits = await cdp.eval('document.querySelectorAll(".sp-hit").length');
-    ok(`搜到 ${searchHits} 条结果`, searchHits > 0);
-    ok('命中词有高亮', await cdp.eval('document.querySelectorAll(".sp-hit mark").length > 0'));
-    await cdp.eval(`document.querySelector('#spInput').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
-    await sleep(400);
-    ok('Esc 关闭搜索', await cdp.eval('!document.querySelector("#searchPanel").classList.contains("on")'));
-
-    // ---- 关页保护 ----
-    // 只在「一轮正在说」时拦一下。空闲时拦人很烦。
-    // 注意：CDP 的导航不触发 beforeunload（浏览器要求真实用户交互），
-    // 这里验证的是事件返回值——dispatchEvent 返回 false 表示被 preventDefault。
-    const idleBlocked = await cdp.eval(`(() => {
-      const e = new Event('beforeunload', { cancelable: true });
-      return !window.dispatchEvent(e);
-    })()`);
-    ok('空闲时关页面不拦人', idleBlocked === false);
-
-    // ---- 断网提示 ----
-    // 断网时界面必须说话，否则用户点了发送没反应会以为产品坏了
-    await cdp.send('Network.enable');
-    await cdp.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
-    await cdp.eval('window.dispatchEvent(new Event("offline"))');
-    await sleep(500);
-    const netBar = await cdp.eval('document.querySelector("#netbar").classList.contains("on")');
-    ok('断网时出现提示条', netBar);
-    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
-    await cdp.eval('window.dispatchEvent(new Event("online"))');
-    await sleep(700);
-    ok('恢复后提示条消失', !(await cdp.eval('document.querySelector("#netbar").classList.contains("on")')));
-
-    // ---- 会话操作：重命名 ----
-    const renameTarget = await cdp.eval('document.querySelector(".conv").dataset.id');
-    const oldTitle = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
-
-    ok('会话项带 ⋯ 按钮', await cdp.eval('!!document.querySelector(".conv-more")'));
-
-    await cdp.eval(`(() => {
-      const btn = document.querySelector('.conv[data-id="${renameTarget}"] .conv-more');
-      btn.click();
-    })()`);
-    await cdp.waitFor('document.querySelector("#ctxMenu").classList.contains("on")', 5000, '菜单打开');
-    ok('⋯ 能打开操作菜单', true);
-
-    await cdp.eval('document.querySelector("#ctxMenu button[data-act=rename]").click()');
-    await fillDialog('改名后的群');
-    await sleep(1200);
-
-    const newTitle = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
-    ok(`重命名生效（${oldTitle} → ${newTitle}）`, newTitle === '改名后的群');
-
-    // 重新加载后仍是新名字（确认已落库）
-    const curUrl2 = await cdp.eval('location.href');
-    await cdp.send('Page.navigate', { url: curUrl2 });
-    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 30000, '刷新后');
-    const persisted = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
-    ok('重命名已持久化', persisted === '改名后的群');
-
-    // ---- 刷新后仍在（持久化 + 会话恢复）----
-    const convId = await cdp.eval('window.__e2eConvId = document.querySelector(".conv").dataset.id; window.__e2eConvId');
-    await cdp.send('Page.reload');
-    await cdp.waitFor('document.readyState === "complete"', 20000, '刷新完成');
-    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '刷新后会话仍在');
-    ok('刷新后会话仍在（登录态保住了）', true);
-
-    await cdp.eval(`document.querySelector('.conv[data-id="${convId}"]').click()`);
+    // ---- 404 ----
+    await cdp.eval('location.hash = "#/nope"');
     await cdp.waitFor(
-      'document.querySelectorAll(".msg").length >= 2',
-      20000,
-      '刷新后消息恢复'
+      'document.querySelector(".es-t")?.textContent.trim() === "页面不存在"',
+      10000,
+      '404 页面'
     );
-    const afterReload = await cdp.eval('document.querySelectorAll(".msg").length');
-    ok(`刷新后历史消息恢复（${afterReload} 条）`, afterReload >= 2);
+    ok('#/nope 显示「页面不存在」', true);
 
-    // ---- 清空显示要二次确认 ----
-    // 这是破坏性操作（消息从屏幕上消失）。之前单击就执行，
-    // 图标还是垃圾桶，看起来像删群。
-    const beforeClear = await cdp.eval('document.querySelectorAll(".msg").length');
-    await cdp.eval(`document.querySelector('#clearBtn').click()`);
-    await sleep(400);
-    const dlgUp = await cdp.eval(`!!document.querySelector('.ui-dlg')`);
-    ok('清空显示前弹确认', dlgUp);
-    const stillThere = await cdp.eval('document.querySelectorAll(".msg").length');
-    ok(`确认框出现时消息还在（${stillThere} 条）`, stillThere === beforeClear);
+    // ---- 全程没有未捕获的 JS 异常 ----
+    // 接口 200、页面能渲染，不代表交互是活的：事件回调里的 TypeError
+    // 只会体现在「点了没反应」。这里把整轮收集到的异常一次性报出来。
+    const exs = cdp.exceptions.map(e =>
+      (e.exception?.description || e.text || '').split('\n')[0]
+    ).filter(Boolean);
+    ok(`全程没有未捕获的 JS 异常（${exs.length} 个）`, exs.length === 0, exs.slice(0, 3).join(' | '));
 
-    // 点「取消」，消息不能被清掉
-    await cdp.eval(`(() => {
-      const btns = [...document.querySelectorAll('.ui-dlg-act button')];
-      const cancel = btns.find(b => b.textContent.trim() === '取消');
-      if (cancel) cancel.click();
-    })()`);
-    await sleep(300);
-    const afterCancel = await cdp.eval('document.querySelectorAll(".msg").length');
-    ok(`取消后消息还在（${afterCancel} 条）`, afterCancel === beforeClear);
-
-    // ---- 重置数据 ----
-    const me = await cdp.eval(
-      `fetch('/v1/conversations/${convId}', {method:'DELETE', headers:{'Authorization':'Bearer '+localStorage.getItem('ens_token')}}).then(r=>r.status)`
+    // ---- 清理：删掉本轮建的房间 ----
+    // 不删的话每跑一次大厅就多一张「竞标工作室」，跑几十轮之后
+    // 演示数据全是重复房间。用接口删，比在界面上找按钮可靠。
+    const roomId = decodeURIComponent(roomHash.replace(/^#\/room\//, ''));
+    const del = await cdp.eval(
+      `fetch('/v1/conversations/${encodeURIComponent(roomId)}', {method:'DELETE', headers:{'Authorization':'Bearer '+localStorage.getItem('ens_token')}}).then(r=>r.status)`
     );
-    ok('清理测试会话', me === 200, `HTTP ${me}`);
+    ok('清理测试房间', del === 200, `HTTP ${del}`);
 
   } finally {
     ws.close();

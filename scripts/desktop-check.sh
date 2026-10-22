@@ -22,22 +22,27 @@ fi
 
 cp -R "$SRC" "$APP"
 
+# 后端日志落在应用支持目录，重启会追加。按启动时间之后的行来找端口，
+# 避免读到上一次运行残留的记录（按字节偏移会撞上多字节 UTF-8 边界）。
+LOG="$HOME/Library/Application Support/智团/ensemble.log"
+mkdir -p "$(dirname "$LOG")"
+: >> "$LOG"
+SINCE=$(date '+%Y-%m-%dT%H:%M:%S')
+
 # 用 ASCII 名字的副本启动：中文路径不影响壳本身，但方便脚本引用。
 "$APP/Contents/MacOS/智团" > "$TMP/app.log" 2>&1 &
 APP_PID=$!
 
+# 端口不写死：壳会自己探 8080–8099，从启动日志的 "addr" 字段读实际值。
 PORT=""
-for i in $(seq 1 40); do
-  sleep 0.3
-  PORT=$(lsof -iTCP -sTCP:LISTEN -n -P -a -p "$APP_PID" 2>/dev/null | grep -oE ':(80[89][0-9])' | head -1 | tr -d ':')
-  if [ -z "$PORT" ]; then
-    # 后端是子进程，不在 app pid 下找，改为扫端口
-    PORT=$(lsof -iTCP -sTCP:LISTEN -n -P 2>/dev/null | grep -oE ':(80[89][0-9])' | head -1 | tr -d ':')
+for i in $(seq 1 60); do
+  sleep 0.4
+  CAND=$(grep -F "\"msg\":\"智团后端已启动\"" "$LOG" 2>/dev/null \
+    | tail -1 | grep -oE '"addr":":80[89][0-9]"' | grep -oE '80[89][0-9]')
+  if [ -n "$CAND" ] && curl -sf -o /dev/null "http://127.0.0.1:${CAND}/healthz"; then
+    PORT="$CAND"
+    break
   fi
-  if [ -n "$PORT" ]; then
-    if curl -sf -o /dev/null "http://127.0.0.1:${PORT}/healthz"; then break; fi
-  fi
-  PORT=""
 done
 
 if [ -z "$PORT" ]; then

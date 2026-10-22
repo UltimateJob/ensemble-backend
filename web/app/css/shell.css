@@ -123,9 +123,12 @@
   .page-head{flex-direction:column;align-items:stretch;gap:12px}
   .page-head h1{font-size:20px}
   .team-grid,.kanban{grid-template-columns:minmax(0,1fr)}
+  /* fixed + right:0 在有 grid 祖先时，静态位置仍会参与布局计算，
+     实测 left 会落在 10px 这种莫名其妙的位置。显式写死 right/left。 */
   .panel{
-    position:fixed;inset:0 0 0 auto;width:min(100%,var(--panel-w));
-    z-index:700;border-left:1px solid var(--line);
+    position:fixed;top:0;bottom:0;right:0;left:auto;
+    width:min(100%,var(--panel-w));z-index:700;
+    border-left:1px solid var(--line);
     box-shadow:var(--sh-pop);transform:translateX(100%);
     transition:transform var(--t);
   }

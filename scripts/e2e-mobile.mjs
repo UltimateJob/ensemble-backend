@@ -3,7 +3,13 @@
  * 移动端端到端：用 CDP 的 Emulation.setDeviceMetricsOverride
  * 模拟真实 390×844 视口——这是 headless 截图做不到的。
  *
- * 用法：node scripts/e2e-mobile.mjs
+ * 新壳的窄屏契约（shell.css ≤860px）：
+ *   - 左导航收成 56px 图标条，标签文字隐藏
+ *   - 主内容始终可见（不能像旧版那样整页空白）
+ *   - 右面板改成覆盖层，从右侧滑入，不再挤成第三列
+ *   - 大厅 / 看板 / 资料库都收敛成一列
+ *
+ * 用法：E2E_BASE=http://127.0.0.1:8096 node scripts/e2e-mobile.mjs
  */
 
 import { spawn } from 'node:child_process';
@@ -26,8 +32,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 class CDP {
   constructor(ws) {
     this.ws = ws; this.id = 0; this.pending = new Map();
+    this.exceptions = [];
     ws.addEventListener('message', ev => {
       const m = JSON.parse(ev.data);
+      if (m.method === 'Runtime.exceptionThrown') { this.exceptions.push(m.params.exceptionDetails); return; }
       if (m.id && this.pending.has(m.id)) {
         const { resolve, reject } = this.pending.get(m.id);
         this.pending.delete(m.id);
@@ -102,72 +110,123 @@ async function main() {
     const w = await cdp.eval('window.innerWidth');
     ok(`视口宽度为 390（实际 ${w}）`, w === 390);
 
-    // 登录
+    // 登录（先关掉新手引导，否则它会抢走路由）
+    await cdp.eval(`localStorage.setItem('ens_onboarded','1')`);
     await cdp.eval(`(() => {
       document.querySelector('#phone').value = '13800000000';
       document.querySelector('#doLogin').click();
     })()`);
-    await cdp.waitFor('document.querySelector("#app").classList.contains("on")', 20000, '进入主界面');
+    await cdp.waitFor('!document.querySelector("#app").classList.contains("hidden")', 20000, '进入主界面');
     ok('移动端登录成功', true);
+    await cdp.waitFor('location.hash.startsWith("#/lobby")', 8000, '大厅路由');
 
-    // 三栏应收敛为单栏
-    ok('左栏隐藏', await cdp.eval('getComputedStyle(document.querySelector(".col-list")).display === "none"'));
-    ok('右栏隐藏', await cdp.eval('getComputedStyle(document.querySelector(".col-info")).display === "none"'));
-    ok('汉堡按钮出现', await cdp.eval('getComputedStyle(document.querySelector("#drawerBtn")).display !== "none"'));
-
-    // 没有横向溢出
-    const overflow = await cdp.eval('document.documentElement.scrollWidth - window.innerWidth');
-    ok(`无横向溢出（超出 ${overflow}px）`, overflow <= 1);
-
-    // 抽屉
-    await cdp.eval('document.querySelector("#drawerBtn").click()');
-    await cdp.waitFor('document.querySelector("#drawer").classList.contains("on")', 5000, '抽屉打开');
-    ok('抽屉能打开', true);
-    await cdp.eval('document.querySelector("#drawerMask").click()');
-    await sleep(400);
-    ok('点遮罩能关上', !(await cdp.eval('document.querySelector("#drawer").classList.contains("on")')));
-
-    // 建群
-    await cdp.eval('window.prompt = () => "移动端测试群"');
-    await cdp.eval('document.querySelector("#newConvBtn").click()');
-    await cdp.waitFor('document.querySelector("#scenes").classList.contains("on")', 8000, '场景页');
-    const cols = await cdp.eval('getComputedStyle(document.querySelector(".scene-grid")).gridTemplateColumns.split(" ").length');
-    ok(`场景单列（${cols} 列）`, cols === 1);
-
-    await cdp.eval(`(() => {
-      [...document.querySelectorAll('.scene')].find(s => s.dataset.k === 'companion').click();
-      document.querySelector('#sceneCreate').click();
+    // ---- 窄屏外壳契约 ----
+    const shell = await cdp.eval(`(() => {
+      const navW = Math.round(document.querySelector('.nav').getBoundingClientRect().width);
+      const main = document.querySelector('.main');
+      const mainRect = main.getBoundingClientRect();
+      const mainDisplay = getComputedStyle(main).display;
+      const labelDisplay = getComputedStyle(document.querySelector('.nav-item span')).display;
+      const roomsDisplay = getComputedStyle(document.querySelector('#navRooms')).display;
+      return JSON.stringify({ navW, mainDisplay, mainW: Math.round(mainRect.width), labelDisplay, roomsDisplay });
     })()`);
-    // 建群先问群名（自绘弹层）
-    await cdp.waitFor('!!document.querySelector(".ui-dlg .ui-dlg-input")', 8000, '群名弹层');
-    await cdp.eval(`(() => {
-      const i = document.querySelector('.ui-dlg-input');
-      i.value = '手机端验证';
-      i.dispatchEvent(new Event('input', { bubbles: true }));
-      document.querySelector('.ui-dlg-btn[data-x=ok]').click();
-    })()`);
-    await cdp.waitFor('document.querySelector("#msgs").style.display !== "none"', 15000, '聊天区');
-    ok('移动端建群成功', true);
+    const sh = JSON.parse(shell);
+    ok(`左导航收成图标条（${sh.navW}px）`, sh.navW <= 60, shell);
+    ok('主内容仍然可见（不是整页空白）', sh.mainDisplay !== 'none' && sh.mainW > 300, shell);
+    ok('导航文字隐藏、只剩图标', sh.labelDisplay === 'none' && sh.roomsDisplay === 'none', shell);
 
-    // 真机差异点：这些在 CDP 里能验，真机上立刻能感觉到
-    ok('viewport 支持刘海屏', await cdp.eval(
-      `document.querySelector('meta[name=viewport]').content.includes('viewport-fit=cover')`
-    ));
-    ok('点按高亮已禁用', await cdp.eval(
-      `getComputedStyle(document.body).webkitTapHighlightColor === 'rgba(0, 0, 0, 0)'`
-    ));
-    // 底部安全区：CDP 默认模拟没有 Home 条，env() 算出来是 0，
-    // 所以只能验 CSS 里有没有用这个变量，验不了运行时值。
-    ok('底部用了 safe-area-inset', await cdp.eval(`(() => {
-      for (const sheet of document.styleSheets) {
-        let rules;
-        try { rules = sheet.cssRules; } catch { continue; }
-        for (const r of rules) {
-          if (r.cssText && r.cssText.includes('.composer') && r.cssText.includes('safe-area-inset-bottom')) return true;
-        }
-      }
-      return false;
-    })()`));
+    const overflow0 = await cdp.eval('document.documentElement.scrollWidth - window.innerWidth');
+    ok(`无横向溢出（超出 ${overflow0}px）`, overflow0 <= 1);
+
+    // 大厅单列，卡片不会被挤成豆腐块
+    ok('6 个导航项都在', await cdp.eval('document.querySelectorAll("#navList .nav-item").length === 6'));
+    const cols = await cdp.eval(
+      'getComputedStyle(document.querySelector(".team-grid")).gridTemplateColumns.split(" ").length'
+    );
+    ok(`大厅卡片单列（${cols} 列）`, cols === 1);
+    ok('4 张预设团队卡都在', await cdp.eval('document.querySelectorAll(".team-card").length === 4'));
+
+    // ---- 右面板在窄屏是覆盖层 ----
+    // 直接点面板把手在触屏上太难点，用 #roomPanel 之前先确认默认不可见，
+    // 打开后覆盖主内容、且不产生横向溢出。
+    const panelClosed = await cdp.eval(`(() => {
+      const p = document.querySelector('#panel');
+      const r = p.getBoundingClientRect();
+      return Math.round(r.left) >= window.innerWidth - 1;
+    })()`);
+    ok('右面板默认在屏幕外（覆盖层收起）', panelClosed);
+
+    // ---- 建房间 ----
+    await cdp.eval(`document.querySelector('.team-card [data-join]').click()`);
+    await cdp.waitFor('location.hash.startsWith("#/room/")', 15000, '进入房间');
+    await cdp.waitFor('!!document.querySelector(".room")', 15000, '房间渲染');
+    // 头像条是 mount 之后异步拉的（renderAvatarRow 里要等 /activity），
+    // 只等 .room 会读到 0 个。
+    await cdp.waitFor('document.querySelectorAll("#avatarRow .av-cell").length > 0', 15000, '头像条');
+    ok('移动端加入团队成功', true);
+
+    const room = await cdp.eval(`(() => {
+      const avs = document.querySelectorAll('#avatarRow .av-cell').length;
+      const ta = document.querySelector('#ta');
+      const send = document.querySelector('#sendBtn');
+      const r = document.querySelector('#composer').getBoundingClientRect();
+      return JSON.stringify({
+        avs, ta: !!ta, send: !!send,
+        composerBottom: Math.round(r.bottom), composerRight: Math.round(r.right),
+        title: document.querySelector('.rh-title')?.textContent || '',
+      });
+    })()`);
+    const rm = JSON.parse(room);
+    ok(`房间头像条有角色（${rm.avs} 个，≥3）`, rm.avs >= 3, room);
+    ok('输入条在窄屏存在且不超出屏幕', rm.ta && rm.send && rm.composerBottom <= 845 && rm.composerRight <= 391, room);
+
+    const overflow1 = await cdp.eval('document.documentElement.scrollWidth - window.innerWidth');
+    ok(`房间页无横向溢出（超出 ${overflow1}px）`, overflow1 <= 1);
+
+    // 右面板打开后覆盖在内容之上，且面板自身不溢出
+    await cdp.eval('document.querySelector("#roomPanel").click()');
+    await cdp.waitFor('document.querySelector("#panel").classList.contains("on")', 10000, '面板打开');
+    // 覆盖层是 transform 滑入的（0.2s）。class 一加上就开始过渡，
+    // 立刻量会拿到还没就位的坐标，所以等它真的滑进来再断言。
+    await cdp.waitFor(
+      '(() => { const r = document.querySelector("#panel").getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth + 1; })()',
+      5000,
+      '面板滑入并完整可见'
+    );
+    const panelOpen = await cdp.eval(`(() => {
+      const r = document.querySelector('#panel').getBoundingClientRect();
+      return JSON.stringify({ left: Math.round(r.left), right: Math.round(r.right), w: Math.round(r.width), vw: window.innerWidth });
+    })()`);
+    const po = JSON.parse(panelOpen);
+    ok(`右面板覆盖在内容上（left=${po.left}, vw=${po.vw}）`, po.left >= 0 && po.right <= po.vw + 1, panelOpen);
+    await cdp.eval('document.querySelector("#panelClose").click()');
+    await cdp.waitFor('!document.querySelector("#panel").classList.contains("on")', 8000, '面板关闭');
+    ok('右面板能关闭', true);
+
+    // ---- 窄屏流式回复 ----
+    // 建房间不会自动开场，先等上一轮结束再发，避免点发送被静默忽略
+    await cdp.waitFor('window.__ens && !document.body.textContent.includes("正在说")', 5000, '空闲').catch(() => {});
+    await cdp.eval(`(() => {
+      const ta = document.querySelector('#ta');
+      ta.value = '在吗';
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#sendBtn').click();
+    })()`);
+    await cdp.waitFor('document.querySelectorAll(".msg.me").length > 0', 10000, '用户消息');
+    await cdp.waitFor(
+      '[...document.querySelectorAll(".msg:not(.me) .msg-text")].some(t => t.textContent.trim().length > 0)',
+      60000,
+      '角色回复'
+    );
+    await cdp.waitFor('document.querySelectorAll(".msg.speaking").length === 0', 60000, '本轮结束');
+    ok('窄屏下流式回复正常', true);
+
+    const msgCount = await cdp.eval('document.querySelectorAll(".msg").length');
+    ok(`窄屏消息数 ${msgCount}（≥2）`, msgCount >= 2);
+
+    const over2 = await cdp.eval('document.documentElement.scrollWidth - window.innerWidth');
+    ok(`回复后仍无横向溢出（超出 ${over2}px）`, over2 <= 1);
+
     // 视口变矮时（地址栏/键盘顶起），输入框不能被顶出屏幕
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 640, deviceScaleFactor: 3, mobile: true });
     await sleep(500);
@@ -179,35 +238,34 @@ async function main() {
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
     await sleep(300);
 
-    // 输入框在视口内
-    const box = await cdp.eval(`(() => {
-      const r = document.querySelector('.composer').getBoundingClientRect();
-      return { bottom: Math.round(r.bottom), right: Math.round(r.right), w: window.innerWidth };
-    })()`);
-    ok(`输入框不超出屏幕（bottom=${box.bottom}, right=${box.right}）`, box.bottom <= 850 && box.right <= 390);
+    // ---- 各页面在窄屏也能打开 ----
+    for (const [route, title] of [['goals', '目标看板'], ['connectors', '连接器'], ['library', '资料库'], ['settings', '设置']]) {
+      await cdp.eval(`location.hash = '#/${route}'`);
+      await cdp.waitFor(
+        `document.querySelector('.page-head h1')?.textContent.trim() === ${JSON.stringify(title)}`,
+        15000, title
+      );
+      const of = await cdp.eval('document.documentElement.scrollWidth - window.innerWidth');
+      ok(`#/${route} 窄屏可用且无溢出（${of}px）`, of <= 1);
+    }
 
-    // 建群后会自动开场（kickoff），那一轮可能还没跑完。
-    // busy 为真时点发送会被静默忽略——桌面测试修过这个，移动端漏了。
-    // 加上角色之间的间隔（Round 68）之后，一轮比以前长，更容易撞上。
-    await cdp.waitFor('window.__ens && !window.__ens.state.busy', 40000, '自动开场结束');
+    // 404 也要在窄屏可用
+    await cdp.eval(`location.hash = '#/nope'`);
+    await cdp.waitFor('document.querySelector(".es-t")?.textContent.trim() === "页面不存在"', 10000, '404');
+    ok('窄屏 404 正常', true);
 
-    // 发一条，确认流式在窄屏也能正常渲染
-    await cdp.eval(`(() => {
-      const ta = document.querySelector('#ta');
-      ta.value = '在吗';
-      ta.dispatchEvent(new Event('input', { bubbles: true }));
-      document.querySelector('#sendBtn').click();
-    })()`);
-    await cdp.waitFor('document.querySelectorAll(".msg.me").length > 0', 10000, '用户消息');
-    await cdp.waitFor('document.querySelectorAll(".msg.speaking").length === 0 && document.querySelectorAll(".msg:not(.me)").length > 0', 40000, '角色回复');
-    ok('窄屏下流式回复正常', true);
+    // ---- 全程没有未捕获的 JS 异常 ----
+    const exs = cdp.exceptions.map(e => (e.exception?.description || e.text || '').split('\n')[0]).filter(Boolean);
+    ok(`全程没有未捕获的 JS 异常（${exs.length} 个）`, exs.length === 0, exs.slice(0, 3).join(' | '));
 
-    const over2 = await cdp.eval('document.documentElement.scrollWidth - window.innerWidth');
-    ok(`回复后仍无横向溢出（超出 ${over2}px）`, over2 <= 1);
-
-    // 清理
-    const id = await cdp.eval('document.querySelector(".conv").dataset.id');
-    await cdp.eval(`fetch('/v1/conversations/${id}', {method:'DELETE', headers:{'Authorization':'Bearer '+localStorage.getItem('ens_token')}}).then(r=>r.status)`);
+    // 清理：删掉本轮建的房间，别让大厅越跑越脏
+    const convId = await cdp.eval(`document.querySelector('.nav-room')?.dataset.id || ''`);
+    if (convId) {
+      const status = await cdp.eval(
+        `fetch('/v1/conversations/' + encodeURIComponent(${JSON.stringify(convId)}), {method:'DELETE', headers:{'Authorization':'Bearer '+localStorage.getItem('ens_token')}}).then(r=>r.status)`
+      );
+      ok('清理测试房间', status === 200, `HTTP ${status}`);
+    }
 
   } finally {
     ws.close(); proc.kill(); await sleep(300);

@@ -136,6 +136,12 @@ async function save(mask) {
     document.dispatchEvent(new CustomEvent('conv:change'));
     toast('团队已创建', { type: 'ok' });
     navigate('#/room/' + encodeURIComponent(conv.id));
+    // 与大厅一致：新群进来就先聊起来
+    setTimeout(async () => {
+      if (state.cur?.id !== conv.id) return;
+      const { kickoff } = await import('../js/chat.js');
+      kickoff(conv.id);
+    }, 600);
     return true;
   } catch (e) {
     toast('创建失败：' + e.message, { type: 'err' });

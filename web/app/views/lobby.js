@@ -141,6 +141,13 @@ async function join(key, btn) {
     state.convs = await api('/v1/conversations');
     document.dispatchEvent(new CustomEvent('conv:change'));
     navigate('#/room/' + encodeURIComponent(conv.id));
+    // 建完就让角色自己聊起来：进来时群里是活的，而不是一间静音的空房。
+    // 延迟到房间挂载完成后再开场，否则 kickoff 找不到会话状态。
+    setTimeout(async () => {
+      if (state.cur?.id !== conv.id) return;
+      const { kickoff } = await import('../js/chat.js');
+      kickoff(conv.id);
+    }, 600);
   } catch (e) {
     toast('加入失败：' + e.message, { type: 'err' });
     btn.disabled = false;
