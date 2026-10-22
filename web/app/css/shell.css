@@ -10,6 +10,12 @@
   transition:grid-template-columns var(--t);
 }
 
+/* 面板打开时把第三列让出来。重写时漏了这条，
+   面板有内容却没有宽度，看起来像「点了没反应」。 */
+.app.panel-open{
+  grid-template-columns:var(--nav-w) minmax(0,1fr) var(--panel-w);
+}
+
 /* ---------------- 左导航 ---------------- */
 .nav{
   display:flex;flex-direction:column;min-height:0;
@@ -26,8 +32,8 @@
 }
 .nav-logo{
   width:34px;height:34px;display:block;border-radius:10px;
-  background:var(--sheet);
-  box-shadow:0 1px 3px rgba(23,23,26,.10),0 4px 12px -4px rgba(23,23,26,.14);
+  /* logo 自己带了发丝线与圆角，这里只补一层很轻的投影让它离开纸面 */
+  box-shadow:0 1px 3px rgba(74,62,44,.12),0 6px 16px -8px rgba(74,62,44,.28);
   transition:transform var(--t) var(--spring-bounce);
 }
 .nav-brand:hover .nav-logo{transform:scale(1.06) rotate(-4deg)}

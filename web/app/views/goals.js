@@ -107,12 +107,28 @@ function render() {
       </header>
       ${list.length
         ? (view === 'kanban' ? kanban(list) : listView(list))
-        : emptyState({
-            icon: 'trending-up',
-            title: '暂无进行中的团队目标',
-            sub: '建一个目标，把角色和任务挂上去',
-            action: '<button class="btn btn-primary" id="emptyGoal">新建团队目标</button>',
-          })}
+        : `<div class="goal-empty">
+            <div class="ge-head">
+              <div class="es-ic">${icon('trending-up', 22)}</div>
+              <h3>还没有目标</h3>
+              <p>目标把「谁在做什么」和真实执行记录连起来——进度不是手填的，是从任务里长出来的。</p>
+              <button class="btn btn-primary" id="emptyGoal">新建第一个目标</button>
+            </div>
+            <div class="ge-examples">
+              <div class="ge-label">或者从一个例子开始</div>
+              <div class="ge-grid">
+                ${[
+                  ['交付一份投标文件', '读招标 → 出点对表 → 写技术应答'],
+                  ['做一篇种草笔记', '选题 → 脚本 → 正文 → 配图'],
+                  ['上线登录模块', '定接口 → 写实现 → 跑测试'],
+                ].map(([t, d]) => `
+                  <button class="ge-card" data-seed-goal="${esc(t)}">
+                    <span class="ge-t">${esc(t)}</span>
+                    <span class="ge-d">${esc(d)}</span>
+                  </button>`).join('')}
+              </div>
+            </div>
+          </div>`}
     </div>`;
   hydrateIcons(root);
   root.querySelectorAll('.kb-body').forEach(b => stagger(b, 35, 220));
@@ -126,8 +142,11 @@ function bind() {
   root.querySelectorAll('#goalView button').forEach(b => {
     b.addEventListener('click', () => { view = b.dataset.v; render(); });
   });
-  root.querySelector('#newGoal')?.addEventListener('click', newGoal);
-  root.querySelector('#emptyGoal')?.addEventListener('click', newGoal);
+  root.querySelector('#newGoal')?.addEventListener('click', () => newGoal());
+  root.querySelector('#emptyGoal')?.addEventListener('click', () => newGoal());
+  root.querySelectorAll('[data-seed-goal]').forEach(b => {
+    b.addEventListener('click', () => newGoal(b.dataset.seedGoal));
+  });
 
   root.querySelectorAll('.goal-card,.goal-row').forEach(el => {
     el.addEventListener('click', () => openDetail(el.dataset.id));
@@ -177,7 +196,7 @@ async function patch(id, body) {
   }
 }
 
-function newGoal() {
+function newGoal(presetTitle = '') {
   openPanel({
     title: '新建目标',
     subtitle: '创建后落在「待规划」列',

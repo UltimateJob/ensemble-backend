@@ -51,14 +51,18 @@ export function renderNavFoot(user) {
   const box = $('#navFoot');
   if (!box) return;
   const name = user?.name || '未登录';
+  const plan = user?.plan === 'pro' ? 'Pro' : user?.plan === 'team' ? 'Team' : '免费版';
+  const left = user?.quota != null && user?.used != null ? user.quota - user.used : null;
+  // 显示额度而不是「free」：free 是内部枚举值，对用户没有信息量。
+  const sub = left != null ? `${plan} · 剩 ${left} 次` : plan;
   box.innerHTML = `
     <button class="nav-user" id="navUser" title="${esc(name)}">
-      <span class="av av--fallback" style="width:28px;height:28px;background:linear-gradient(140deg,#367BED,#2A6ADC)">
-        <b style="font-size:12px">${esc(name.slice(0, 1))}</b>
+      <span class="av av--fallback" style="width:30px;height:30px;background:linear-gradient(150deg,#DCD6CB,#CDC5B7)">
+        <b style="font-size:13px;color:#5A5145">${esc([...name][0] || '?')}</b>
       </span>
       <span class="nav-user-body">
         <span class="nav-user-name">${esc(name)}</span>
-        <span class="nav-user-sub">${esc(user?.plan || 'free')}</span>
+        <span class="nav-user-sub">${esc(sub)}</span>
       </span>
     </button>`;
   box.querySelector('#navUser').addEventListener('click', () => { location.hash = '#/settings'; });

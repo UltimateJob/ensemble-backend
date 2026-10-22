@@ -48,6 +48,7 @@ function presetCard(sc) {
     </div>
     <div class="team-foot">
       <button class="btn btn-primary" data-join="${esc(sc.key)}">加入团队</button>
+      <span class="tf-hint">${agents.length || 0} 个角色</span>
     </div>
   </article>`;
 }

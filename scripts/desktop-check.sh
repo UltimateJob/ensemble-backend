@@ -63,8 +63,8 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/app/css/
 echo "  /app/css/tokens.css → $code"
 [ "$code" = "200" ] || { echo "✗ 静态资源没打进包"; exit 1; }
 
-code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/site/brand/logo.png")
-echo "  /site/brand/logo.png → $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/site/brand/logo-mark.png")
+echo "  /site/brand/logo-mark.png → $code"
 [ "$code" = "200" ] || { echo "✗ 品牌资源没打进包"; exit 1; }
 
 if grep -q "静态资源目录未找到" "$HOME/Library/Application Support/纸团/ensemble.log" 2>/dev/null; then

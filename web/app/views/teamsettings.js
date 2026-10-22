@@ -17,8 +17,11 @@ export function openTeamSettings(conv) {
     title: '团队设置',
     subtitle: conv.title,
     render: el => {
-      const coverKey = localStorage.getItem('ens_cover_' + conv.id) || '';
-      const coverSrc = coverKey ? coverUrl(coverKey) : null;
+      // 用户选过就用选的；没选过按团队类型找默认封面；
+      // 都没有才回退首字头像（企业级产品不该一上来就是大色块）。
+      const picked = localStorage.getItem('ens_cover_' + conv.id) || '';
+      const coverKey = picked || conv.studio || '';
+      const coverSrc = coverUrl(coverKey);
 
       el.innerHTML = `
         <div class="ts-cover">

@@ -17,6 +17,15 @@ const KIND = {
   webhook: { label: 'Webhook', ic: 'share-2', fields: ['url', 'secret'], configKeys: ['url'] },
 };
 
+// 空态里每个服务的一句话用途，比「暂未绑定」有用得多。
+const DESC = {
+  feishu: '读文档、写纪要',
+  notion: '同步知识库页面',
+  github: '看代码、提 PR',
+  calendar: '查空闲、排会议',
+  webhook: '把结果推给你的系统',
+};
+
 // 字段名保持原样（要和后端对得上），只在界面上给一个中文说明。
 const FIELD_LABEL = {
   appId: 'App ID',
@@ -99,20 +108,29 @@ function render() {
       </header>
       <section class="sec">
         <h2 class="sec-h">团队公共连接器</h2>
-        ${team.length ? team.map(row).join('') : emptyState({
-          icon: 'share-2',
-          title: '暂未绑定任何第三方服务',
-          sub: '团队公共连接器对所有成员可见',
-          action: '<button class="btn btn-primary" id="emptyTeamConn">立即绑定</button>',
-        })}
+        ${team.length ? team.map(row).join('') : `
+          <div class="conn-suggest">
+            <div class="cs-lead">接上一个服务，Agent 就能读到真实数据、把结果写回去。</div>
+            <div class="cs-grid">
+              ${Object.entries(KIND).map(([k, v]) => `
+                <button class="cs-card" data-quick="${k}">
+                  <span class="cs-ic">${icon(v.ic, 20)}</span>
+                  <span class="cs-body">
+                    <span class="cs-n">${esc(v.label)}</span>
+                    <span class="cs-d">${esc(DESC[k] || '')}</span>
+                  </span>
+                  <span class="cs-go">${icon('chevron-right', 15)}</span>
+                </button>`).join('')}
+            </div>
+          </div>`}
       </section>
       <section class="sec">
         <h2 class="sec-h">我的私有连接器</h2>
-        ${mine.length ? mine.map(row).join('') : emptyState({
-          icon: 'share-2',
-          title: '还没有私有连接器',
-          sub: '私有连接器只有你自己能用',
-        })}
+        ${mine.length ? mine.map(row).join('') : `
+          <div class="conn-empty-mini">
+            ${icon('lock', 15)}
+            <span>私有连接器只有你自己能用，团队其他成员看不到。</span>
+          </div>`}
       </section>
     </div>`;
   hydrateIcons(root);
@@ -225,7 +243,7 @@ function openPermission(c) {
   });
 }
 
-function addConn() {
+function addConn(presetKind) {
   openPanel({
     title: '添加连接器',
     subtitle: '凭据加密保存，不会明文返回',

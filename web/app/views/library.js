@@ -95,11 +95,23 @@ function render() {
         ? skeleton('card', 6)
         : list.length
           ? `<div class="lib-grid">${list.map(card).join('')}</div>`
-          : emptyState({
-              icon: 'book-open',
-              title: '暂无团队产出文件',
-              sub: 'AI 团队生成的标书、代码、文案会自动归档到这里',
-            })}
+          : (state.convs?.length
+              ? `<div class="lib-empty">
+                  <div class="es-ic">${icon('book-open', 22)}</div>
+                  <h3>还没有产出</h3>
+                  <p>角色每完成一次任务，产出的标书、文案、代码会自动归档到这里，可以随时回来找。</p>
+                  <a class="btn btn-primary" href="#/lobby">去团队大厅派个活</a>
+                  <div class="lib-empty-list">
+                    ${['投标包 · 由「交付」生成', '技术应答 · 由「撰写」生成', '合规点对表 · 由「查证」生成']
+                      .map(t => `<span class="lib-empty-chip">${icon('file-text', 13)}${esc(t)}</span>`).join('')}
+                  </div>
+                </div>`
+              : emptyState({
+                  icon: 'book-open',
+                  title: '还没有团队，也就没有产出',
+                  sub: '先建一个团队，让他们真的动手做点东西',
+                  action: '<a class="btn btn-primary" href="#/lobby">去团队大厅</a>',
+                }))}
     </div>`;
 
   stagger(root.querySelector('.lib-grid'));
