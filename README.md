@@ -1,6 +1,6 @@
-# 智团 TeamWise
+# 纸团
 
-> 五个 Agent，一个智团。
+> 五个 Agent，一个纸团。
 
 **1.1.1** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
 
@@ -21,7 +21,7 @@ DEEPSEEK_API_KEY=sk-你的key ./scripts/dev.sh
 
 ```
 → 上游：DeepSeek (deepseek-chat)
-{"msg":"智团后端已启动", ..., "mock":false}
+{"msg":"纸团后端已启动", ..., "mock":false}
 ```
 
 没有 `mock:false`、或者顶栏有橙色「演示」标记，就是还在用预置台词。
@@ -380,8 +380,8 @@ type Provider interface {
 ## 原生桌面端
 
 ```bash
-./desktop/build.sh          # 产出 desktop/build/智团.app
-open desktop/build/智团.app
+./desktop/build.sh          # 产出 desktop/build/纸团.app
+open desktop/build/纸团.app
 ```
 
 WKWebView 包一层原生壳（约 200KB，不是 Electron）：原生菜单、⌘O 目录选择器、后端没起来时自动拉起。
@@ -608,9 +608,9 @@ node scripts/walk.mjs
 
 标签页和任务栏是用户随时在看的地方。
 
-- 未选群：`智团 TeamWise`
-- 打开群：`华东医院数据中心投标 · 智团`
-- 正在编排：`● 华东医院数据中心投标 · 智团`
+- 未选群：`纸团`
+- 打开群：`华东医院数据中心投标 · 纸团`
+- 正在编排：`● 华东医院数据中心投标 · 纸团`
 
 开了几个标签页时，一眼能分清哪个是哪个；切到别的窗口再回来，也能看出是否有新内容。
 

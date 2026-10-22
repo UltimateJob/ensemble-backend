@@ -122,7 +122,7 @@ python3 scripts/collab_demo.py --case demo --root /tmp/ws3 --selfreview --task "
 ## 11. 界面
 
 ```bash
-open desktop/build/智团.app          # 原生窗口
+open desktop/build/纸团.app          # 原生窗口
 # 或浏览器 http://localhost:8080/app/ → 点顶栏 </> 打开工作室
 ```
 

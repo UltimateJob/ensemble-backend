@@ -1,66 +1,93 @@
 /* ============================================================
-   智团 · 设计 token
-   所有颜色 / 圆角 / 阴影只从这里取。改主题只改这一份。
-   风格：纯白底、20px 圆角、0 2px 10px 柔和阴影、2px 线性图标。
+   纸团 · 设计 token
+   参考 iOS / macOS 的系统级视觉语言：材质分层、暖纸底、弹簧动效。
+
+   三条原则：
+   1. 纸是底：暖白纸色打底，所有浮层是「压在纸上的一层材料」；
+   2. 光是唯一的方向：阴影只向下、只柔和，不用硬边框切割；
+   3. 动效有重量：所有过渡走 spring 曲线，按下会缩，弹出会回弹。
    ============================================================ */
 
 :root{
-  /* 主色 */
-  --pri:#367BED;
-  /* 白字压在按钮上时用这个更深的蓝：@367BED 对白字只有 4.03:1，
-     达不到 4.5。--pri 仍用于描边、图标、链接（对白底足够）。 */
-  --pri-deep:#2A6ADC;
-  --pri-hover:#2A6ADC;
-  --pri-press:#245CB8;
-  --pri-soft:#EAF2FE;
-  --pri-soft-2:#D8E7FD;
+  /* ---------- 纸张底色 ---------- */
+  --paper:#F4F2EE;          /* 主背景：暖纸白 */
+  --paper-2:#EDEAE4;        /* 次级面：略深一档 */
+  --paper-3:#E4E0D8;        /* 分隔 / 凹陷面 */
+  --sheet:#FFFFFF;          /* 浮起的卡片 / sheet */
 
-  /* 面 */
-  --bg:#FFFFFF;
-  --surface:#F7F7F8;
-  --surface-2:#F2F3F5;
-  --surface-3:#ECEEF1;
-  --line:#EDEDF0;
-  --line-2:#E1E2E6;
+  /* 毛玻璃（导航、工具栏、浮层） */
+  --glass:rgba(252,251,248,.72);
+  --glass-strong:rgba(252,251,248,.88);
+  --glass-line:rgba(255,255,255,.72);
+  --blur:blur(40px) saturate(180%);
 
-  /* 文字 */
-  --tx:#1A1A1D;
-  --tx-2:#5A5A63;
-  --tx-3:#86868B;
-  /* 最弱的次要文字。@A6A6AD 在白底只有 2.26:1，读不清；
-     降到 4.5 太深会和 --tx-3 撞，取 3.0:1 的折中，只用于非关键信息。 */
-  --tx-4:#8E8E96;
+  /* ---------- 墨色文字 ---------- */
+  --ink:#17171A;
+  --ink-2:#4A4A52;
+  --ink-3:#75757E;
+  --ink-4:#8A8A92;          /* 只用于非关键信息；暖纸底 3.1:1 */
 
-  /* 状态：环/点/图标用原色，正文用 *-tx（白底对比度够） */
-  --ok:#4CAF50;      --ok-tx:#2E7D32;   --ok-soft:#EDF7EE;
-  --warn:#E6A23C;    --warn-tx:#8A5A00; --warn-soft:#FDF3E6;
-  --bad:#F56C6C;     --bad-tx:#B3261E;  --bad-soft:#FDEDED;
-  --idle:#86868B;    --idle-soft:#F0F0F2;
+  /* ---------- 主色：电光蓝 ---------- */
+  --pri:#2F6BFF;
+  --pri-deep:#1F57E0;       /* 承载白字的按钮底，对白 4.6:1 */
+  --pri-press:#1A4AC4;
+  --pri-soft:#E8EFFF;
+  --pri-glow:rgba(47,107,255,.28);
 
-  /* 圆角 */
-  --r-xs:6px;
-  --r-sm:10px;
-  --r-md:12px;
-  --r-lg:20px;
+  /* ---------- 点缀：印章橙（纸团意象） ---------- */
+  --seal:#FF6B3D;
+  --seal-deep:#D94A1E;
+  --seal-soft:#FFEDE7;
+
+  /* ---------- 状态 ---------- */
+  --ok:#34C759;      --ok-tx:#1E7B36;   --ok-soft:#E7F8EB;
+  --warn:#FF9F0A;    --warn-tx:#8A5200; --warn-soft:#FFF3E0;
+  --bad:#FF3B30;     --bad-tx:#B3261E;  --bad-soft:#FFEBEA;
+  --idle:#8E8E96;    --idle-soft:#EFEFEF;
+
+  /* ---------- 圆角：iOS 的连续弧 ---------- */
+  --r-xs:8px;
+  --r-sm:12px;
+  --r-md:16px;
+  --r-lg:22px;
+  --r-xl:28px;
+  --r-sheet:34px;    /* sheet / 大卡片 */
   --r-pill:999px;
 
-  /* 阴影 */
-  --sh:0 2px 10px rgba(0,0,0,.06);
-  --sh-lift:0 4px 16px rgba(0,0,0,.08);
-  --sh-pop:0 12px 32px rgba(0,0,0,.12);
+  /* ---------- 阴影：只往下，双层 ---------- */
+  --sh-1:0 1px 2px rgba(23,23,26,.04), 0 4px 12px -4px rgba(23,23,26,.06);
+  --sh-2:0 2px 6px rgba(23,23,26,.05), 0 12px 32px -8px rgba(23,23,26,.12);
+  --sh-3:0 8px 24px rgba(23,23,26,.08), 0 32px 64px -16px rgba(23,23,26,.18);
+  --sh-inset:inset 0 1px 0 rgba(255,255,255,.9);
 
-  /* 布局 */
-  --nav-w:232px;
-  --panel-w:380px;
-  --panel-w-lg:480px;
-  --content-max:1080px;
+  /* ---------- 动效：iOS spring ---------- */
+  --spring:cubic-bezier(.32,.72,0,1);        /* 有回弹的减速 */
+  --spring-soft:cubic-bezier(.25,.46,.45,.94);
+  --spring-bounce:cubic-bezier(.34,1.56,.64,1); /* 明显回弹，用于弹层 */
+  --t-fast:.18s var(--spring);
+  --t:.32s var(--spring);
+  --t-slow:.52s var(--spring);
 
-  /* 字体 */
-  --font:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  /* ---------- 布局 ---------- */
+  --nav-w:240px;
+  --panel-w:400px;
+  --content-max:1040px;
+
+  /* ---------- 字体 ---------- */
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei",sans-serif;
+  --font-display:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC",sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
 
-  /* 动效 */
-  --ease:cubic-bezier(.2,.8,.2,1);
-  --t-fast:.14s var(--ease);
-  --t:.2s var(--ease);
+/* 尊重系统「减弱动态效果」：关掉位移与回弹，只保留淡入淡出。 */
+@media (prefers-reduced-motion:reduce){
+  :root{
+    --spring:linear;
+    --spring-soft:linear;
+    --spring-bounce:linear;
+    --t-fast:.01s linear;
+    --t:.01s linear;
+    --t-slow:.01s linear;
+  }
+  *{animation-duration:.01ms !important;animation-iteration-count:1 !important}
 }

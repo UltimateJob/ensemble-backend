@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 智团 · 浏览器端到端测试（三栏工作台改版）
+ * 纸团 · 浏览器端到端测试（三栏工作台改版）
  *
  * 不依赖 Playwright / Puppeteer：直接用 CDP（Chrome DevTools Protocol）
  * 连本机 Edge 的 headless 实例，Node 内置 WebSocket 就够。

@@ -1,11 +1,11 @@
-// 智团桌面壳 —— 原生窗口 + 后端自启 + 原生目录选择 + 下载 + 通知。
+// 纸团桌面壳 —— 原生窗口 + 后端自启 + 原生目录选择 + 下载 + 通知。
 //
 // 与上一版的区别（都是实测踩出来的）：
 //   1. 后端二进制在 .app 包内（Contents/MacOS/ensemble），不是 .app 的上级目录；
 //   2. 静态资源在 Contents/Resources/web/，由 Go 的 webDir 第三条路径命中；
 //   3. 端口不再写死 8080：探测 8080–8099，把选中的端口通过 ADDR 传给子进程；
 //   4. 配置按「应用支持目录 → 仓库根」顺序读 .env，Finder 启动也能拿到 Key；
-//   5. 数据默认写到 ~/Library/Application Support/智团/data，不放进 .app 内部。
+//   5. 数据默认写到 ~/Library/Application Support/纸团/data，不放进 .app 内部。
 //
 // 不用 Electron：这里不需要 Node 运行时，WKWebView + AppKit 就够。
 
@@ -13,7 +13,7 @@ import Cocoa
 import WebKit
 import UserNotifications
 
-private let appFolder = "智团"
+private let appFolder = "纸团"
 
 private let supportDir: URL = {
     let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -62,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
             backing: .buffered,
             defer: false
         )
-        window.title = "智团"
+        window.title = "纸团"
         window.minSize = NSSize(width: 1080, height: 720)
         window.contentView = webView
         window.setFrameAutosaveName("ZhituanMainWindow")
@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于智团",
+        appMenu.addItem(withTitle: "关于纸团",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
@@ -286,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         <body style="font:15px -apple-system,BlinkMacSystemFont,'PingFang SC';background:#fff;color:#1A1A1D;
                      display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
         <div style="max-width:520px;text-align:center;padding:24px">
-          <h2 style="font-size:20px;font-weight:600;margin:0 0 12px">打不开智团</h2>
+          <h2 style="font-size:20px;font-weight:600;margin:0 0 12px">打不开纸团</h2>
           <p style="color:#5A5A63;line-height:1.75;white-space:pre-wrap;text-align:left">\(message)</p>
           <button onclick="location.reload()"
                   style="margin-top:22px;padding:10px 22px;border:0;border-radius:12px;
@@ -356,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        window.title = "智团"
+        window.title = "纸团"
     }
 
     /// 外链走系统浏览器，站内跳转留在壳里。
@@ -426,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         guard message.name == "notify",
               let body = message.body as? [String: Any] else { return }
         let content = UNMutableNotificationContent()
-        content.title = body["title"] as? String ?? "智团"
+        content.title = body["title"] as? String ?? "纸团"
         content.body = body["body"] as? String ?? ""
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req)

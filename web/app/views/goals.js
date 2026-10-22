@@ -6,6 +6,7 @@ import { api, state, esc, icon, hydrateIcons, emptyState, toast } from '../js/co
 import { openPanel, closePanel, panelOpen } from '../js/shell.js';
 import { confirmModal } from '../js/modal.js';
 import { avatarHTML } from '../js/avatars.js';
+import { stagger } from '../js/motion.js';
 
 const COLS = [
   { key: 'todo', label: '待规划' },
@@ -114,6 +115,7 @@ function render() {
           })}
     </div>`;
   hydrateIcons(root);
+  root.querySelectorAll('.kb-body').forEach(b => stagger(b, 35, 220));
   bind();
 }
 

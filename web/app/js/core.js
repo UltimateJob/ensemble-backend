@@ -1,5 +1,5 @@
 /* ============================================================
-   智团 · 基础层
+   纸团 · 基础层
    工具函数 / 全局状态 / API 封装 / Toast / 骨架 / 空状态
    ============================================================ */
 
@@ -13,9 +13,9 @@ export const hydrateIcons = (...a) => window.hydrateIcons(...a);
 
 /* ---------------- 窗口标题 ---------------- */
 export function setDocTitle(convTitle, busy) {
-  const base = '智团';
+  const base = '纸团';
   if (!convTitle) { document.title = base; return; }
-  document.title = `${busy ? '● ' : ''}${convTitle} · 智团`;
+  document.title = `${busy ? '● ' : ''}${convTitle} · 纸团`;
 }
 
 /* ---------------- 网络状态 ---------------- */

@@ -1,13 +1,13 @@
 #!/bin/bash
-# 构建智团桌面端：Go 后端 + WKWebView 壳 + web 资源 + 图标。
+# 构建纸团桌面端：Go 后端 + WKWebView 壳 + web 资源 + 图标。
 #
-# 产出：desktop/build/智团.app
+# 产出：desktop/build/纸团.app
 # 用法：./desktop/build.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
-APP="desktop/build/智团.app"
+APP="desktop/build/纸团.app"
 
 echo "==> 编译后端"
 ARCH=$(uname -m)
@@ -28,7 +28,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/web"
 swiftc -O -swift-version 5 \
   -framework Cocoa -framework WebKit -framework UserNotifications \
-  -o "$APP/Contents/MacOS/智团" \
+  -o "$APP/Contents/MacOS/纸团" \
   desktop/EnsembleDesktop.swift
 
 echo "==> 打包资源"
@@ -42,10 +42,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>智团</string>
-  <key>CFBundleDisplayName</key><string>智团</string>
+  <key>CFBundleName</key><string>纸团</string>
+  <key>CFBundleDisplayName</key><string>纸团</string>
   <key>CFBundleIdentifier</key><string>com.ultimatejob.zhituan.desktop</string>
-  <key>CFBundleExecutable</key><string>智团</string>
+  <key>CFBundleExecutable</key><string>纸团</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.2.0</string>

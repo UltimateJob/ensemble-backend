@@ -41,7 +41,7 @@
 - 后端二进制在包内（`Contents/MacOS/ensemble`），修掉「双击报找不到二进制」
 - `web/` 打进 `Contents/Resources/web/`，`webDir` 新增该查找路径，修掉页面全 404
 - 配置按「应用支持目录 → 仓库根」读 `.env`，Finder 启动也能拿到 Key
-- 数据默认写 `~/Library/Application Support/智团/data`，不再落在 .app 内部
+- 数据默认写 `~/Library/Application Support/纸团/data`，不再落在 .app 内部
 - 端口自动探测 8080–8099；窗口位置记忆；应用图标由 logo 生成
 - 下载走 `WKDownloadDelegate` 落 `~/Downloads`；外链走系统浏览器
 - 审批出现且窗口在后台时发本地通知

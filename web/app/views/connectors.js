@@ -5,6 +5,7 @@
 import { api, esc, icon, hydrateIcons, emptyState, toast } from '../js/core.js';
 import { openPanel, closePanel, panelOpen } from '../js/shell.js';
 import { confirmModal } from '../js/modal.js';
+import { stagger } from '../js/motion.js';
 
 // fields 是各家凭据的字段名，顺序即表单顺序。
 // configKeys 里的字段走后端 config（非敏感），其余走 secrets。
@@ -115,6 +116,7 @@ function render() {
       </section>
     </div>`;
   hydrateIcons(root);
+  root.querySelectorAll('.sec').forEach(sec => stagger(sec, 30, 200));
   bind();
 }
 

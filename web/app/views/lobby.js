@@ -5,6 +5,7 @@
 import { $, api, state, esc, icon, hydrateIcons, emptyState, toast } from '../js/core.js';
 import { navigate } from '../js/router.js';
 import { avatarHTML, coverUrl } from '../js/avatars.js';
+import { stagger } from '../js/motion.js';
 
 // 大厅展示的四个预设：三个工作组 + 草帽团。
 // 「二次元茶话会」是随机抽人的场景，放进大厅会让人以为角色是固定的；
@@ -112,6 +113,9 @@ function render() {
     </div>`;
 
   hydrateIcons(root);
+  // 卡片依次浮现，而不是四张同时出现
+  stagger(root.querySelector('.team-grid'));
+  stagger(root.querySelector('.team-list'));
   root.querySelectorAll('[data-join]').forEach(b => {
     b.addEventListener('click', e => {
       e.stopPropagation();

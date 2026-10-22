@@ -2,10 +2,10 @@
 # 桌面端冒烟：从干净目录启动打包好的 .app，确认后端自启 + 页面可访问。
 #
 # 用法：./scripts/desktop-check.sh [app路径]
-# 默认用 desktop/build/智团.app。
+# 默认用 desktop/build/纸团.app。
 set -uo pipefail
 
-SRC="${1:-desktop/build/智团.app}"
+SRC="${1:-desktop/build/纸团.app}"
 TMP=$(mktemp -d /tmp/zt-check-XXXXXX)
 APP="$TMP/Zhituan.app"
 
@@ -24,20 +24,20 @@ cp -R "$SRC" "$APP"
 
 # 后端日志落在应用支持目录，重启会追加。按启动时间之后的行来找端口，
 # 避免读到上一次运行残留的记录（按字节偏移会撞上多字节 UTF-8 边界）。
-LOG="$HOME/Library/Application Support/智团/ensemble.log"
+LOG="$HOME/Library/Application Support/纸团/ensemble.log"
 mkdir -p "$(dirname "$LOG")"
 : >> "$LOG"
 SINCE=$(date '+%Y-%m-%dT%H:%M:%S')
 
 # 用 ASCII 名字的副本启动：中文路径不影响壳本身，但方便脚本引用。
-"$APP/Contents/MacOS/智团" > "$TMP/app.log" 2>&1 &
+"$APP/Contents/MacOS/纸团" > "$TMP/app.log" 2>&1 &
 APP_PID=$!
 
 # 端口不写死：壳会自己探 8080–8099，从启动日志的 "addr" 字段读实际值。
 PORT=""
 for i in $(seq 1 60); do
   sleep 0.4
-  CAND=$(grep -F "\"msg\":\"智团后端已启动\"" "$LOG" 2>/dev/null \
+  CAND=$(grep -F "\"msg\":\"纸团后端已启动\"" "$LOG" 2>/dev/null \
     | tail -1 | grep -oE '"addr":":80[89][0-9]"' | grep -oE '80[89][0-9]')
   if [ -n "$CAND" ] && curl -sf -o /dev/null "http://127.0.0.1:${CAND}/healthz"; then
     PORT="$CAND"
@@ -49,7 +49,7 @@ if [ -z "$PORT" ]; then
   echo "✗ 后端没有起来"
   echo "--- app.log ---"
   cat "$TMP/app.log" 2>/dev/null | head -20
-  LOGDIR="$HOME/Library/Application Support/智团/ensemble.log"
+  LOGDIR="$HOME/Library/Application Support/纸团/ensemble.log"
   [ -f "$LOGDIR" ] && { echo "--- ensemble.log ---"; tail -20 "$LOGDIR"; }
   exit 1
 fi
@@ -63,11 +63,11 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/app/css/
 echo "  /app/css/tokens.css → $code"
 [ "$code" = "200" ] || { echo "✗ 静态资源没打进包"; exit 1; }
 
-code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/site/brand/logo.svg")
-echo "  /site/brand/logo.svg → $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/site/brand/logo.png")
+echo "  /site/brand/logo.png → $code"
 [ "$code" = "200" ] || { echo "✗ 品牌资源没打进包"; exit 1; }
 
-if grep -q "静态资源目录未找到" "$HOME/Library/Application Support/智团/ensemble.log" 2>/dev/null; then
+if grep -q "静态资源目录未找到" "$HOME/Library/Application Support/纸团/ensemble.log" 2>/dev/null; then
   echo "✗ 日志里仍有「静态资源目录未找到」"
   exit 1
 fi

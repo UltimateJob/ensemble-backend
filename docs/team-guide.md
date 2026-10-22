@@ -123,7 +123,7 @@ python3 scripts/collab_demo.py --case demo --root /tmp/ws --review --task "..." 
 
 ```bash
 ./desktop/build.sh
-open desktop/build/智团.app
+open desktop/build/纸团.app
 ```
 
 原生窗口（WKWebView，约 200KB，不是 Electron）。⌘O 调本机目录选择器。后端没起来时会自己拉一个。

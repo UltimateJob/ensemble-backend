@@ -1,208 +1,338 @@
 /* ============================================================
-   智团 · 通用组件
-   按钮 / 表单 / 卡片 / 分段控件 / 开关 / Toast / 骨架屏 / 弹层 / 空状态
+   纸团 · 通用组件
+   iOS 式：材质分层、胶囊按钮、inset 分组列表、sheet 弹层
    ============================================================ */
 
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
+
+/* 背景：暖纸 + 两团极淡的色雾。毛玻璃需要「背后有东西」才看得出材质。 */
 body{
-  font:14px/1.55 var(--font);
-  color:var(--tx);
-  background:var(--bg);
+  font:15px/1.5 var(--font);
+  color:var(--ink);
+  background:var(--paper);
   -webkit-font-smoothing:antialiased;
   overflow:hidden;
+  position:relative;
 }
+body::before{
+  content:"";position:fixed;inset:-20%;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(42% 38% at 12% 4%, rgba(47,107,255,.10), transparent 70%),
+    radial-gradient(38% 34% at 92% 96%, rgba(255,107,61,.09), transparent 70%),
+    radial-gradient(30% 26% at 70% 12%, rgba(120,200,255,.07), transparent 70%);
+  filter:blur(20px);
+}
+
 button{font-family:inherit;font-size:inherit;color:inherit;background:none;border:0;cursor:pointer}
 input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
 a{color:inherit;text-decoration:none}
-::selection{background:var(--pri-soft-2)}
+::selection{background:var(--pri-soft)}
 .hidden{display:none !important}
-.dim{color:var(--tx-3)}
+.dim{color:var(--ink-3)}
 .bad{color:var(--bad-tx)}
 .ok{color:var(--ok-tx)}
 
-::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:rgba(0,0,0,.12);border-radius:99px;border:3px solid transparent;background-clip:content-box}
-::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,.22);background-clip:content-box}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-thumb{
+  background:rgba(23,23,26,.16);border-radius:99px;
+  border:3px solid transparent;background-clip:content-box;
+}
+::-webkit-scrollbar-thumb:hover{background:rgba(23,23,26,.28);background-clip:content-box}
 ::-webkit-scrollbar-track{background:transparent}
 
-:focus-visible{outline:2px solid var(--pri);outline-offset:2px;border-radius:6px}
+:focus-visible{outline:2px solid var(--pri);outline-offset:3px;border-radius:6px}
 input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
 
 /* ---------------- 图标 ---------------- */
-.ic{width:16px;height:16px;flex:0 0 16px;stroke:currentColor;fill:none;
-    stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ic{
+  width:16px;height:16px;flex:0 0 16px;stroke:currentColor;fill:none;
+  stroke-width:2;stroke-linecap:round;stroke-linejoin:round;
+}
 
-/* ---------------- 按钮 ---------------- */
+/* ============================================================
+   按钮：iOS 胶囊，按下缩到 96% 再弹回
+   ============================================================ */
 .btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  height:36px;padding:0 16px;border-radius:var(--r-md);
-  font-size:13px;font-weight:500;white-space:nowrap;
-  transition:background var(--t-fast),border-color var(--t-fast),color var(--t-fast),transform var(--t-fast);
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:38px;padding:0 18px;border-radius:var(--r-pill);
+  font-size:14px;font-weight:590;letter-spacing:-.01em;white-space:nowrap;
+  transition:transform var(--t-fast),background var(--t-fast),box-shadow var(--t-fast),opacity var(--t-fast);
+  will-change:transform;
 }
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.btn-primary{background:var(--pri-deep);color:#fff}
-.btn-primary:hover:not(:disabled){background:var(--pri-hover)}
-.btn-primary:active:not(:disabled){background:var(--pri-press)}
-.btn-line{border:1px solid var(--line-2);background:var(--bg);color:var(--tx-2)}
-.btn-line:hover:not(:disabled){border-color:var(--tx-4);color:var(--tx)}
-.btn-line.danger,.btn.danger{color:var(--bad-tx)}
-.btn-line.danger:hover:not(:disabled){border-color:var(--bad);background:var(--bad-soft)}
-.btn-ghost{color:var(--tx-2);padding:0 10px}
-.btn-ghost:hover{background:var(--surface)}
-.icon-btn{
-  width:32px;height:32px;border-radius:var(--r-sm);
-  display:grid;place-items:center;color:var(--tx-3);
-  transition:background var(--t-fast),color var(--t-fast);
-}
-.icon-btn:hover{background:var(--surface);color:var(--tx)}
+.btn:active:not(:disabled){transform:scale(.96)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
 
-/* ---------------- 表单 ---------------- */
-.field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
-.field > span{font-size:12px;color:var(--tx-2)}
+.btn-primary{
+  background:var(--pri-deep);color:#fff;
+  box-shadow:0 1px 2px rgba(31,87,224,.3),0 6px 16px -6px rgba(31,87,224,.5);
+}
+.btn-primary:hover:not(:disabled){
+  background:var(--pri);
+  box-shadow:0 2px 4px rgba(31,87,224,.3),0 10px 24px -8px rgba(31,87,224,.55);
+}
+.btn-primary:active:not(:disabled){background:var(--pri-press);box-shadow:0 1px 2px rgba(31,87,224,.3)}
+
+.btn-line{background:var(--sheet);color:var(--ink);box-shadow:var(--sh-1),var(--sh-inset)}
+.btn-line:hover:not(:disabled){background:#fff;box-shadow:var(--sh-2),var(--sh-inset)}
+.btn-line.danger,.btn.danger{color:var(--bad-tx)}
+
+.btn-ghost{color:var(--ink-2);padding:0 12px}
+.btn-ghost:hover{background:rgba(23,23,26,.05)}
+
+.btn-sm{height:30px;padding:0 13px;font-size:13px}
+
+.icon-btn{
+  width:34px;height:34px;border-radius:var(--r-pill);
+  display:grid;place-items:center;color:var(--ink-2);
+  transition:background var(--t-fast),color var(--t-fast),transform var(--t-fast);
+}
+.icon-btn:hover{background:rgba(23,23,26,.06);color:var(--ink)}
+.icon-btn:active{transform:scale(.92)}
+
+/* ============================================================
+   表单：iOS inset 输入
+   ============================================================ */
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
+.field > span{font-size:13px;font-weight:550;color:var(--ink-2);letter-spacing:-.01em}
 .field input,.field textarea,.field select,.select,.ap-cmd{
-  width:100%;padding:9px 12px;border:1px solid var(--line-2);border-radius:var(--r-md);
-  background:var(--bg);font-size:13px;transition:border-color var(--t-fast),box-shadow var(--t-fast);
+  width:100%;padding:12px 15px;
+  border:1px solid rgba(23,23,26,.08);border-radius:var(--r-sm);
+  background:var(--paper-2);font-size:15px;
+  transition:background var(--t-fast),border-color var(--t-fast),box-shadow var(--t-fast);
 }
 .field input:focus,.field textarea:focus,.field select:focus,.select:focus,.ap-cmd:focus{
-  border-color:var(--pri);box-shadow:0 0 0 3px var(--pri-soft);
+  background:var(--sheet);border-color:var(--pri);
+  box-shadow:0 0 0 4px var(--pri-soft);
 }
+.field input::placeholder,.field textarea::placeholder{color:var(--ink-4)}
 .field textarea{resize:vertical;line-height:1.6}
-.field-row{display:flex;gap:8px}
+.field-row{display:flex;gap:9px}
 .field-row input{flex:1;min-width:0}
-.hint{font-size:11.5px;color:var(--tx-3);line-height:1.5}
-.studio-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx-2);margin-bottom:12px}
-.studio-check input{accent-color:var(--pri)}
-.studio-warn{padding:10px 12px;border-radius:var(--r-md);background:var(--warn-soft);color:var(--warn-tx);font-size:12px;margin-bottom:12px}
+.hint{font-size:12.5px;color:var(--ink-3);line-height:1.5;letter-spacing:-.005em}
+.studio-check{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--ink-2);margin-bottom:14px}
+.studio-check input{accent-color:var(--pri);width:16px;height:16px}
+.studio-warn{
+  padding:12px 14px;border-radius:var(--r-sm);
+  background:var(--warn-soft);color:var(--warn-tx);font-size:13px;margin-bottom:14px;
+}
 .studio-warn.hidden{display:none}
 
-/* ---------------- 分段控件 ---------------- */
-.seg{display:inline-flex;padding:3px;background:var(--surface);border-radius:var(--r-md);gap:2px}
-.seg button{
-  height:30px;padding:0 14px;border-radius:9px;font-size:12.5px;color:var(--tx-2);
-  transition:background var(--t-fast),color var(--t-fast);
+/* ============================================================
+   分段控件：iOS segmented control
+   ============================================================ */
+.seg{
+  display:inline-flex;padding:3px;gap:2px;
+  background:rgba(118,118,128,.12);border-radius:10px;position:relative;
 }
-.seg button:hover{color:var(--tx)}
-.seg button.on{background:var(--bg);color:var(--tx);box-shadow:var(--sh)}
-.seg--filter{margin-bottom:16px}
+.seg button{
+  position:relative;z-index:1;height:30px;padding:0 15px;border-radius:7px;
+  font-size:13.5px;font-weight:560;color:var(--ink-2);
+  transition:color var(--t-fast),background var(--t-fast),box-shadow var(--t-fast);
+}
+.seg button:hover{color:var(--ink)}
+.seg button.on{
+  color:var(--ink);background:var(--sheet);
+  box-shadow:0 1px 3px rgba(0,0,0,.10),0 3px 8px -2px rgba(0,0,0,.10);
+}
+.seg--filter{margin-bottom:20px}
 
-/* ---------------- 开关 ---------------- */
+/* ============================================================
+   开关：iOS 尺寸与弹性
+   ============================================================ */
 .switch{
-  width:40px;height:22px;border-radius:var(--r-pill);background:var(--surface-3);
-  position:relative;flex:0 0 40px;transition:background var(--t);
+  width:51px;height:31px;border-radius:var(--r-pill);
+  background:rgba(120,120,128,.24);position:relative;flex:0 0 51px;
+  transition:background var(--t);cursor:pointer;
 }
 .switch::after{
-  content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
-  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform var(--t);
+  content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;
+  background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.14),0 0 1px rgba(0,0,0,.1);
+  transition:transform var(--t);
 }
-.switch.on{background:var(--pri)}
-.switch.on::after{transform:translateX(18px)}
+.switch.on{background:var(--ok)}
+.switch.on::after{transform:translateX(20px)}
 
-/* ---------------- 卡片 ---------------- */
-.card{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh)}
-.sec{margin-bottom:32px}
-.sec-h{font-size:13px;font-weight:600;color:var(--tx);margin-bottom:12px}
-.page{max-width:var(--content-max);margin:0 auto;padding:32px 40px 48px;height:100%;overflow-y:auto}
+/* ============================================================
+   卡片 / 页面
+   ============================================================ */
+.card{background:var(--sheet);border-radius:var(--r-lg);box-shadow:var(--sh-1),var(--sh-inset)}
+.sec{margin-bottom:36px}
+.sec-h{
+  font-size:13px;font-weight:650;color:var(--ink-3);
+  letter-spacing:.03em;margin:0 4px 12px;
+}
+.page{
+  max-width:var(--content-max);margin:0 auto;padding:40px 44px 56px;
+  height:100%;overflow-y:auto;
+  animation:pageIn var(--t-slow) both;
+}
+@keyframes pageIn{
+  from{opacity:0;transform:translateY(10px) scale(.995)}
+  to{opacity:1;transform:none}
+}
 .page--center{display:grid;place-items:center}
-.page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:28px}
-.page-head h1{font-size:24px;font-weight:600;letter-spacing:-.02em}
-.page-sub{font-size:13px;color:var(--tx-3);margin-top:4px}
-.page-actions{display:flex;align-items:center;gap:10px}
 
-/* ---------------- 头像 ---------------- */
+.page-head{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:18px;margin-bottom:32px;
+}
+.page-head h1{
+  font-family:var(--font-display);
+  font-size:34px;font-weight:700;letter-spacing:-.028em;line-height:1.15;
+}
+.page-sub{font-size:14.5px;color:var(--ink-3);margin-top:6px;letter-spacing:-.01em}
+.page-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* ============================================================
+   头像：黏土图 + 状态环
+   ============================================================ */
 .av{
   display:inline-grid;place-items:center;border-radius:var(--r-pill);
-  overflow:hidden;flex:0 0 auto;position:relative;background:var(--surface-2);
+  overflow:hidden;flex:0 0 auto;position:relative;
+  background:var(--paper-3);
 }
 .av img{width:100%;height:100%;object-fit:cover;display:block}
-.av b{font-size:calc(var(--av-font, 13px));color:#fff;font-weight:600}
+.av b{font-size:calc(var(--av-font,15px));color:#fff;font-weight:650}
 .av--fallback{border-radius:var(--r-pill)}
-.ring-idle{box-shadow:0 0 0 2px var(--idle-soft),0 0 0 3px var(--idle)}
-.ring-working{box-shadow:0 0 0 2px var(--pri-soft),0 0 0 3px var(--pri);animation:pulse-ring 1.8s ease-in-out infinite}
-.ring-done{box-shadow:0 0 0 2px var(--ok-soft),0 0 0 3px var(--ok)}
-.ring-blocked{box-shadow:0 0 0 2px var(--bad-soft),0 0 0 3px var(--bad)}
-@keyframes pulse-ring{
-  0%,100%{box-shadow:0 0 0 2px var(--pri-soft),0 0 0 3px var(--pri)}
-  50%{box-shadow:0 0 0 4px var(--pri-soft),0 0 0 3px var(--pri)}
+
+.ring-idle{box-shadow:0 0 0 2.5px var(--paper),0 0 0 4px var(--idle)}
+.ring-working{
+  box-shadow:0 0 0 2.5px var(--paper),0 0 0 4px var(--pri);
+  animation:pulseRing 2s var(--spring-soft) infinite;
+}
+.ring-done{box-shadow:0 0 0 2.5px var(--paper),0 0 0 4px var(--ok)}
+.ring-blocked{box-shadow:0 0 0 2.5px var(--paper),0 0 0 4px var(--bad)}
+@keyframes pulseRing{
+  0%,100%{box-shadow:0 0 0 2.5px var(--paper),0 0 0 4px var(--pri),0 0 12px 2px var(--pri-glow)}
+  50%{box-shadow:0 0 0 2.5px var(--paper),0 0 0 4px var(--pri),0 0 20px 6px transparent}
 }
 
-/* ---------------- Toast（右上） ---------------- */
+/* ============================================================
+   Toast：胶囊，从上方弹入
+   ============================================================ */
 .toast{
-  position:fixed;top:20px;right:24px;z-index:9000;
-  display:flex;align-items:center;gap:8px;
-  max-width:360px;padding:11px 16px;border-radius:var(--r-lg);
-  background:var(--bg);border:1px solid var(--line);box-shadow:var(--sh-pop);
-  font-size:13px;color:var(--tx);
-  opacity:0;transform:translateY(-8px);pointer-events:none;
+  position:fixed;top:22px;right:24px;z-index:9000;
+  display:flex;align-items:center;gap:9px;
+  max-width:380px;padding:12px 18px;border-radius:var(--r-pill);
+  background:var(--glass-strong);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:.5px solid var(--glass-line);box-shadow:var(--sh-2);
+  font-size:14px;font-weight:520;color:var(--ink);
+  opacity:0;transform:translateY(-12px) scale(.96);pointer-events:none;
   transition:opacity var(--t),transform var(--t);
 }
-.toast.on{opacity:1;transform:translateY(0)}
+.toast.on{opacity:1;transform:none}
 .toast--ok .ic{color:var(--ok)}
 .toast--err .ic{color:var(--bad)}
 .toast--info .ic{color:var(--pri)}
 
-/* ---------------- 骨架屏 ---------------- */
-@keyframes sk-shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}
-.sk{display:flex;flex-direction:column;gap:12px;padding:8px 0}
-.sk-row{display:flex;flex-direction:column;gap:8px}
+/* ============================================================
+   骨架屏
+   ============================================================ */
+@keyframes sk-shimmer{0%{background-position:-300px 0}100%{background-position:300px 0}}
+.sk{display:flex;flex-direction:column;gap:14px;padding:8px 0}
+.sk-row{display:flex;flex-direction:column;gap:9px}
 .sk-b{
-  height:14px;border-radius:var(--r-sm);
-  background:linear-gradient(90deg,var(--surface-2) 0%,var(--surface) 50%,var(--surface-2) 100%);
-  background-size:400px 100%;animation:sk-shimmer 1.2s linear infinite;
+  height:15px;border-radius:var(--r-xs);
+  background:linear-gradient(90deg,var(--paper-2) 0%,var(--paper) 45%,var(--paper-2) 90%);
+  background-size:400px 100%;animation:sk-shimmer 1.4s var(--spring-soft) infinite;
 }
 .sk-b.short{width:46%}
 
-/* ---------------- 空状态 ---------------- */
+/* ============================================================
+   空状态
+   ============================================================ */
 .empty-state{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:8px;padding:64px 24px;text-align:center;
+  gap:9px;padding:72px 24px;text-align:center;
+  animation:pageIn var(--t-slow) both;
 }
 .es-ic{
-  width:52px;height:52px;border-radius:var(--r-lg);display:grid;place-items:center;
-  background:var(--surface);color:var(--tx-3);margin-bottom:6px;
+  width:60px;height:60px;border-radius:20px;display:grid;place-items:center;
+  background:var(--sheet);color:var(--ink-3);
+  box-shadow:var(--sh-1),var(--sh-inset);margin-bottom:8px;
 }
-.es-t{font-size:15px;font-weight:600;color:var(--tx)}
-.es-d{font-size:13px;color:var(--tx-3);max-width:340px;line-height:1.6}
-.empty-state .btn{margin-top:12px}
+.es-t{font-size:17px;font-weight:620;letter-spacing:-.015em}
+.es-d{font-size:14px;color:var(--ink-3);max-width:340px;line-height:1.6}
+.empty-state .btn{margin-top:16px}
 
-/* ---------------- 弹层 ---------------- */
+/* ============================================================
+   弹层：sheet 弹入
+   ============================================================ */
 .modal-mask{
   position:fixed;inset:0;z-index:8000;display:grid;place-items:center;padding:24px;
-  background:rgba(16,17,20,.28);opacity:0;transition:opacity var(--t);
+  background:rgba(23,23,26,.32);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  opacity:0;transition:opacity var(--t);
 }
 .modal-mask.on{opacity:1}
 .modal-card{
   width:100%;max-height:calc(100vh - 96px);display:flex;flex-direction:column;
-  background:var(--bg);border-radius:var(--r-lg);box-shadow:var(--sh-pop);
-  transform:translateY(8px) scale(.99);transition:transform var(--t);
+  background:var(--glass-strong);
+  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:.5px solid var(--glass-line);
+  border-radius:var(--r-sheet);box-shadow:var(--sh-3);
+  transform:translateY(24px) scale(.96);opacity:0;
+  transition:transform var(--t) var(--spring-bounce),opacity var(--t);
 }
-.modal-mask.on .modal-card{transform:none}
-.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 24px 0}
-.modal-head h3{font-size:17px;font-weight:600}
-.modal-body{padding:18px 24px;overflow-y:auto}
-.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:0 24px 20px}
-.modal-text{font-size:13.5px;color:var(--tx-2);line-height:1.7}
+.modal-mask.on .modal-card{transform:none;opacity:1}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:24px 26px 0}
+.modal-head h3{font-family:var(--font-display);font-size:20px;font-weight:680;letter-spacing:-.02em}
+.modal-body{padding:20px 26px;overflow-y:auto}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:0 26px 24px}
+.modal-text{font-size:14.5px;color:var(--ink-2);line-height:1.7}
 
-/* 审批 */
-.apv-sum{font-size:14px;font-weight:500;margin-bottom:10px}
+.apv-sum{font-size:15.5px;font-weight:600;margin-bottom:12px;letter-spacing:-.01em}
 .apv-cmd,.apv-diff{
-  font-family:var(--mono);font-size:12px;line-height:1.6;
-  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
-  padding:10px 12px;margin-bottom:10px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;
+  font-family:var(--mono);font-size:12.5px;line-height:1.65;
+  background:var(--paper-2);border-radius:var(--r-sm);
+  padding:13px 15px;margin-bottom:12px;
+  white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;
 }
-.apv-risk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--warn-tx)}
+.apv-risk{
+  display:flex;align-items:center;gap:8px;font-size:13px;color:var(--warn-tx);
+  background:var(--warn-soft);border-radius:var(--r-sm);padding:10px 13px;
+}
 
-/* ---------------- 引导 ---------------- */
-.onb-mask{position:fixed;inset:0;z-index:8500;background:rgba(16,17,20,.42)}
+/* ============================================================
+   引导
+   ============================================================ */
+.onb-mask{position:fixed;inset:0;z-index:8500;background:rgba(23,23,26,.48);backdrop-filter:blur(3px)}
 .onb-ring{
-  position:absolute;border:2px solid var(--pri);border-radius:var(--r-md);
-  box-shadow:0 0 0 4px rgba(54,123,237,.22);pointer-events:none;
-  transition:all var(--t);
+  position:absolute;border:2.5px solid var(--pri);border-radius:var(--r-md);
+  box-shadow:0 0 0 5px rgba(47,107,255,.24),0 0 40px rgba(47,107,255,.35);
+  pointer-events:none;transition:all var(--t-slow);
 }
 .onb-tip{
-  position:absolute;width:300px;padding:16px 18px;border-radius:var(--r-lg);
-  background:var(--bg);box-shadow:var(--sh-pop);
+  position:absolute;width:310px;padding:20px 22px;border-radius:var(--r-lg);
+  background:var(--glass-strong);backdrop-filter:var(--blur);
+  border:.5px solid var(--glass-line);box-shadow:var(--sh-3);
+  animation:tipIn var(--t) var(--spring-bounce) both;
 }
-.onb-tip h4{font-size:14px;font-weight:600;margin-bottom:6px}
-.onb-tip p{font-size:12.5px;color:var(--tx-2);line-height:1.6}
-.onb-act{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+@keyframes tipIn{from{opacity:0;transform:translateY(8px) scale(.94)}to{opacity:1;transform:none}}
+.onb-tip h4{font-size:15.5px;font-weight:650;margin-bottom:7px;letter-spacing:-.015em}
+.onb-tip p{font-size:13.5px;color:var(--ink-2);line-height:1.65}
+.onb-act{display:flex;justify-content:flex-end;gap:9px;margin-top:18px}
+
+/* ============================================================
+   按压反馈：CSS :active 之外补 pointer 状态（触屏手指移出后
+   :active 会卡住）。动画只动 transform，不触发布局。
+   ============================================================ */
+.pressing{transform:scale(.97) !important}
+.team-card.pressing,.goal-card.pressing,.lib-card.pressing,.conn-row.pressing{
+  transform:translateY(0) scale(.985) !important;
+}
+
+/* ============================================================
+   列表入场：错峰浮现
+   ============================================================ */
+.rise{animation:riseIn var(--t-slow) both}
+@keyframes riseIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.stagger > *{animation:riseIn var(--t-slow) both}
+.stagger > *:nth-child(1){animation-delay:0ms}
+.stagger > *:nth-child(2){animation-delay:45ms}
+.stagger > *:nth-child(3){animation-delay:90ms}
+.stagger > *:nth-child(4){animation-delay:135ms}
+.stagger > *:nth-child(5){animation-delay:180ms}
+.stagger > *:nth-child(6){animation-delay:225ms}
+.stagger > *:nth-child(n+7){animation-delay:260ms}

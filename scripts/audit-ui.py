@@ -164,9 +164,10 @@ def _ratio(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 WHITE = (255, 255, 255)
-# 新设计：页面白底，卡片/次要区域是 --surface #F7F7F8。取两者里更差的。
-SURFACE = _rgb('F7F7F8')
-MIN = {'--tx': 4.5, '--tx-2': 4.5, '--tx-3': 3.0, '--tx-4': 3.0,
+# iOS 质感改版后：页面底是暖纸 --paper，卡片是 --sheet 纯白。
+# 取两者里更差的做判定。--surface 是旧命名，保留兼容。
+SURFACE = _rgb('F4F2EE')   # --paper
+MIN = {'--ink': 4.5, '--ink-2': 4.5, '--ink-3': 3.0, '--ink-4': 3.0,
        '--ok-tx': 4.5, '--warn-tx': 4.5, '--bad-tx': 4.5}
 for tok, need in MIN.items():
     m = re.search(re.escape(tok) + r'\s*:\s*(#[0-9A-Fa-f]{6})', css)

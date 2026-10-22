@@ -70,6 +70,7 @@ export async function mount(host, params, query) {
   // chat.js 会读 state.agents / 渲染到 #msgWrap
   await openConv(conv.id);
   renderAvatarRow();
+  renderEmptyState();
   actTimer = setInterval(renderAvatarRow, 4000);
 
   if (query?.get('view') === 'studio') {
@@ -84,6 +85,53 @@ export function unmount() {
   root = null;
   convId = '';
   stopRound(true);
+}
+
+/**
+ * 空房间不放一片空白：给几句能直接点的话头。
+ * 有消息时这个块自动消失（消息渲染会清空 #msgWrap）。
+ */
+function renderEmptyState() {
+  const wrap = $('#msgWrap');
+  if (!wrap) return;
+  if (wrap.querySelector('.msg')) return;   // 已有历史消息
+  const agents = (state.agents || []).slice(0, 4);
+  const seeds = seedFor(state.cur?.studio);
+  wrap.innerHTML = `
+    <div class="room-empty">
+      <div class="re-avs">${agents.map(a => avatarHTML(a.name, a.color, { size: 52 })).join('')}</div>
+      <h3>${esc(eq(agents))}</h3>
+      <p>${esc(seedLead(state.cur?.studio))}</p>
+      <div class="re-acts">${seeds.map(s => `<button class="re-chip" data-seed="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+    </div>`;
+  wrap.querySelectorAll('[data-seed]').forEach(b => b.addEventListener('click', () => {
+    const ta = $('#ta');
+    if (!ta) return;
+    ta.value = b.dataset.seed;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    // 点一下等于替用户写好，再点发送即可——不擅自发送
+  }));
+}
+
+function eq(agents) {
+  if (!agents.length) return '这个房间还没有角色';
+  const names = agents.map(a => a.name);
+  return names.length <= 2 ? names.join(' 和 ') + ' 在等你开口' : '他们都在等你开口';
+}
+
+function seedLead(studio) {
+  if (studio === 'onepiece') return '上船说句话，他们会自己接下去。';
+  if (studio === 'anime' || studio === 'companion') return '随便聊点什么，或者说说今天怎么样。';
+  return '派一件真事给他们：说清目标、约束和交付物。';
+}
+
+function seedFor(studio) {
+  if (studio === 'onepiece') return ['我们下一站去哪', '今天航线上有什么', '谁来讲个故事'];
+  if (studio === 'anime' || studio === 'companion') return ['今天有点累', '最近在看什么', '聊聊周末'];
+  if (studio === 'xhs') return ['做一篇平价咖啡机种草', '这周的热点能蹭吗', '标题再想三个'];
+  if (studio === 'code') return ['修一下登录模块的 bug', '设计一个接口', '跑一遍测试'];
+  return ['读一下这份招标文件', '列出废标风险', '先给个拆解方案'];
 }
 
 function scName(conv) {

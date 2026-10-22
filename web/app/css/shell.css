@@ -1,5 +1,6 @@
 /* ============================================================
-   智团 · 外壳：左侧导航 + 主内容 + 右侧工作面板
+   纸团 · 外壳
+   左导航是压在纸上的毛玻璃板；右面板是从右侧弹出的 sheet。
    ============================================================ */
 
 .app{
@@ -8,137 +9,185 @@
   height:100vh;
   transition:grid-template-columns var(--t);
 }
-.app.panel-open{grid-template-columns:var(--nav-w) minmax(0,1fr) var(--panel-w)}
 
 /* ---------------- 左导航 ---------------- */
 .nav{
   display:flex;flex-direction:column;min-height:0;
-  background:var(--surface);
-  border-right:1px solid var(--line);
-  padding:20px 12px 16px;
+  padding:18px 14px 16px;
+  background:var(--glass);
+  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border-right:.5px solid rgba(23,23,26,.07);
+  position:relative;z-index:10;
 }
-.nav-brand{display:flex;align-items:center;gap:9px;padding:0 8px 20px}
-.nav-logo{width:26px;height:26px;display:block}
-.nav-brand b{font-size:15px;font-weight:600;letter-spacing:-.01em}
+
+.nav-brand{
+  display:flex;align-items:center;gap:11px;
+  padding:4px 8px 20px;
+}
+.nav-logo{
+  width:34px;height:34px;display:block;border-radius:10px;
+  background:var(--sheet);
+  box-shadow:0 1px 3px rgba(23,23,26,.10),0 4px 12px -4px rgba(23,23,26,.14);
+  transition:transform var(--t) var(--spring-bounce);
+}
+.nav-brand:hover .nav-logo{transform:scale(1.06) rotate(-4deg)}
+.nav-brand b{
+  font-family:var(--font-display);
+  font-size:19px;font-weight:700;letter-spacing:-.02em;
+}
 
 .nav-list{display:flex;flex-direction:column;gap:2px}
 .nav-item{
-  display:flex;align-items:center;gap:10px;
-  height:38px;padding:0 12px;border-radius:var(--r-md);
-  font-size:13.5px;color:var(--tx-2);
-  transition:background var(--t-fast),color var(--t-fast);
+  position:relative;
+  display:flex;align-items:center;gap:11px;
+  height:40px;padding:0 12px;border-radius:var(--r-sm);
+  font-size:14.5px;font-weight:520;color:var(--ink-2);
+  transition:background var(--t-fast),color var(--t-fast),transform var(--t-fast);
 }
-.nav-item .ic{color:var(--tx-3)}
-.nav-item:hover{background:var(--bg);color:var(--tx)}
-.nav-item.on{background:var(--bg);color:var(--pri);font-weight:500;box-shadow:var(--sh)}
+.nav-item .ic{color:var(--ink-3);transition:color var(--t-fast),transform var(--t)}
+.nav-item:hover{background:rgba(23,23,26,.05);color:var(--ink)}
+.nav-item:hover .ic{transform:scale(1.08)}
+.nav-item:active{transform:scale(.98)}
+.nav-item.on{
+  background:var(--sheet);color:var(--pri-deep);font-weight:600;
+  box-shadow:var(--sh-1),var(--sh-inset);
+}
 .nav-item.on .ic{color:var(--pri)}
+/* 选中项左侧的小竖条：iOS 侧栏的经典提示 */
+.nav-item.on::before{
+  content:"";position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:3px;height:18px;border-radius:2px;background:var(--pri);
+  animation:navBar var(--t) var(--spring-bounce);
+}
+@keyframes navBar{from{height:0;opacity:0}to{height:18px;opacity:1}}
 
-.nav-rooms{margin-top:18px;min-height:0;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
-.nav-rooms-h{font-size:11px;color:var(--tx-4);padding:0 12px 6px;letter-spacing:.02em}
+.nav-rooms{margin-top:22px;min-height:0;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
+.nav-rooms-h{
+  font-size:11px;font-weight:650;color:var(--ink-4);
+  padding:0 12px 8px;letter-spacing:.06em;text-transform:uppercase;
+}
 .nav-room{
-  display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;
-  border-radius:var(--r-sm);font-size:12.5px;color:var(--tx-2);
+  display:flex;align-items:center;gap:9px;height:34px;padding:0 12px;
+  border-radius:var(--r-sm);font-size:13.5px;color:var(--ink-2);
   transition:background var(--t-fast),color var(--t-fast);
 }
-.nav-room:hover{background:var(--bg);color:var(--tx)}
-.nav-room.on{background:var(--bg);color:var(--tx);font-weight:500}
-.nav-room .dot{width:5px;height:5px;border-radius:50%;background:var(--tx-4);flex:0 0 5px}
+.nav-room:hover{background:rgba(23,23,26,.05);color:var(--ink)}
+.nav-room.on{background:var(--sheet);color:var(--ink);font-weight:560;box-shadow:var(--sh-1)}
+.nav-room .dot{
+  width:6px;height:6px;border-radius:50%;background:var(--ink-4);flex:0 0 6px;
+  transition:background var(--t-fast),box-shadow var(--t-fast);
+}
+.nav-room.on .dot{background:var(--pri);box-shadow:0 0 0 3px var(--pri-soft)}
 .nav-room .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nav-room-empty{font-size:12px;color:var(--tx-4);padding:4px 12px}
+.nav-room-empty{font-size:13px;color:var(--ink-4);padding:5px 12px}
 
-.nav-foot{margin-top:auto;padding:12px 8px 0;border-top:1px solid var(--line)}
-.nav-user{display:flex;align-items:center;gap:9px;width:100%;padding:6px;border-radius:var(--r-md)}
-.nav-user:hover{background:var(--bg)}
-.nav-user-body{min-width:0;text-align:left}
-.nav-user-name{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nav-user-sub{font-size:11px;color:var(--tx-3)}
-
-/* ---------------- 主内容 ---------------- */
-.main{min-width:0;min-height:0;overflow:hidden;background:var(--bg);position:relative}
-
-/* ---------------- 右面板 ---------------- */
-.panel{
-  position:relative;min-width:0;overflow:hidden;
-  background:var(--bg);border-left:1px solid var(--line);
-  display:flex;flex-direction:column;
+.nav-foot{
+  margin-top:auto;padding:12px 6px 0;
+  border-top:.5px solid rgba(23,23,26,.08);
 }
-.panel:not(.on) .panel-body{display:none}
-.panel.on{border-left:1px solid var(--line)}
-.panel-handle{
-  position:absolute;left:0;top:50%;width:12px;height:56px;transform:translateY(-50%);
-  display:grid;place-items:center;cursor:pointer;z-index:5;
-  border-radius:0 var(--r-sm) var(--r-sm) 0;
-  background:var(--surface);border:1px solid var(--line);border-left:0;
-  color:var(--tx-3);opacity:0;transition:opacity var(--t-fast);
-}
-.panel:not(.on):hover .panel-handle{opacity:1}
-.panel-handle::after{content:"";width:3px;height:18px;border-radius:2px;background:currentColor;opacity:.5}
-.panel-body{display:flex;flex-direction:column;min-height:0;height:100%}
-.panel-head{
-  display:flex;align-items:flex-start;gap:8px;padding:20px 20px 14px;
-  border-bottom:1px solid var(--line);
-}
-.panel-title{font-size:15px;font-weight:600;flex:1;min-width:0}
-.panel-sub{font-size:11.5px;color:var(--tx-3);margin-top:2px}
-.panel-x{flex:0 0 32px;margin:-4px -6px 0 0}
-.panel-content{padding:18px 20px 28px;overflow-y:auto;min-height:0;flex:1}
-.panel-empty{font-size:12.5px;color:var(--tx-3);padding:16px 0;line-height:1.6}
-.panel-sec{margin-bottom:22px}
-.panel-sec h4{font-size:12px;font-weight:600;color:var(--tx-2);margin-bottom:8px}
-
-/* 面板内通用行 */
-.set-row{
-  display:flex;align-items:center;gap:12px;width:100%;
-  padding:12px;border-radius:var(--r-md);font-size:13.5px;color:var(--tx);
+.nav-user{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:7px;border-radius:var(--r-sm);
   transition:background var(--t-fast);
 }
-.set-row:hover{background:var(--surface)}
-.set-row .ic{color:var(--tx-3);flex:0 0 18px}
-.set-row > .ic:last-child{margin-left:auto;color:var(--tx-4)}
+.nav-user:hover{background:rgba(23,23,26,.05)}
+.nav-user-body{min-width:0;text-align:left}
+.nav-user-name{display:block;font-size:13.5px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-user-sub{display:block;font-size:12px;color:var(--ink-3)}
+
+/* ---------------- 主内容 ---------------- */
+.main{min-width:0;min-height:0;overflow:hidden;position:relative}
+
+/* ---------------- 右面板：从右侧滑入的 sheet ---------------- */
+.panel{
+  position:relative;min-width:0;overflow:hidden;
+  display:flex;flex-direction:column;
+  background:var(--glass);
+  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border-left:.5px solid rgba(23,23,26,.07);
+}
+.panel:not(.on) .panel-body{display:none}
+.panel.on{
+  animation:panelIn var(--t) var(--spring);
+}
+@keyframes panelIn{from{opacity:.4;transform:translateX(16px)}to{opacity:1;transform:none}}
+
+.panel-handle{
+  position:absolute;left:6px;top:50%;width:10px;height:64px;
+  transform:translateY(-50%);display:grid;place-items:center;cursor:pointer;z-index:5;
+  border-radius:var(--r-pill);background:var(--sheet);
+  box-shadow:var(--sh-1);color:var(--ink-3);
+  opacity:0;transition:opacity var(--t-fast),transform var(--t-fast);
+}
+.panel:not(.on):hover .panel-handle{opacity:1}
+.panel-handle:hover{transform:translateY(-50%) scale(1.06)}
+.panel-handle::after{content:"";width:3px;height:20px;border-radius:2px;background:currentColor;opacity:.5}
+
+.panel-body{display:flex;flex-direction:column;min-height:0;height:100%}
+.panel-head{
+  display:flex;align-items:flex-start;gap:10px;
+  padding:22px 22px 16px;
+  border-bottom:.5px solid rgba(23,23,26,.07);
+}
+.panel-title{
+  font-family:var(--font-display);
+  font-size:18px;font-weight:680;letter-spacing:-.02em;flex:1;min-width:0;
+}
+.panel-sub{font-size:12.5px;color:var(--ink-3);margin-top:3px}
+.panel-x{flex:0 0 34px;margin:-6px -8px 0 0}
+.panel-content{padding:20px 22px 32px;overflow-y:auto;min-height:0;flex:1}
+.panel-empty{font-size:13.5px;color:var(--ink-3);padding:18px 0;line-height:1.65}
+.panel-sec{margin-bottom:26px}
+.panel-sec h4{
+  font-size:12px;font-weight:650;color:var(--ink-3);
+  letter-spacing:.04em;margin-bottom:10px;
+}
+
+/* 分组列表行：iOS inset grouped */
+.set-row{
+  display:flex;align-items:center;gap:13px;width:100%;
+  padding:13px 14px;border-radius:var(--r-sm);
+  font-size:14.5px;color:var(--ink);
+  transition:background var(--t-fast),transform var(--t-fast);
+}
+.set-row:hover{background:rgba(23,23,26,.05)}
+.set-row:active{transform:scale(.99)}
+.set-row .ic{color:var(--ink-3);flex:0 0 18px}
+.set-row > .ic:last-child{margin-left:auto;color:var(--ink-4)}
 .set-row.danger,.set-row.danger .ic{color:var(--bad-tx)}
 .set-body{flex:1;min-width:0;text-align:left}
-.set-t{display:block;font-size:13.5px}
-.set-s{display:block;font-size:11.5px;color:var(--tx-3);margin-top:2px}
+.set-t{display:block;font-size:14.5px;letter-spacing:-.01em}
+.set-s{display:block;font-size:12.5px;color:var(--ink-3);margin-top:2px}
 .set-row > .switch{margin-left:auto}
 
-/* 响应式 */
+/* ---------------- 响应式 ---------------- */
 @media (max-width:1180px){
   .app.panel-open{grid-template-columns:var(--nav-w) minmax(0,1fr) var(--panel-w)}
-  .page{padding:24px 24px 40px}
+  .page{padding:32px 28px 44px}
 }
+
 /* 窄屏：导航收成图标条，主内容始终可见。
-   之前这里写了 .main{display:none}，只有打开面板才显示主区——
-   结果 390 宽下整页是空的（截图脚本一眼看出来的）。
-   右面板改为覆盖在主内容之上，而不是挤成第三列。 */
+   （旧版这里写了 .main{display:none}，只有打开面板才显示主区，
+   结果 390 宽下整页是空的。）右面板改为覆盖层。 */
 @media (max-width:860px){
-  :root{--nav-w:56px}
+  :root{--nav-w:60px}
   .app,
   .app.panel-open{grid-template-columns:var(--nav-w) minmax(0,1fr)}
-  .nav{padding:14px 6px}
-  .nav-brand{padding:0 4px 14px;justify-content:center}
+  .nav{padding:14px 8px}
+  .nav-brand{padding:0 0 16px;justify-content:center}
   .nav-brand b,.nav-item span,.nav-rooms,.nav-user-body{display:none}
   .nav-item{justify-content:center;padding:0}
+  .nav-item.on::before{display:none}
   .main{display:block;min-width:0}
-  .page{padding:20px 16px 32px}
-  .page-head{flex-direction:column;align-items:stretch;gap:12px}
-  .page-head h1{font-size:20px}
-  .team-grid,.kanban{grid-template-columns:minmax(0,1fr)}
-  /* fixed + right:0 在有 grid 祖先时，静态位置仍会参与布局计算，
-     实测 left 会落在 10px 这种莫名其妙的位置。显式写死 right/left。 */
+  .page{padding:22px 18px 36px}
+  .page-head{flex-direction:column;align-items:stretch;gap:14px}
+  .page-head h1{font-size:27px}
   .panel{
     position:fixed;top:0;bottom:0;right:0;left:auto;
     width:min(100%,var(--panel-w));z-index:700;
-    border-left:1px solid var(--line);
-    box-shadow:var(--sh-pop);transform:translateX(100%);
+    box-shadow:var(--sh-3);transform:translateX(100%);
     transition:transform var(--t);
   }
-  .panel.on{transform:none}
+  .panel.on{transform:none;animation:none}
   .panel-handle{display:none}
-  .rh-left{display:none}
-  .room-head{padding:10px 12px;gap:8px}
-  .composer{padding:8px 12px 12px}
-  .msg-wrap{padding:0 12px}
-  .artifact{margin-left:0}
-  .sv-body{grid-template-columns:minmax(0,1fr)}
-  .sv-side{border-right:0;border-bottom:1px solid var(--line)}
 }

@@ -5,8 +5,8 @@ import { $, api, state, toast } from '../js/core.js';
 export function mountLogin(host) {
   host.innerHTML = `
   <div class="login-card">
-    <img class="login-logo" src="/site/brand/logo.svg" alt="智团">
-    <h1 class="login-h1">把一件真事，交给一个智团。</h1>
+    <img class="login-logo" src="/site/brand/logo.png" alt="纸团">
+    <h1 class="login-h1">把一件真事，交给一个纸团。</h1>
     <p class="login-sub">几个角色分工协作，每一步都落成文件，最后由你确认。</p>
 
     <div class="login-seg" id="loginSeg">

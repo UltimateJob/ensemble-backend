@@ -4,6 +4,7 @@
    ============================================================ */
 
 import { closePanel } from './shell.js';
+import { pressFeedback } from './motion.js';
 
 let views = {};
 let active = null;
@@ -70,6 +71,8 @@ export function render() {
       <button class="btn btn-primary" onclick="location.reload()">重新载入</button>
     </div></div>`;
   }
+  // 新视图挂载后统一绑定按压反馈（各视图不必各自处理）
+  pressFeedback(host);
   document.dispatchEvent(new CustomEvent('route:change', { detail: r }));
 }
 

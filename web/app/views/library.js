@@ -8,6 +8,7 @@ import {
 import { openPanel, closePanel } from '../js/shell.js';
 import { avatarHTML } from '../js/avatars.js';
 import { confirmModal } from '../js/modal.js';
+import { stagger } from '../js/motion.js';
 // 复用聊天层的轻量渲染器，避免两处 markdown 行为漂移。
 import { mdRender } from '../js/chat.js';
 
@@ -101,6 +102,7 @@ function render() {
             })}
     </div>`;
 
+  stagger(root.querySelector('.lib-grid'));
   root.querySelectorAll('#libKind button').forEach(b => {
     b.addEventListener('click', () => { kindFilter = b.dataset.k; render(); });
   });
