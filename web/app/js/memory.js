@@ -34,7 +34,7 @@ function bodyHTML(data) {
   const agents = data.agents || [];
 
   if (!conv.length && !agents.some(a => (a.memories || []).length || a.relation)) {
-    return '<div class="panel-empty">还没有长期记忆。聊够一段之后，他们才会开始记住；群记忆不会带到别的群。</div>';
+    return '<div class="ap-idle">还没有长期记忆。聊够一段之后，他们才会开始记住；群记忆不会带到别的群。</div>';
   }
 
   let html = '';
@@ -62,12 +62,12 @@ function bodyHTML(data) {
 
 async function refresh(el) {
   if (!state.cur) return;
-  el.innerHTML = '<div class="panel-empty">读取中…</div>';
+  el.innerHTML = '<div class="ap-idle">读取中…</div>';
   try {
     const data = await api('/v1/memories?conversationId=' + encodeURIComponent(state.cur.id));
     el.innerHTML = bodyHTML(data);
   } catch (e) {
-    el.innerHTML = `<div class="panel-empty">${esc(e.message)}</div>`;
+    el.innerHTML = `<div class="ap-idle">${esc(e.message)}</div>`;
   }
 }
 

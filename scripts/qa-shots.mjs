@@ -46,7 +46,7 @@ ws.addEventListener('message', e => {
 const send = (method, params = {}) => new Promise((resolve, reject) => {
   const i = ++id; pending.set(i, { resolve, reject });
   ws.send(JSON.stringify({ id: i, method, params }));
-  setTimeout(() => { if (pending.has(i)) { pending.delete(i); reject(new Error('timeout ' + method)); } }, 25000);
+  setTimeout(() => { if (pending.has(i)) { pending.delete(i); reject(new Error('timeout ' + method)); } }, 45000);
 });
 const ev = async expr => (await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true, userGesture: true })).result?.value;
 const waitFor = async (expr, n = 100) => { for (let i = 0; i < n; i++) { if (await ev(expr)) return true; await sleep(150); } return false; };
@@ -55,7 +55,8 @@ async function viewport(w, h = 900, mobile = false) {
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile });
 }
 async function shot(name) {
-  await sleep(650);
+  // 页面入场动画 + 错峰延迟最多约 0.5s，等它跑完再截，避免截到半透明状态
+  await sleep(900);
   const r = await send('Page.captureScreenshot', { format: 'png' });
   const file = join(OUT, `${name}.png`);
   const buf = Buffer.from(r.data, 'base64');

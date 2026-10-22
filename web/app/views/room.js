@@ -264,6 +264,39 @@ async function openAgentPanel(agent) {
 
 /* ---------------- 右面板：房间概览 ---------------- */
 
+async function fillArtifacts(convId) {
+  const box = document.querySelector('#artifactList');
+  if (!box) return;
+  try {
+    const list = await api('/v1/library?convId=' + encodeURIComponent(convId) + '&limit=8');
+    if (!list?.length) {
+      box.innerHTML = '<div class="ap-idle">这个群还没有产出文件。角色完成交付后会出现在这里。</div>';
+      return;
+    }
+    box.innerHTML = list.map(a => `
+      <button class="ap-art" data-aid="${esc(a.id)}">
+        <span class="ap-art-ic">${icon('file-text', 15)}</span>
+        <span class="ap-art-body">
+          <span class="ap-art-t">${esc(a.title || '未命名')}</span>
+          <span class="ap-art-s">${esc((a.agentName || '') + ' · ' + (a.summary || '').slice(0, 28))}</span>
+        </span>
+      </button>`).join('');
+    box.querySelectorAll('[data-aid]').forEach(b => b.addEventListener('click', async () => {
+      try {
+        const a = await api('/v1/library/' + b.dataset.aid);
+        const { openPanel } = await import('../js/shell.js');
+        openPanel({
+          title: a.title || '产物',
+          subtitle: a.agentName || '',
+          render: c => { c.innerHTML = `<pre class="art-pre">${esc(a.content || '')}</pre>`; },
+        });
+      } catch (e) { /* 打不开就算了 */ }
+    }));
+  } catch (e) {
+    box.innerHTML = '';
+  }
+}
+
 /**
  * 点顶栏右侧面板按钮时打开房间概览（成员 / 本轮 / 产物）。
  * chat.js 的 renderMembers / renderPipeline / addArtifact 直接写这些容器。
@@ -282,6 +315,9 @@ export function openRoomPanel() {
         m.renderMembers?.();
         m.renderPipeline?.(true);
       });
+      // 产物从资料库回填：SSE 事件只在产生那一刻推一次，
+      // 重开面板或刷新后必须重新拉，否则这块永远是空的。
+      fillArtifacts(state.cur.id);
     },
   });
 }
