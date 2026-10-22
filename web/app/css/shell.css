@@ -69,7 +69,7 @@
 
 .nav-rooms{margin-top:22px;min-height:0;display:flex;flex-direction:column;gap:1px;overflow-y:auto}
 .nav-rooms-h{
-  font-size:11px;font-weight:650;color:var(--ink-4);
+  font-size:11px;font-weight:650;color:var(--ink-3);
   padding:0 12px 8px;letter-spacing:.06em;text-transform:uppercase;
 }
 .nav-room{
@@ -85,7 +85,7 @@
 }
 .nav-room.on .dot{background:var(--pri);box-shadow:0 0 0 3px var(--pri-soft)}
 .nav-room .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.nav-room-empty{font-size:13px;color:var(--ink-4);padding:5px 12px}
+.nav-room-empty{font-size:13px;color:var(--ink-3);padding:5px 12px}
 
 .nav-foot{
   margin-top:auto;padding:12px 6px 0;

@@ -77,7 +77,7 @@
   25%{transform:translateX(-5px)}
   75%{transform:translateX(5px)}
 }
-.login-foot{font-size:12px;color:var(--ink-4);text-align:center;margin-top:20px;line-height:1.7}
+.login-foot{font-size:12px;color:var(--ink-3);text-align:center;margin-top:20px;line-height:1.7}
 
 /* ============================================================
    团队大厅
@@ -145,7 +145,7 @@
    改成左对齐的常规按钮，卡片留白更透气。 */
 .team-foot{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .team-foot .btn{height:34px;padding:0 16px;font-size:13.5px}
-.team-foot .tf-hint{font-size:12px;color:var(--ink-4)}
+.team-foot .tf-hint{font-size:12px;color:var(--ink-3)}
 
 /* 我的团队：inset 分组列表 */
 .team-list{
@@ -540,7 +540,7 @@
 .ge-head p{font-size:13.5px;color:var(--ink-3);line-height:1.7;margin-bottom:20px}
 .ge-examples{width:100%;margin-top:44px}
 .ge-label{
-  font-size:12px;font-weight:620;color:var(--ink-4);
+  font-size:12px;font-weight:620;color:var(--ink-3);
   letter-spacing:.04em;margin:0 4px 12px;
 }
 .ge-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}

@@ -1,4 +1,4 @@
-.PHONY: run build clean test a11y shots
+.PHONY: run build clean test a11y contrast shots
 
 # 本地启动：没有 Key 也能跑（自动降级 mock）
 run:
@@ -63,6 +63,10 @@ audit:
 # 可访问性：Tab 顺序、焦点环、按钮可读名称、aria-live、缩放
 a11y:
 	@node scripts/check-a11y.mjs
+
+# 真实渲染的对比度：遍历所有可见文字，报低于 WCAG AA 的
+contrast:
+	@node scripts/check-contrast.mjs
 
 # 逐屏验收截图（25 屏 × 3 宽度）
 qa-shots:
