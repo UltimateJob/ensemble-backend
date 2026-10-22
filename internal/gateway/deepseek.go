@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -317,7 +318,8 @@ type Prober interface {
 	Probe(ctx context.Context, model string) domain.ChannelProbe
 }
 
-// Probe 渠道体检：发一个 max_tokens=64 的小流式请求。
+// Probe 渠道体检：发一个小流式请求，量连通、首字延迟、输出 token 速度。
+// 让模型连续吐一串数字，避免「回复一个字」测不出吞吐。
 // 思考型模型可能把预算花在推理上——思考字段有内容也算连通。
 func (d *DeepSeek) Probe(ctx context.Context, model string) domain.ChannelProbe {
 	if model == "" {
@@ -328,10 +330,11 @@ func (d *DeepSeek) Probe(ctx context.Context, model string) domain.ChannelProbe 
 	start := time.Now()
 
 	body, _ := json.Marshal(dsRequest{
-		Model:     model,
-		Messages:  []dsMessage{{Role: "user", Content: "ping，回复一个字：好"}},
-		Stream:    true,
-		MaxTokens: 64,
+		Model:         model,
+		Messages:      []dsMessage{{Role: "user", Content: "请从 1 数到 60，只输出数字，用逗号分隔"}},
+		Stream:        true,
+		MaxTokens:     160,
+		StreamOptions: &dsStreamOptions{IncludeUsage: true},
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.base+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -362,6 +365,8 @@ func (d *DeepSeek) Probe(ctx context.Context, model string) domain.ChannelProbe 
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	first := int64(0)
 	chars := 0
+	tokens := 0
+	usageTokens := 0
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if !strings.HasPrefix(line, "data:") {
@@ -376,6 +381,8 @@ func (d *DeepSeek) Probe(ctx context.Context, model string) domain.ChannelProbe 
 			continue
 		}
 		if c.Usage != nil {
+			// 上游给了准确用量就以它为准
+			usageTokens = c.Usage.CompletionTokens
 			continue
 		}
 		for _, pick := range c.Choices {
@@ -390,13 +397,22 @@ func (d *DeepSeek) Probe(ctx context.Context, model string) domain.ChannelProbe 
 					first = time.Since(start).Milliseconds()
 				}
 				chars += len([]rune(text))
+				tokens++ // 没有 usage 时的近似值：一个增量按一个 token 算
 			}
 		}
 	}
+	if usageTokens > 0 {
+		tokens = usageTokens
+	}
 	pr.FirstByteMS = first
 	pr.Chars = chars
+	pr.Tokens = tokens
 	pr.TotalMS = time.Since(start).Milliseconds()
 	pr.OK = chars > 0
+	if pr.OK && tokens > 0 && pr.TotalMS > pr.FirstByteMS {
+		// 首字之后的纯输出速度
+		pr.TokPerSec = math.Round(float64(tokens)*1000/float64(pr.TotalMS-pr.FirstByteMS)*10) / 10
+	}
 	if !pr.OK {
 		pr.Err = "连接成功但没有收到任何内容（可能额度耗尽或模型无响应）"
 	}
@@ -436,5 +452,5 @@ func (d *DeepSeek) probeBilling(ctx context.Context) *float64 {
 
 // Probe mock 渠道体检：本地永远连通。
 func (m *Mock) Probe(ctx context.Context, model string) domain.ChannelProbe {
-	return domain.ChannelProbe{OK: true, HTTPStatus: 200, Chars: 2, Model: "mock", FirstByteMS: 1, TotalMS: 2}
+	return domain.ChannelProbe{OK: true, HTTPStatus: 200, Chars: 2, Tokens: 2, TokPerSec: 1000, Model: "mock", FirstByteMS: 1, TotalMS: 2}
 }

@@ -14,6 +14,7 @@ import {
 } from './chat.js';
 import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
 import { uiConfirm, uiPrompt } from './dialog.js';
+import { applyBrandLogos } from './core.js';
 import { initMemory } from './memory.js';
 import { initStudio, openStudio } from './studio.js';
 
@@ -154,6 +155,7 @@ async function enterApp() {
   // 还没有选群：右栏整块收起（三个空壳面板比空着更难看）。
   // 打开会话时 chat.js 会把它去掉。
   if (!state.cur) document.body.classList.add('no-conv');
+  applyBrandLogos('light');
   try {
     state.scenarios = await api('/v1/scenarios');
   } catch (e) {

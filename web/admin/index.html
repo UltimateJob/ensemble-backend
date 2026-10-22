@@ -141,6 +141,15 @@ tr:hover td{background:rgba(255,255,255,.6)}
 .prov-stats{display:flex;gap:18px;margin-top:12px}
 .prov-stats div{font-size:11px;color:var(--tx4)}
 .prov-stats b{display:block;font-size:15px;color:var(--tx);font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.prov-check{height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;background:#fff;font-size:11px;color:var(--tx2)}
+.prov-check:hover{border-color:var(--pri);color:var(--pri)}
+.prov-check:disabled{opacity:.55;cursor:default}
+.prov-probe:empty,.model-probe:empty{display:none}
+.pr-line{margin-top:8px;font-size:11px;line-height:1.5;font-family:var(--mono);word-break:break-word}
+.pr-ok{color:var(--ok)}
+.pr-bad{color:var(--bad)}
+.model-probe .pr-line{margin-top:3px;font-size:10.5px;max-width:260px}
+.row-actions{display:flex;gap:6px;justify-content:flex-end}
 
 /* 提示 */
 .toast{
@@ -253,7 +262,7 @@ button:disabled{opacity:.55;cursor:default}
 <!-- 登录 -->
 <div class="login" id="login">
   <div class="login-card">
-    <div class="logo"><img src="/site/brand/logo.svg" style="width:30px;height:30px;border-radius:8px;display:block" alt="智团"><b>智团运维台</b></div>
+    <div class="logo"><img src="/site/brand/logo.svg" data-brand style="width:30px;height:30px;border-radius:8px;display:block" alt="智团"><b>智团运维台</b></div>
     <div class="fld">
       <label>管理员令牌</label>
       <input id="token" type="password" placeholder="admin-dev-token" autocomplete="off">
@@ -269,7 +278,7 @@ button:disabled{opacity:.55;cursor:default}
 <!-- 主体 -->
 <div class="app" id="app">
   <div class="nav">
-    <div class="logo"><img src="/site/brand/logo.svg" style="width:30px;height:30px;border-radius:8px;display:block" alt="智团"><b>智团</b></div>
+    <div class="logo"><img src="/site/brand/logo.svg" data-brand style="width:30px;height:30px;border-radius:8px;display:block" alt="智团"><b>智团</b></div>
     <div class="tabs">
       <button class="tab on" data-p="dash">总览</button>
       <button class="tab" data-p="models">模型</button>

@@ -93,6 +93,20 @@ export function humanError(e) {
 
 // 引号也要转义：esc 的结果会进 title="…"、data-x="…" 这类属性上下文，
 // 只转 & < > 的话，一个 " 就能把属性掐断（颜色、文件名都来自外部数据）。
+// 品牌 logo 按主题切换：默认白底版，深色界面用深底版。
+// 页面里的 logo <img> 统一加 data-brand 属性，主题变化时调一次即可。
+export function brandLogoSrc(theme) {
+  const t = theme
+    || document.documentElement.dataset.theme
+    || (matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  return t === 'dark' ? '/site/brand/logo-dark.svg' : '/site/brand/logo.svg';
+}
+
+export function applyBrandLogos(theme) {
+  const src = brandLogoSrc(theme);
+  document.querySelectorAll('img[data-brand]').forEach(el => { el.src = src; });
+}
+
 export function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
