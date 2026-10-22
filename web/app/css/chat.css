@@ -104,7 +104,12 @@
 }
 .msg .av{width:34px;height:34px;flex:0 0 34px;margin-top:1px}
 .msg .av b{font-size:14px}
-.msg-body{min-width:0;max-width:min(560px,calc(100% - 46px))}
+/* 消息体宽度。
+   用户消息是 row-reverse（头像在右），calc(100% - 46px) 会按整行算，
+   气泡被挤成窄条——「断网测试」竖着排就是这么来的。
+   这里改成按剩余可用宽度算，并给用户气泡一个下限。 */
+.msg-body{min-width:0;flex:0 1 auto;max-width:min(560px,100%)}
+.msg.me .msg-body{max-width:min(560px,100%);min-width:96px}
 .msg-head{display:flex;align-items:baseline;gap:8px;margin-bottom:5px;padding:0 4px}
 .msg-name{font-size:12.5px;font-weight:620;letter-spacing:-.01em;color:var(--ink-2)}
 .msg-title{font-size:11px;color:var(--ink-4)}

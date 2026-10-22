@@ -1,4 +1,4 @@
-.PHONY: run build clean test a11y contrast shots
+.PHONY: run build clean test a11y contrast resilience-ui shots
 
 # 本地启动：没有 Key 也能跑（自动降级 mock）
 run:
@@ -67,6 +67,10 @@ a11y:
 # 真实渲染的对比度：遍历所有可见文字，报低于 WCAG AA 的
 contrast:
 	@node scripts/check-contrast.mjs
+
+# 弱网 / 断网下的界面表现（骨架屏、失败标记、错误提示）
+resilience-ui:
+	@node scripts/check-resilience.mjs
 
 # 逐屏验收截图（25 屏 × 3 宽度）
 qa-shots:
