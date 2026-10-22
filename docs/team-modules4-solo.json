@@ -1,0 +1,65 @@
+{
+ "case": "modules4-solo",
+ "mode": "solo",
+ "root": "/tmp/dsh-team-solo2",
+ "wallSeconds": 45.3,
+ "seconds": 45.3,
+ "runs": [
+  {
+   "agent": "solo",
+   "runId": "run_e5a44b2626d1e87e",
+   "status": "done",
+   "steps": 13,
+   "tokensIn": 59207,
+   "tokensOut": 6238,
+   "seconds": 34.7,
+   "toolCalls": 17,
+   "approvals": 0,
+   "diffs": [
+    [
+     "auth/auth.go",
+     "added"
+    ],
+    [
+     "auth/auth_test.go",
+     "added"
+    ],
+    [
+     "store/store.go",
+     "added"
+    ],
+    [
+     "store/store_test.go",
+     "added"
+    ],
+    [
+     "web/login.html",
+     "added"
+    ],
+    [
+     "web/web_test.go",
+     "added"
+    ]
+   ],
+   "summary": "三个模块都完成并通过验证。\n\n**auth**（`auth/auth.go`, `auth/auth_test.go`）用标准库 `crypto/hmac` + `sha256` 实现 HS256 JWT，不引入外部依赖。`Sign(userID, ttl)` / `Verify(token) (string, error)`，区分了 `ErrMalformed` / `ErrSignature` / `ErrExpired` 三类错误，先校验签名再读 payload（改 payload 也会被签名拦截）。测试覆盖：正常签发校验、过期、签名篡改、payload 篡改、格式错误（6 种畸形输入）、非法入参、换密钥后验签失败。\n\n**store**（`store/store.go`, `store/store_test.go`）`sync.RWMutex` + map 的带 TTL KV，`Set/Get/Delete`，另加了 `Len()`。`ttl <= 0` 视为永不过期；`Get` 命中过期键时顺手清理，并用双重检查避免误删并发写入的新值。时间源做了可注入（`s.now`），所以过期测试不靠 sleep。测试覆盖：基本读写覆盖删、边界过期（ttl-1s 可见 / 恰好 ttl 不可见）、零 TTL 永久、过期清理、32 goroutine × 200 轮混合读写删 + 并发 `Len`、并发独立键。\n\n**web**（`web/login.html`, `web/web_test.go`）纯静态登录页，无后端依赖：表单 POST JSON 到 `/api/login`，loading 态（按钮禁用 +「登录中…」+ aria-busy）、成功显示「登录成功」、失败优先取响应里的 `error`/`message` 否则回落到 HTTP 状态码，网络异常单独提示。README 要求每个模块都能 `go test` 通过，所以补了一个 Go 测试守护页面契约（表单字段、接口地址与 POST、三态文案与禁用逻辑）。\n\n验证：`go vet ./...` 干净，`go test -race -count=1 ./...` → `auth` / `store` / `web` 三个包全部 ok。\n\n一点说明：auth 的签名密钥目前是包内默认值 + `SetSecret` 注入，本地跑没问题，正式上线前应改为从配置/环境变量读取。",
+   "error": ""
+  }
+ ],
+ "review": {
+  "agent": "审核",
+  "runId": "run_45a2e22eec3703ab",
+  "status": "done",
+  "steps": 4,
+  "tokensIn": 8579,
+  "tokensOut": 818,
+  "seconds": 10.6,
+  "toolCalls": 5,
+  "approvals": 0,
+  "diffs": [],
+  "summary": "**结论**：三条命令的结果是：`go test ./... -count=1` 和 `go test -race ./... -count=1` 全部通过，三个模块（auth、store、web）在编译和测试层面都是绿的，race 检测也没有报出问题，这只能说明“没有数据竞争、也没有明显 panic”。\n\n但我读的 `store/store_test.go` 显示测试质量有明显水分：`TestConcurrentAccess` 是最可疑的一个。它启动了 32 个 goroutine，并发执行 Set/Get/Delete，还有一个 goroutine 循环调用 `Len()`，但**整个函数里没有任何断言**，只是 `wg.Wait()` 就结束；它唯一的产出就是那个 `-race` 标志能否跑通。这种“测试”在逻辑写错时照样会通过（例如 Get 永远返回 miss、Delete 误删所有 key、Len 恒为 0 都能过），属于典型的空转，只是它至少承担了 race 检测的职责。其余用例的断言方向是有效的，没有恒真：`TestSetGetDelete` 覆盖了 missing、overwrite、delete 三种情况；`TestExpiry` 卡了 ttl-1s 与正好 ttl 两个点，边界选得对；`TestExpiryNoTTL` 用很大的时间偏移来验证零 TTL 永不过期；`TestConcurrentDistinctKeys` 末尾有 `Len()==n` 的实质断言，这是唯一并发测试里有真实校验的。\n\n漏掉的边界和空转点如下：(1) **没有 TTL 边界的方向性内存泄漏测试**：过期 key 只在 Get 时被惰性清理，`TestExpiredKeyCleanedUp` 是靠 Get 触发清理后再查 Len，所以“过期后长时间不访问是否会无限堆积”这条没测，也没有压力场景；(2) **没有测试负 TTL / 极端 TTL**（`Set` 传负数会怎样没覆盖）；(3) **空字符串 key、空 value、超长 key 都未覆盖**；(4) **Len 语义没验证过期项是否计入**（除上面那个“先 Get 再查 Len”的间接路径外，直接调用 `Len()` 在有过期项时是否应该把它排除掉，是模糊的）；(5) `TestExpiry*` 系列注入了 `s.now`，但 `Set` 用的是注入时钟还是真实时钟，测试没有交叉验证，如果 `Set` 存的是 `time.Now()`，`TestExpiry` 在极慢机器上会假失败或假通过；(6) auth 与 web 两个模块的测试我没有在预算内读，所以对它们的断言强度，我只能说“跑通了”，不能说“验证到位”。\n\n因此：**三个模块功能上没发现缺陷，但测试存在空转和覆盖缺口，不能算 clean。**\n",
+  "error": ""
+ },
+ "quotaUsed": 8,
+ "at": "2026-10-22 10:24:53",
+ "totalTokens": 74842
+}

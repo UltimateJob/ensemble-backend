@@ -63,10 +63,18 @@ func TestParallelRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third run should be allowed: %v", err)
 	}
+	// 上限 maxParallelRuns：再开一个必须被拒
+	for i := 0; i < maxParallelRuns-3; i++ {
+		if _, err := m.Start(context.Background(), &fakeModel{steps: []fakeStep{{text: "x"}}}, StartRequest{
+			WorkspaceID: ws.ID, UserID: "u1", Task: "fill", Permission: PermissionApproval,
+		}); err != nil {
+			t.Fatalf("run %d should still fit under the limit: %v", i, err)
+		}
+	}
 	if _, err := m.Start(context.Background(), &fakeModel{steps: []fakeStep{{text: "y"}}}, StartRequest{
-		WorkspaceID: ws.ID, UserID: "u1", Task: "d", Permission: PermissionApproval,
+		WorkspaceID: ws.ID, UserID: "u1", Task: "over", Permission: PermissionApproval,
 	}); err == nil {
-		t.Fatal("fourth concurrent run must be rejected")
+		t.Fatal("run beyond maxParallelRuns must be rejected")
 	}
 	waitRun(t, m, r1.ID)
 	waitRun(t, m, r2.ID)

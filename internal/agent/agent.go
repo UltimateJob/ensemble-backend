@@ -66,8 +66,9 @@ const (
 	DefaultRunTimeout  = 10 * time.Minute
 	ApprovalWait       = 10 * time.Minute
 	MaxToolOutputBytes = 8 << 10 // 回填给模型的结果上限
-	// maxParallelRuns 同一工作区允许同时跑的任务数
-	maxParallelRuns = 3
+	// maxParallelRuns 同一工作区允许同时跑的任务数。
+	// 上限来自「一个人的注意力」而不是机器：再多就没人看时间线了。
+	maxParallelRuns = 6
 	// maxReviewRounds 复审最多几轮（防止修复-复审无限循环）
 	maxReviewRounds = 2
 )

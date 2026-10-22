@@ -1,0 +1,51 @@
+{
+ "case": "modules-solo",
+ "mode": "solo",
+ "root": "/tmp/dsh-team-solo",
+ "wallSeconds": 43.9,
+ "seconds": 43.8,
+ "runs": [
+  {
+   "agent": "solo",
+   "runId": "run_1738a1093ca794dc",
+   "status": "done",
+   "steps": 18,
+   "tokensIn": 106254,
+   "tokensOut": 7378,
+   "seconds": 43.8,
+   "toolCalls": 22,
+   "approvals": 0,
+   "diffs": [
+    [
+     "auth/auth.go",
+     "added"
+    ],
+    [
+     "auth/auth_test.go",
+     "added"
+    ],
+    [
+     "store/store.go",
+     "added"
+    ],
+    [
+     "store/store_test.go",
+     "added"
+    ],
+    [
+     "web/login.html",
+     "added"
+    ],
+    [
+     "web/login_test.go",
+     "added"
+    ]
+   ],
+   "summary": "三个模块都做完了，`go test -race ./...` 与 `go vet ./...` 全部通过，gofmt 无待格式化文件。\n\n**auth**（`auth/auth.go` + `auth/auth_test.go`）\n- `Sign(userID, ttl)` / `Verify(token)`，HS256，手写 base64url + HMAC-SHA256，无第三方依赖。\n- 定义了 `ErrMalformed` / `ErrSignature` / `ErrExpired`，测试用 `errors.Is` 分别覆盖：正常签发校验、过期、载荷篡改、签名篡改、换密钥签发、格式错误（段数不对、非法 base64、alg≠HS256）、非法入参。\n\n**store**（`store/store.go` + `store/store_test.go`）\n- `New()` / `Set` / `Get` / `Delete`，`sync.RWMutex` 保护 map；`ttl <= 0` 视为永不过期。\n- 过期双保险：`Get` 惰性判过期并双重检查后删（避免误删并发写入的新值），加 1s 间隔的后台 janitor；额外给了 `Len()` 和可重复调用的 `Close()` 停后台协程。\n- 测试覆盖增删改查、TTL 过期、永不过期、Len 忽略过期、16×200 并发读写删混合（-race 通过）、Close 幂等。\n\n**web**（`web/login.html` + `web/login_test.go`）\n- 用户名/密码表单，`fetch` POST JSON 到 `/api/login`，三态：idle（可编辑）→ loading（按钮禁用 + 旋转图标 + 「登录中…」，输入框同步禁用）→ 结果（成功「登录成功」并清空密码、失败显示后端 message 或 HTTP 状态，网络异常单独提示）；客户端空值校验、防重复提交。\n- 补了一个 Go 测试守住关键要素（`/api/login`、password 输入、三态钩子、成功文案），让 web 模块本身也能 `go test` 通过。\n\n无遗留项。一点说明：三个模块互不依赖，但都归在同一个 `module team` 下，所以 `go test ./...` 是一次跑完的；如果之后想拆成独立仓库，只需各自复制一份 go.mod。",
+   "error": ""
+  }
+ ],
+ "quotaUsed": 12,
+ "at": "2026-10-22 10:13:02",
+ "totalTokens": 113632
+}
