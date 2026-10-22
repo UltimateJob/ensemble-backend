@@ -1,206 +1,666 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="pearl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>合奏 Ensemble — 五个声部，一个成品</title>
-<meta name="description" content="多角色群聊的 Agent 工作台。每个群是一组角色，它们自己判断要不要说话、互相接话、缺信息直接问你。">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>合奏 Ensemble — 把一件真事，交给一场合奏</title>
+<meta name="description" content="多角色群聊的 Agent 工作台：五个 Agent 分工协作，每一步落成文件，最后由你按下确认。">
+<style>
+/* 设计 token（自足，不依赖 tokens.css 全套）*/
+:root{
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+}
+</style>
 <style>
 :root{
-  --pri:#4F46E5; --pri-2:#6366F1; --pri-soft:#EEF2FF;
-  --tx:#1E1F25; --tx-2:#4B4D5C; --tx-3:#7A7C90;
-  --bg:#FAFAFC; --card:#FFFFFF; --line:#E7E8EF;
-  --ok:#15803D; --radius:16px;
+  --ink:    #0D0D10;
+  --ink-2:  #3A3A44;
+  --ink-3:  #77777F;
+  --ink-4:  #A5A5AE;
+  --paper:  #F3F4F7;
+  --paper-2:#FAFAFC;
+  --white:  #FFFFFF;
+  --hair:   #E3E3E9;
+  --deep:   #0B0B0E;
+  --deep-2: #16161B;
 }
-*{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
-  color:var(--tx);background:var(--bg);line-height:1.7;-webkit-font-smoothing:antialiased}
-a{color:inherit;text-decoration:none}
-.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+html{ scroll-behavior:smooth; }
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--font);
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
 
-/* 导航 */
-nav{position:sticky;top:0;z-index:10;background:rgba(250,250,252,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-.nav-in{display:flex;align-items:center;height:60px;gap:28px}
-.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px}
-.logo .mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--pri),#8B5CF6);color:#fff;
-  display:grid;place-items:center;font-size:13px}
-.nav-links{display:flex;gap:22px;font-size:14px;color:var(--tx-2)}
-.nav-links a:hover{color:var(--pri)}
-.nav-cta{margin-left:auto}
-.btn{display:inline-block;padding:9px 20px;border-radius:10px;font-size:14px;font-weight:600;transition:.15s;cursor:pointer;border:none}
-.btn-pri{background:var(--pri);color:#fff}
-.btn-pri:hover{background:var(--pri-2)}
-.btn-ghost{border:1px solid var(--line);background:var(--card);color:var(--tx-2)}
-.btn-ghost:hover{border-color:var(--pri);color:var(--pri)}
-@media(max-width:720px){.nav-links{display:none}}
+/* ============ 顶部进度 ============ */
+.bar{
+  position:fixed; top:0; left:0; height:2px; width:0;
+  background:#0D0D10; z-index:300;
+  transform-origin:left;
+}
 
-/* 首屏 */
-.hero{padding:76px 0 48px;text-align:center}
-.hero h1{font-size:clamp(34px,6vw,58px);letter-spacing:-.02em;line-height:1.2;font-weight:800}
-.hero h1 em{font-style:normal;background:linear-gradient(120deg,var(--pri),#8B5CF6);-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero p{margin:20px auto 0;max-width:640px;font-size:17px;color:var(--tx-2)}
-.hero-ctas{margin-top:30px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
-.hero-note{margin-top:14px;font-size:12.5px;color:var(--tx-3)}
-.shot{margin:52px auto 0;max-width:880px;border:1px solid var(--line);border-radius:var(--radius);
-  box-shadow:0 24px 60px -18px rgba(30,31,37,.25);overflow:hidden;background:#fff}
-.shot img{display:block;width:100%}
+/* ============ 导航 ============ */
+.nav{
+  position:fixed; top:0; left:0; right:0; z-index:200;
+  height:52px;
+  background:rgba(243,244,247,.72);
+  backdrop-filter:saturate(180%) blur(24px);
+  -webkit-backdrop-filter:saturate(180%) blur(24px);
+  border-bottom:1px solid rgba(0,0,0,.06);
+  transition:background .3s, border-color .3s;
+}
+.nav.dark{
+  background:rgba(11,11,14,.72);
+  border-bottom-color:rgba(255,255,255,.08);
+}
+.nav-in{
+  max-width:1160px; margin:0 auto; padding:0 36px;
+  height:100%; display:flex; align-items:center; gap:32px;
+}
+.brand{ display:flex; align-items:center; gap:8px; color:var(--ink); }
+.nav.dark .brand{ color:#fff; }
+.brand-m{
+  width:22px; height:22px; border-radius:50%;
+  background:var(--ink); color:#fff;
+  display:grid; place-items:center; font-size:10px; font-weight:600;
+}
+.nav.dark .brand-m{ background:#fff; color:var(--deep); }
+.brand-n{ font-size:13px; font-weight:600; letter-spacing:-.01em; }
 
-/* 数字带 */
-.stats{margin:64px 0;padding:22px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.stats-in{display:flex;justify-content:space-around;flex-wrap:wrap;gap:18px}
-.stat{text-align:center;min-width:120px}
-.stat b{display:block;font-size:26px;font-weight:800;color:var(--pri)}
-.stat span{font-size:13px;color:var(--tx-3)}
+.nav-links{ display:flex; gap:26px; }
+.nav-links a{
+  font-size:12px; color:var(--ink-3); transition:color .2s;
+}
+.nav.dark .nav-links a{ color:#9A9AA4; }
+.nav-links a:hover{ color:var(--ink); }
+.nav.dark .nav-links a:hover{ color:#fff; }
 
-/* 区块 */
-section{padding:72px 0}
-.sec-tag{display:inline-block;font-size:12.5px;font-weight:700;color:var(--pri);background:var(--pri-soft);
-  padding:4px 12px;border-radius:99px;margin-bottom:14px}
-h2{font-size:clamp(24px,4vw,34px);letter-spacing:-.01em;font-weight:800}
-.sec-sub{margin-top:12px;color:var(--tx-2);max-width:560px}
+.nav-r{ margin-left:auto; display:flex; gap:8px; align-items:center; }
+.pill{
+  display:inline-flex; align-items:center; gap:6px;
+  height:30px; padding:0 15px; border-radius:999px;
+  font-size:12px; font-weight:500;
+  transition:all .2s;
+}
+.pill-dark{ background:var(--ink); color:#fff; }
+.pill-dark:hover{ background:#000; transform:translateY(-1px); }
+.pill-line{ border:1px solid rgba(0,0,0,.14); color:var(--ink-2); }
+.nav.dark .pill-line{ border-color:rgba(255,255,255,.2); color:#E8E8EC; }
+.pill-line:hover{ border-color:rgba(0,0,0,.3); }
 
-.grid{margin-top:44px;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
-@media(max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:560px){.grid{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:24px 22px;transition:.18s}
-.card:hover{border-color:var(--pri);box-shadow:0 10px 30px -12px rgba(79,70,229,.25);transform:translateY(-2px)}
-.card .ico{width:40px;height:40px;border-radius:11px;background:var(--pri-soft);display:grid;place-items:center;font-size:19px;margin-bottom:14px}
-.card h3{font-size:16px;font-weight:700}
-.card p{margin-top:8px;font-size:13.5px;color:var(--tx-2)}
+/* ============ 通用 ============ */
+.wrap{ max-width:1160px; margin:0 auto; padding:0 36px; }
+.eyebrow{
+  font-size:10px; font-weight:600; letter-spacing:.22em;
+  text-transform:uppercase; color:var(--ink-4);
+}
+.display{
+  font-size:clamp(40px,6vw,86px);
+  line-height:1.02; letter-spacing:-.05em; font-weight:600;
+  margin:0;
+}
 
-/* 场景 */
-.scenes{margin-top:44px;display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
-@media(max-width:720px){.scenes{grid-template-columns:1fr}}
-.scene{display:flex;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
-.scene .emoji{font-size:30px;line-height:1.2}
-.scene h3{font-size:15.5px;font-weight:700}
-.scene p{margin-top:5px;font-size:13px;color:var(--tx-2)}
+/* ============ Hero ============ */
+.hero{
+  min-height:100vh;
+  display:flex; flex-direction:column; justify-content:center;
+  padding:120px 0 0;
+  position:relative;
+  overflow:hidden;
+}
+.hero::before{
+  content:""; position:absolute; inset:0;
+  background:
+    radial-gradient(60% 50% at 50% -10%, rgba(180,190,215,.55), transparent 62%),
+    radial-gradient(50% 40% at 10% 100%, rgba(210,205,198,.5), transparent 66%);
+  pointer-events:none;
+}
+.hero-in{ position:relative; text-align:center; z-index:2; }
+.hero h1{
+  margin:24px auto 0; max-width:14em;
+  font-size:clamp(40px,6vw,86px);
+  line-height:1.04; letter-spacing:-.05em; font-weight:600;
+}
+.hero h1 .dim{ color:var(--ink-4); }
+.hero .sub{
+  margin:26px auto 0; max-width:600px;
+  font-size:16px; line-height:1.7; color:var(--ink-3);
+  letter-spacing:-.01em;
+}
+.hero .sub b{ color:var(--ink); font-weight:500; }
+.hero .cta{ margin-top:34px; display:flex; gap:10px; justify-content:center; }
+.pill-lg{ height:44px; padding:0 26px; font-size:14px; border-radius:999px; }
 
-/* 双栏（多渠道）*/
-.split{margin-top:44px;display:grid;grid-template-columns:1.05fr .95fr;gap:36px;align-items:center}
-@media(max-width:820px){.split{grid-template-columns:1fr}}
-.checks{list-style:none;margin-top:8px}
-.checks li{padding:11px 0;border-bottom:1px solid var(--line);font-size:14.5px;color:var(--tx-2);display:flex;gap:11px}
-.checks li:last-child{border-bottom:none}
-.checks .ck{color:var(--ok);font-weight:800}
-.split img{border:1px solid var(--line);border-radius:var(--radius);width:100%;display:block;box-shadow:0 16px 40px -16px rgba(30,31,37,.25)}
+/* Hero 产品图：从下方升起 + 缩放 */
+.hero-shot{
+  position:relative; z-index:1;
+  width:1240px; max-width:calc(100% - 56px);
+  margin:64px auto 0;
+  border-radius:14px 14px 0 0;
+  overflow:hidden;
+  background:#fff;
+  box-shadow:
+    0 -1px 0 rgba(0,0,0,.05),
+    0 60px 120px -40px rgba(20,24,40,.42),
+    0 0 0 1px rgba(0,0,0,.06);
+  transform-origin:50% 100%;
+}
+.hero-shot img{ width:100%; display:block; }
+.hero-shot::after{
+  content:""; position:absolute; inset:auto 0 0 0; height:160px;
+  background:linear-gradient(to bottom, rgba(243,244,247,0), var(--paper) 92%);
+  pointer-events:none;
+}
 
-/* CTA */
-.final{text-align:center;background:linear-gradient(135deg,#312E81,#4F46E5);color:#fff;border-radius:24px;padding:64px 28px;margin:20px 0 0}
-.final h2{color:#fff}
-.final p{margin:14px auto 0;max-width:520px;color:#C7D2FE;font-size:15px}
-.final .btn{background:#fff;color:var(--pri);margin-top:26px;padding:12px 30px;font-size:15px}
+/* 入场 */
+.rise{ animation:rise 1s cubic-bezier(.2,.8,.2,1) both; }
+.d1{ animation-delay:.05s } .d2{ animation-delay:.14s }
+.d3{ animation-delay:.24s } .d4{ animation-delay:.36s }
+.d5{ animation-delay:.5s }
+@keyframes rise{
+  from{ opacity:0; transform:translateY(26px); }
+  to{ opacity:1; transform:none; }
+}
 
-footer{padding:44px 0 60px;color:var(--tx-3);font-size:13px}
-.foot-in{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;border-top:1px solid var(--line);padding-top:26px}
-.foot-links{display:flex;gap:20px}
-.foot-links a:hover{color:var(--pri)}
+/* ============ 场景：sticky 图 + 滚动文字 ============ */
+.scene{
+  padding:140px 0;
+  position:relative;
+}
+.scene-in{ display:block; }
+.scene-text{
+  display:grid; grid-template-columns:1fr 1fr; gap:48px;
+  margin-bottom:56px;
+}
+.scene-text .cp{ min-height:0; padding:0; }
+.scene-shot{
+  position:relative;
+  border-radius:12px; overflow:hidden;
+  background:#fff;
+  box-shadow:0 40px 90px -40px rgba(20,24,40,.38), 0 0 0 1px rgba(0,0,0,.06);
+}
+.scene-shot img{ width:100%; display:block; }
+
+.scene-copy{ }
+.cp{
+  display:flex; flex-direction:column;
+}
+.cp .num{
+  font-size:11px; font-weight:600; letter-spacing:.16em;
+  color:var(--ink-4); font-family:var(--mono);
+}
+.cp h2{
+  margin:14px 0 0;
+  font-size:clamp(26px,2.6vw,38px);
+  line-height:1.16; letter-spacing:-.035em; font-weight:600;
+}
+.cp p{
+  margin:16px 0 0; max-width:34ch;
+  font-size:14.5px; line-height:1.75; color:var(--ink-3);
+}
+.cp p b{ color:var(--ink); font-weight:500; }
+
+/* ============ 深色章节 ============ */
+.chapter{
+  background:var(--deep); color:#fff;
+  padding:160px 0;
+  position:relative;
+  overflow:hidden;
+}
+.chapter::before{
+  content:""; position:absolute; inset:0;
+  background:radial-gradient(60% 50% at 50% 0%, rgba(90,100,140,.28), transparent 66%);
+  pointer-events:none;
+}
+.chapter .eyebrow{ color:#6E6E7A; }
+.chapter h2{
+  margin:20px auto 0; max-width:16em; text-align:center;
+  font-size:clamp(30px,4vw,56px);
+  line-height:1.1; letter-spacing:-.045em; font-weight:600;
+}
+.chapter .sub{
+  margin:20px auto 0; max-width:520px; text-align:center;
+  font-size:15px; line-height:1.7; color:#9A9AA4;
+}
+
+/* 红卡特写 */
+.risk-closeup{
+  margin:80px auto 0; max-width:760px;
+  transform-origin:50% 50%;
+}
+.rc{
+  border-radius:16px; overflow:hidden;
+  background:rgba(220,80,72,.07);
+  border:1px solid rgba(220,80,72,.24);
+  box-shadow:0 60px 120px -50px rgba(0,0,0,1), 0 0 0 1px rgba(255,255,255,.03);
+}
+.rc-h{
+  padding:18px 24px; font-size:14px; font-weight:600;
+  color:#F0827A;
+  border-bottom:1px solid rgba(220,80,72,.18);
+  display:flex; align-items:center; gap:9px;
+}
+.rc-r{
+  display:flex; align-items:baseline; gap:12px;
+  padding:16px 24px; font-size:14px; color:#C9C9D2;
+  border-bottom:1px solid rgba(220,80,72,.10);
+}
+.rc-r:last-child{ border-bottom:0; }
+.rc-r .k{ font-size:11px; color:#F0827A; font-weight:600; flex:0 0 auto; }
+.rc-r .x{ flex:1; }
+.rc-r .p{ font-family:var(--mono); font-size:11px; color:#5E5E6A; }
+
+/* ============ 缩放段落 ============ */
+.zoom-wrap{ padding:0 0 120px; }
+.zoom-img{
+  max-width:1000px; margin:0 auto;
+  border-radius:14px; overflow:hidden;
+  box-shadow:0 50px 110px -46px rgba(20,24,40,.44), 0 0 0 1px rgba(0,0,0,.05);
+}
+.zoom-img img{ width:100%; display:block; }
+
+/* ============ 流水线 ============ */
+.flow-sec{ padding:140px 0; background:var(--paper-2); border-top:1px solid var(--hair); border-bottom:1px solid var(--hair); }
+.flow-head{ text-align:center; }
+.flow-head h2{
+  margin:18px auto 0; max-width:15em;
+  font-size:clamp(28px,3.4vw,46px);
+  line-height:1.12; letter-spacing:-.04em; font-weight:600;
+}
+.flow-head p{ margin:16px auto 0; max-width:480px; font-size:14.5px; line-height:1.7; color:var(--ink-3); }
+
+.flow{
+  margin-top:80px; display:grid; grid-template-columns:repeat(5,1fr);
+  position:relative;
+}
+.flow::before{
+  content:""; position:absolute; left:10%; right:10%; top:21px; height:1px;
+  background:var(--hair);
+}
+.fo{ text-align:center; position:relative; }
+.fo .d{
+  width:42px; height:42px; margin:0 auto 16px;
+  border-radius:50%;
+  background:var(--paper-2); border:1px solid var(--hair);
+  display:grid; place-items:center;
+  font-family:var(--mono); font-size:11px; color:var(--ink-4);
+  position:relative; z-index:2;
+  transition:all .5s cubic-bezier(.2,.8,.2,1);
+}
+.fo .t{ font-size:14px; font-weight:600; letter-spacing:-.01em; }
+.fo .r{
+  font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--ink-4); margin-top:4px; font-family:var(--mono);
+}
+.fo .x{ font-size:11px; color:var(--ink-4); margin-top:10px; }
+
+/* ============ 结尾 ============ */
+.final{
+  background:var(--deep); color:#fff; text-align:center;
+  padding:180px 0 200px;
+  position:relative; overflow:hidden;
+}
+.final::before{
+  content:""; position:absolute; inset:0;
+  background:radial-gradient(50% 40% at 50% 100%, rgba(90,100,140,.22), transparent 70%);
+}
+.final h2{
+  position:relative; margin:0 auto; max-width:12em;
+  font-size:clamp(34px,5vw,68px);
+  line-height:1.06; letter-spacing:-.05em; font-weight:600;
+}
+.final p{
+  position:relative; margin:24px auto 0; max-width:440px;
+  font-size:15px; color:#9A9AA4;
+}
+.final .cta{ position:relative; margin-top:38px; display:flex; gap:10px; justify-content:center; }
+.pill-white{ background:#fff; color:var(--deep); }
+.pill-white:hover{ background:#E8E8EC; transform:translateY(-1px); }
+.pill-ghost{ border:1px solid rgba(255,255,255,.24); color:#fff; }
+.pill-ghost:hover{ border-color:rgba(255,255,255,.5); }
+
+/* ============ Footer ============ */
+.footer{
+  background:var(--deep-2); color:#8A8A96;
+  padding:52px 0 40px;
+  border-top:1px solid rgba(255,255,255,.06);
+}
+.f-in{ max-width:1160px; margin:0 auto; padding:0 36px; }
+.f-top{ display:flex; gap:80px; }
+.f-brand{ display:flex; align-items:center; gap:8px; color:#fff; }
+.f-brand .brand-m{ background:#fff; color:var(--deep); }
+.f-col h4{
+  margin:0 0 14px; font-size:10px; font-weight:600;
+  letter-spacing:.14em; text-transform:uppercase; color:#5E5E6A;
+}
+.f-col a{
+  display:block; font-size:12.5px; color:#9A9AA4; margin-bottom:10px;
+}
+.f-col a:hover{ color:#fff; }
+.f-bot{
+  margin-top:48px; padding-top:22px;
+  border-top:1px solid rgba(255,255,255,.07);
+  display:flex; gap:16px; font-size:11px; color:#5E5E6A;
+}
+.f-bot .r{ margin-left:auto; font-family:var(--mono); }
+
+/* ============ 滚动驱动动画 ============ */
+@supports (animation-timeline: view()){
+  .fade{
+    animation:fadeUp linear both;
+    animation-timeline:view();
+    animation-range:entry 12% cover 42%;
+  }
+  .zoom{
+    animation:zoomIn linear both;
+    animation-timeline:view();
+    animation-range:entry 0% cover 62%;
+  }
+  .grow-line{
+    animation:growLine linear both;
+    animation-timeline:view();
+    animation-range:entry 20% cover 50%;
+  }
+}
+@keyframes fadeUp{ from{ opacity:0; transform:translateY(46px) } to{ opacity:1; transform:none } }
+@keyframes zoomIn{ from{ transform:scale(.88); opacity:.35 } to{ transform:scale(1); opacity:1 } }
+@keyframes growLine{ from{ transform:scaleX(0) } to{ transform:scaleX(1) } }
+
+/* Hero 滚出：缩小淡出 */
+@supports (animation-timeline: scroll()){
+  .hero-in{
+    animation:heroOut linear both;
+    animation-timeline:scroll(root);
+    animation-range:0 70vh;
+  }
+  .hero-shot{
+    animation:shotOut linear both;
+    animation-timeline:scroll(root);
+    animation-range:0 80vh;
+  }
+}
+@keyframes heroOut{
+  to{ transform:scale(.94) translateY(-30px); opacity:.15 }
+}
+@keyframes shotOut{
+  to{ transform:scale(.9) translateY(-60px); opacity:.3 }
+}
+
+/* 无动画环境兜底 */
+@media (prefers-reduced-motion: reduce){
+  .fade, .zoom, .grow-line, .hero-in, .hero-shot, .rise{
+    animation:none !important; opacity:1 !important; transform:none !important;
+  }
+}
+
+/* 截图模式：把 vh 和 sticky 固定住，便于整页出图 */
+.shot-mode .hero{ min-height:880px; }
+.shot-mode .hero-in, .shot-mode .hero-shot{ animation:none !important; opacity:1 !important; transform:none !important; }
+.shot-mode .scene-shot{ position:static; }
+.shot-mode .cp{ min-height:auto; padding:34px 0; }
+.shot-mode .fade, .shot-mode .zoom, .shot-mode .grow-line{
+  animation:none !important; opacity:1 !important; transform:none !important;
+}
+
+@media (max-width:900px){
+  .scene-in{ grid-template-columns:1fr; gap:32px; }
+  .scene-shot{ position:static; }
+  .cp{ min-height:auto; padding:24px 0; }
+  .flow{ grid-template-columns:1fr; gap:28px; }
+  .flow::before{ display:none; }
+  .nav-links{ display:none; }
+  .f-top{ flex-direction:column; gap:32px; }
+}
 </style>
 </head>
 <body>
 
-<nav>
-  <div class="wrap nav-in">
-    <a class="logo" href="/"><span class="mark">奏</span>合奏</a>
+<div class="bar" id="bar"></div>
+
+<nav class="nav" id="nav">
+  <div class="nav-in">
+    <a class="brand" href="#">
+      <span class="brand-m">合</span>
+      <span class="brand-n">合奏</span>
+    </a>
     <div class="nav-links">
-      <a href="#features">它不一样在哪</a>
-      <a href="#scenes">开箱场景</a>
-      <a href="#infra">多渠道路由</a>
+      <a href="#work">怎么干活</a>
+      <a href="#audit">审校</a>
+      <a href="#flow">流水线</a>
+      <a href="#app">客户端</a>
     </div>
-    <div class="nav-cta"><a class="btn btn-pri" href="/app/">打开控制台</a></div>
+    <div class="nav-r">
+      <a class="pill pill-line" href="/app/?scenes=1">创建工作台</a>
+      <a class="pill pill-dark" href="/app/">打开工作台</a>
+    </div>
   </div>
 </nav>
 
-<header class="hero wrap">
-  <h1>五个声部，<em>一个成品</em>。</h1>
-  <p>多角色群聊的 Agent 工作台。每个群是一组角色：它们自己判断要不要说话，可以互相接话，缺信息时直接问你——像一支真的团队，而不是轮班客服。</p>
-  <div class="hero-ctas">
-    <a class="btn btn-pri" href="/app/">进入控制台</a>
-    <a class="btn btn-ghost" href="#scenes">看看场景</a>
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="hero-in">
+    <div class="eyebrow rise d1">Ensemble · Agent Workbench</div>
+    <h1 class="rise d2">把一件真事，<br>交给<span class="dim">一场合奏</span>。</h1>
+    <p class="sub rise d3">
+      五个 Agent 分工协作，每一步都落成一个文件，<b>最后由你按下确认</b>。
+    </p>
+    <div class="cta rise d4">
+      <a class="pill pill-dark pill-lg" href="/app/">打开工作台</a>
+      <a class="pill pill-line pill-lg" href="#work">看它怎么干活</a>
+    </div>
   </div>
-  <div class="hero-note">真跑 DeepSeek · 流式输出 · 无 Key 也能离线演示</div>
-  <div class="shot"><img src="/site/img/chat.png" alt="多角色群聊界面" width="1760" height="1080"></div>
+
+  <div class="hero-shot rise d5">
+    <img src="/site/img/chat.png" alt="合奏群聊工作台">
+  </div>
 </header>
 
-<div class="stats">
-  <div class="wrap stats-in">
-    <div class="stat"><b>5</b><span>内置工作场景</span></div>
-    <div class="stat"><b>61</b><span>可选角色库</span></div>
-    <div class="stat"><b>多渠道</b><span>官方 + 中转智能路由</span></div>
-    <div class="stat"><b>0</b><span>第三方依赖 · 单二进制</span></div>
-  </div>
-</div>
-
-<section id="features">
+<!-- ============ 场景一：群聊 ============ -->
+<section class="scene" id="work">
   <div class="wrap">
-    <span class="sec-tag">它跟普通聊天机器人的区别</span>
-    <h2>不是轮流点名，是真人群聊</h2>
-    <p class="sec-sub">每个角色拿到完整上下文后自己判断：这个话题跟我有关吗？有关就开口，无关就沉默。</p>
-    <div class="grid">
-      <div class="card"><div class="ico">🎙️</div><h3>谁想说谁说</h3><p>无关的角色安静沉默，相关的角色主动接话——不是每个人都被点名发言一轮。</p></div>
-      <div class="card"><div class="ico">🤝</div><h3>互相接话与质疑</h3><p>审校能揪出工头自相矛盾的一句话，测试会补上没人想到的边界——它们真的在读彼此的发言。</p></div>
-      <div class="card"><div class="ico">🙋</div><h3>缺信息直接问你</h3><p>需要你拍板的时候，角色会 @你 提问，停下来等回复，而不是编一个答案。</p></div>
-      <div class="card"><div class="ico">📄</div><h3>每一步落成产物</h3><p>工作场景里每轮产出物自动成卡：可查看全文、复制、下载——「最后由你按下确认」。</p></div>
-      <div class="card"><div class="ico">⚡</div><h3>直播式流式输出</h3><p>一秒内第一个字出现，右栏流水线显示 1/4 → 2/4 → 3/4，你知道还剩几个人要说。</p></div>
-      <div class="card"><div class="ico">🧠</div><h3>长期记忆</h3><p>群聊有群体记忆，角色对你有跨群的了解——换个群，它还记得你们的约定。</p></div>
-    </div>
-  </div>
-</section>
-
-<section id="scenes" style="background:var(--card);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
-  <div class="wrap">
-    <span class="sec-tag">开箱场景</span>
-    <h2>从投标作战室到深夜茶话会</h2>
-    <div class="scenes">
-      <div class="scene"><span class="emoji">🏗️</span><div><h3>华东医院数据中心投标</h3><p>工头拆解 → 撰写出稿 → 审校挑刺 → 交付组包，六轮吵出一份能交的标书。</p></div></div>
-      <div class="scene"><span class="emoji">💻</span><div><h3>代码评审会</h3><p>架构师、前端、后端、测试围着一个方案互相挑毛病，边界条件当场补齐。</p></div></div>
-      <div class="scene"><span class="emoji">🌙</span><div><h3>深夜茶话会</h3><p>爱蜜莉雅 / Saber / 立华奏——每次开群随机挑人，聊到你困为止。</p></div></div>
-      <div class="scene"><span class="emoji">🛋️</span><div><h3>楼下那几个</h3><p>周 / 老罗 / 苏，六种性格模板随机组合。今天陪你丧，明天拉你吃饭。</p></div></div>
-    </div>
-    <div style="margin-top:26px"><a class="btn btn-ghost" href="/app/?scenes=1">去挑一个场景开群 →</a></div>
-  </div>
-</section>
-
-<section id="infra">
-  <div class="wrap">
-    <span class="sec-tag">多渠道路由</span>
-    <h2>谁空闲，走谁</h2>
-    <div class="split">
-      <div>
-        <p class="sec-sub">官方直连 + 多个中转渠道组成请求池，网关自动调度：</p>
-        <ul class="checks">
-          <li><span class="ck">✓</span>空闲优先：在途请求最少的渠道优先接新请求，同闲按权重轮询</li>
-          <li><span class="ck">✓</span>独立熔断：某个渠道连续失败自动熔断，流量无损切到别家</li>
-          <li><span class="ck">✓</span>一键体检：每个渠道可实测连通、首字延迟、吐字量与剩余额度</li>
-          <li><span class="ck">✓</span>群级选型：每个群可自选模型，运维台增删模型用户侧即时生效</li>
-          <li><span class="ck">✓</span>额度可控：按次计费、每用户限流、超长请求拦截</li>
-        </ul>
+    <div class="scene-in">
+      <div class="scene-text">
+        <div class="cp fade">
+          <div class="num">01</div>
+          <h2>群聊就是工作台。</h2>
+          <p>Agent 被拉进你真实的群里。你 @ 它、插话、中途改需求，就像带一个实习生。<b>不用学新工具，不用迁就新界面。</b></p>
+        </div>
+        <div class="cp fade">
+          <div class="num">02</div>
+          <h2>每句话，都挂着一个文件。</h2>
+          <p>中栏是过程，右栏是能打开、能交付的实体文件。<b>没有产物支撑的陈述，撰写 Agent 不写。</b></p>
+        </div>
       </div>
-      <img src="/site/img/scenes.png" alt="场景选择界面" width="1408" height="864">
+
+      <div class="scene-shot zoom">
+        <img src="/site/img/chat.png" alt="群聊界面">
+      </div>
     </div>
   </div>
 </section>
 
-<section>
-  <div class="wrap final">
-    <h2>把一件真事，交给一场合奏。</h2>
-    <p>打开控制台，挑一个场景，说第一句话——剩下的，交给这一群角色。</p>
-    <a class="btn" href="/app/">免费开始使用</a>
+<!-- ============ 深色章节：审校 ============ -->
+<section class="chapter" id="audit">
+  <div class="wrap">
+    <div style="text-align:center" class="fade">
+      <div class="eyebrow">The Auditor</div>
+      <h2>有人只负责挑错，<br>而且只挑错。</h2>
+      <p class="sub">
+        多 Agent 相对单个模型真正的价值，不是更快，是错得更少。
+        所以有一个角色被禁止写正文——它只被允许找出问题。
+      </p>
+    </div>
+
+    <div class="risk-closeup zoom">
+      <div class="rc">
+        <div class="rc-h">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+          发现 3 处废标风险
+        </div>
+        <div class="rc-r"><span class="k">未响应</span><span class="x">3.2.4 要求 ISO 27001 认证</span><span class="p">P47</span></div>
+        <div class="rc-r"><span class="k">不满足</span><span class="x">3.1.2 三甲案例需 ≥ 3 个</span><span class="p">P12</span></div>
+        <div class="rc-r"><span class="k">不足</span><span class="x">4.5.1 国产化信创，缺适配清单</span><span class="p">P19</span></div>
+      </div>
+    </div>
   </div>
 </section>
 
-<footer>
-  <div class="wrap foot-in">
-    <div>合奏 Ensemble · 多角色 Agent 群聊工作台</div>
-    <div class="foot-links">
-      <a href="/app/">控制台</a>
-      <a href="/admin/">运维台</a>
-      <a href="/healthz" target="_blank">健康状态</a>
-      <a href="https://github.com/UltimateJob/ensemble-backend" target="_blank">GitHub</a>
+<!-- ============ 流水线 ============ -->
+<section class="flow-sec" id="flow">
+  <div class="wrap">
+    <div class="flow-head fade">
+      <div class="eyebrow">The Pipeline</div>
+      <h2>一条流水线，五个人接棒。</h2>
+      <p>每一步都落盘，每一步都能回退。你不看过程也行，想看的时候随时能看。</p>
+    </div>
+
+    <div class="flow grow-line">
+      <div class="fo"><div class="d">01</div><div class="t">解析</div><div class="r">Ingest</div><div class="x">186 页 · 12 条评分办法</div></div>
+      <div class="fo"><div class="d">02</div><div class="t">查证</div><div class="r">Scout</div><div class="x">47 条要求 · 带页码</div></div>
+      <div class="fo"><div class="d">03</div><div class="t">撰写</div><div class="r">Scribe</div><div class="x">32 页 · 引用 38 条</div></div>
+      <div class="fo"><div class="d">04</div><div class="t">审校</div><div class="r">Auditor</div><div class="x">3 处风险 → 1 处</div></div>
+      <div class="fo"><div class="d">05</div><div class="t">交付</div><div class="r">Courier</div><div class="x">4 个文件 · 等你确认</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 客户端 ============ -->
+<section class="scene" id="app">
+  <div class="wrap">
+    <div class="scene-in">
+      <div class="scene-text">
+        <div class="cp fade">
+          <div class="num">03</div>
+          <h2>三种登录，没有注册表单。</h2>
+          <p>手机验证码、微信扫码、邮箱密码。手机号未注册就自动建号，<b>三十秒进到第一个群。</b></p>
+        </div>
+        <div class="cp fade">
+          <div class="num">04</div>
+          <h2>手机上，三秒做完决定。</h2>
+          <p>锁屏直接给结论，审批只看它改了什么——<b>不读 32 页文档。</b></p>
+        </div>
+      </div>
+
+      <div class="scene-shot zoom">
+        <img src="/site/img/scenes.png" alt="场景选择">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 创建工作室 ============ -->
+<section class="scene" style="padding-top:0">
+  <div class="wrap">
+    <div class="zoom-img zoom">
+      <img src="/site/img/library.png" alt="角色库">
+    </div>
+  </div>
+</section>
+
+<!-- ============ 结尾 ============ -->
+<section class="final">
+  <h2 class="fade">72 小时能跑通的东西，<br>才值得做。</h2>
+  <p class="fade">五个角色、一条流水线、一次人工确认。</p>
+  <div class="cta fade">
+    <a class="pill pill-white pill-lg" href="/app/">打开工作台</a>
+    <a class="pill pill-ghost pill-lg" href="/app/">查看登录页</a>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="f-in">
+    <div class="f-top">
+      <div style="flex:1">
+        <div class="f-brand">
+          <span class="brand-m" style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:600">合</span>
+          <span style="font-size:13px;font-weight:600">合奏 Ensemble</span>
+        </div>
+        <p style="margin:14px 0 0;font-size:12px;line-height:1.7;color:#6E6E7A;max-width:260px">
+          人机同群的 Agent 交付工作台。官方提供行业工作室，也可以从零搭一个。
+        </p>
+      </div>
+      <div class="f-col">
+        <h4>产品</h4>
+        <a href="/app/">登录</a>
+        <a href="/app/">工作台</a>
+        <a href="/app/?scenes=1">群聊管理</a>
+        <a href="/app/?scenes=1">创建工作室</a>
+      </div>
+      <div class="f-col">
+        <h4>能力</h4>
+        <a href="#flow">流水线</a>
+        <a href="#audit">审校</a>
+        <a href="#app">移动端</a>
+      </div>
+      <div class="f-col">
+        <h4>关于</h4>
+        <a href="#">ClawHunt Builder Camp 2026</a>
+        <a href="#">Agent 赛道参赛作品</a>
+        <a href="https://github.com/UltimateJob/ensemble-backend" target="_blank">开源仓库</a>
+      </div>
+    </div>
+    <div class="f-bot">
+      <span>© 2026 合奏 Ensemble</span>
+      <span>页面数据为演示用途</span>
+      <span class="r">2026.10</span>
     </div>
   </div>
 </footer>
 
+<script>
+(function(){
+  /* 进度条 */
+  const bar = document.getElementById('bar');
+  const nav = document.getElementById('nav');
+  const chapter = document.getElementById('audit');
+
+  function onScroll(){
+    const h = document.documentElement;
+    const max = h.scrollHeight - h.clientHeight;
+    bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + '%';
+
+    // 深色章节时导航反色
+    if(chapter){
+      const r = chapter.getBoundingClientRect();
+      const onDark = r.top < 60 && r.bottom > 60;
+      nav.classList.toggle('dark', onDark);
+    }
+  }
+  document.addEventListener('scroll', onScroll, { passive:true });
+  onScroll();
+
+  if(location.search.indexOf('shot') > -1){
+    document.documentElement.classList.add('shot-mode');
+  }
+})();
+</script>
+
+<script>
+(function(){
+  const $$ = s => [...document.querySelectorAll(s)];
+  const map = {
+    'ClawHunt Builder Camp 2026': 'ClawHunt Builder Camp 2026 · Agent 赛道参赛作品。<br>页面数据为演示用途。',
+    'Agent 赛道参赛作品': '赛道要求：让 Agent 替人把一件真实的事干完，现场演示「给任务 → 出结果」的完整过程。',
+  };
+  $$('.f-col a').forEach(a => {
+    const label = a.textContent.trim();
+    if(a.getAttribute('href') === '#' && map[label]){
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        const m = document.createElement('div');
+        m.style.cssText = 'position:fixed;inset:0;z-index:900;background:rgba(22,22,34,.28);display:grid;place-items:center;padding:20px';
+        m.innerHTML = '<div style="width:min(430px,100%);background:#fff;border-radius:18px;padding:22px;box-shadow:0 30px 70px -24px rgba(20,20,40,.4)"><h3 style="margin:0;font-size:15px">' + label + '</h3><div style="margin-top:10px;font-size:13px;line-height:1.7;color:#47474F">' + map[label] + '</div><div style="margin-top:18px;text-align:right"><button style="border:0;background:#0D0D10;color:#fff;border-radius:999px;padding:8px 20px;font-size:12.5px;cursor:pointer">知道了</button></div></div>';
+        m.addEventListener('click', e => { if(e.target === m) m.remove(); });
+        m.querySelector('button').addEventListener('click', () => m.remove());
+        document.body.appendChild(m);
+      });
+    }
+  });
+})();
+</script>
 </body>
 </html>
