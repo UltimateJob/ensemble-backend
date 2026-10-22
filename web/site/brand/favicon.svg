@@ -2,10 +2,7 @@
 <defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1">
 <stop offset="0" stop-color="#4F46E5"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
 <rect width="256" height="256" fill="url(#t)"/>
-<g stroke="#fff" stroke-width="22" stroke-linecap="round" fill="none" opacity=".5">
-<path d="M 82.9,82.1 A 66,66 0 0 1 173.1,82.1"/>
-<path d="M 191.0,114.0 A 66,66 0 0 1 145.6,191.5"/>
-<path d="M 110.4,191.5 A 66,66 0 0 1 65.0,114.0"/>
-</g>
 <path transform="translate(128,128)" d="M 0,-62 C 9,-26 26,-9 62,0 C 26,9 9,26 0,62 C -9,26 -26,9 -62,0 C -26,-9 -9,-26 0,-62 Z" fill="#fff"/>
+<path transform="translate(196,74) scale(.38)" d="M 0,-62 C 9,-26 26,-9 62,0 C 26,9 9,26 0,62 C -9,26 -26,9 -62,0 C -26,-9 -9,-26 0,-62 Z" fill="#fff" opacity=".95"/>
+<path transform="translate(58,172) scale(.26)" d="M 0,-62 C 9,-26 26,-9 62,0 C 26,9 9,26 0,62 C -9,26 -26,9 -62,0 C -26,-9 -9,-26 0,-62 Z" fill="#fff" opacity=".7"/>
 </svg>
