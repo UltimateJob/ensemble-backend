@@ -1,4 +1,4 @@
-.PHONY: run build clean test shots
+.PHONY: run build clean test a11y shots
 
 # 本地启动：没有 Key 也能跑（自动降级 mock）
 run:
@@ -59,6 +59,14 @@ shots:
 # 界面完整性：按钮/菜单项/图标都有活的逻辑
 audit:
 	@python3 scripts/audit-ui.py
+
+# 可访问性：Tab 顺序、焦点环、按钮可读名称、aria-live、缩放
+a11y:
+	@node scripts/check-a11y.mjs
+
+# 逐屏验收截图（25 屏 × 3 宽度）
+qa-shots:
+	@node scripts/qa-shots.mjs
 
 # 备份 data/ 到 backups/（只保留最近 20 份）
 backup:

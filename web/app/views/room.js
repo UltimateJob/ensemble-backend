@@ -47,7 +47,7 @@ export async function mount(host, params, query) {
         </div>
       </header>
 
-      <div class="msg-stream" id="msgStream">
+      <div class="msg-stream" id="msgStream" role="log" aria-live="polite" aria-relevant="additions" aria-label="群聊消息">
         <div class="msg-wrap" id="msgWrap"></div>
       </div>
 

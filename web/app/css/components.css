@@ -45,8 +45,15 @@ a{color:inherit;text-decoration:none}
 ::-webkit-scrollbar-thumb:hover{background:rgba(23,23,26,.28);background-clip:content-box}
 ::-webkit-scrollbar-track{background:transparent}
 
+/* 键盘焦点：所有可聚焦元素都要看得见。
+   输入框给 outline 而不是 none——靠 :focus 的阴影也行，
+   但那条规则在 .field 之外不生效（登录页验证码框就吃过这个亏）。 */
 :focus-visible{outline:2px solid var(--pri);outline-offset:3px;border-radius:6px}
-input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
+input:focus-visible,textarea:focus-visible,select:focus-visible{
+  outline:2px solid var(--pri);
+  outline-offset:1px;
+  border-radius:var(--r-sm);
+}
 
 /* ---------------- 图标 ---------------- */
 .ic{
