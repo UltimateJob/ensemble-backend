@@ -1,0 +1,50 @@
+{
+ "case": "bugs-solo-solo",
+ "task": "审查 main.go / users.go / users_test.go，找出并修复所有缺陷：并发安全、输入校验、错误处理、资源泄漏、逻辑错误。修完跑 go test ./... 和 go test -race ./... 确认干净。",
+ "root": "/tmp/dsh-bugs-solo",
+ "mode": "solo",
+ "wallSeconds": 24.1,
+ "quotaUsed": 6,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_ff41bce8d13c1985",
+   "status": "done",
+   "steps": 12,
+   "tokensIn": 46267,
+   "tokensOut": 3987,
+   "seconds": 24.1,
+   "toolCalls": 16,
+   "diffFiles": [
+    [
+     "main.go",
+     "modified",
+     15,
+     16
+    ],
+    [
+     "users.go",
+     "modified",
+     18,
+     120
+    ],
+    [
+     "users_test.go",
+     "modified",
+     15,
+     176
+    ]
+   ],
+   "summary": "完成 12 步，改动 3 个文件",
+   "error": ""
+  }
+ ],
+ "review": null,
+ "at": "2026-10-22 03:01:52"
+}

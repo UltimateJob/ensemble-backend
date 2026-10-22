@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/UltimateJob/ensemble-backend/internal/agent"
 	"github.com/UltimateJob/ensemble-backend/internal/config"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
 	"github.com/UltimateJob/ensemble-backend/internal/pkg/logx"
@@ -31,6 +32,9 @@ type Server struct {
 	// 在线时间节流：每用户 60 秒内只 Touch 一次，见 touchLastSeen。
 	seenMu sync.Mutex
 	seenAt map[string]time.Time
+
+	mem    *service.MemoryService
+	agents *agent.Manager
 }
 
 func NewServer(
@@ -42,6 +46,7 @@ func NewServer(
 	gw *gateway.Gateway,
 	orch *service.Orchestrator,
 	drafter *service.Drafter,
+	mem *service.MemoryService,
 	limiter *gateway.Limiter,
 ) *Server {
 	return &Server{
@@ -49,6 +54,7 @@ func NewServer(
 		gw: gw, orchestrator: orch, drafter: drafter,
 		limiter: limiter,
 		seenAt:  make(map[string]time.Time),
+		mem:     mem,
 	}
 }
 
@@ -110,6 +116,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
 	userMux.HandleFunc("POST /v1/events", s.handleTrack)
 	userMux.HandleFunc("POST /v1/agents/draft", s.handleDraftAgent)
+	userMux.HandleFunc("POST /v1/agents/polish", s.handlePolishAgent)
 	userMux.HandleFunc("GET /v1/agents", s.handleListAgents)
 	userMux.HandleFunc("POST /v1/agents", s.handleCreateAgent)
 	userMux.HandleFunc("PATCH /v1/agents/{id}", s.handleUpdateAgent)
@@ -134,10 +141,32 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("POST /v1/conversations/{id}/orchestrate", s.handleOrchestrate)
 	userMux.HandleFunc("POST /v1/conversations/{id}/kickoff", s.handleKickoff)
 
+	userMux.HandleFunc("GET /v1/memories", s.handleMemorySnapshot)
+	userMux.HandleFunc("DELETE /v1/memories", s.handleClearMemory)
+
+	// 工作层：工作区 / 任务 / 审批 / 回滚（需要注入 agent.Manager）
+	if s.agents != nil {
+		userMux.HandleFunc("GET /v1/workspaces", s.handleListWorkspaces)
+		userMux.HandleFunc("POST /v1/workspaces", s.handleBindWorkspace)
+		userMux.HandleFunc("DELETE /v1/workspaces/{id}", s.handleUnbindWorkspace)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/tree", s.handleWorkspaceTree)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/file", s.handleWorkspaceFile)
+		userMux.HandleFunc("POST /v1/workspaces/{id}/runs", s.handleStartRun)
+		userMux.HandleFunc("POST /v1/workspaces/{id}/collab", s.handleCollab)
+		userMux.HandleFunc("GET /v1/runs/{id}", s.handleGetRun)
+		userMux.HandleFunc("GET /v1/runs/{id}/events", s.handleRunEvents)
+		userMux.HandleFunc("POST /v1/runs/{id}/approve", s.handleApprove)
+		userMux.HandleFunc("POST /v1/runs/{id}/abort", s.handleAbort)
+		userMux.HandleFunc("GET /v1/runs/{id}/diff", s.handleRunDiff)
+		userMux.HandleFunc("POST /v1/runs/{id}/revert", s.handleRevert)
+	}
+
+	// authMiddleware 在基础鉴权之上叠了限流与在线时间节流
 	authMW := s.authMiddleware()
 	for _, p := range []string{
 		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
-		"/v1/conversations", "/v1/conversations/",
+		"/v1/conversations", "/v1/conversations/", "/v1/memories",
+		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/",
 	} {
 		mux.Handle(p, authMW(userMux))
 	}

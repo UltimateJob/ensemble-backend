@@ -11,6 +11,8 @@ type Scenario struct {
 	Agents   []Agent `json:"agents"`
 	// Opening 新群创建时的开场白（由第一个 Agent 发出）
 	Opening string `json:"opening"`
+	// World 共享世界设定/时间线。只进系统提示，不通过 API 暴露。
+	World string `json:"-"`
 	// Round 每轮最多几个 Agent 发言，控制延迟与成本
 	Round int `json:"round"`
 
@@ -20,14 +22,22 @@ type Scenario struct {
 
 // Agent 群里的一个角色。
 type Agent struct {
-	Key    string `json:"key"`
-	Name   string `json:"name"`
-	Title  string `json:"title"`
-	Emoji  string `json:"emoji"`
-	Color  string `json:"color"`
-	Prompt string `json:"-"`
+	Key string `json:"key"`
+	// CharacterID 跨群身份；内置场景在运行时派生，自定义角色从 ConvAgent 带过来。
+	CharacterID string `json:"characterId,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Emoji       string `json:"emoji"`
+	Color       string `json:"color"`
+	Prompt      string `json:"-"`
+	// Aliases 用户可能用来直接称呼这个角色的短名/外号。只用于路由，不进提示词。
+	Aliases []string `json:"-"`
 	// Artifact 该角色是否产出文件
 	Artifact string `json:"artifact,omitempty"`
+	// Permission 执行权限（readonly / approval / full）；空表示按场景默认。
+	Permission string `json:"permission,omitempty"`
+	// Scope 允许改的路径；空表示不限。
+	Scope []string `json:"scope,omitempty"`
 }
 
 // Scenarios 全部内置场景。新增场景只需在这里加一项。

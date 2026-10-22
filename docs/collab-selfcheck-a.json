@@ -1,0 +1,50 @@
+{
+ "case": "selfcheck-a-solo",
+ "task": "给 tinysrv 加 GET /api/health 返回 {\"ok\":true,\"version\":\"1.0\"}，并加 5 秒结果缓存（并发安全），补测试验证缓存行为。跑 go test ./... 确认绿。",
+ "root": "/tmp/dsh-selfcheck-a",
+ "mode": "solo",
+ "wallSeconds": 18.1,
+ "quotaUsed": 4,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_53d62c57c8d1df70",
+   "status": "done",
+   "steps": 10,
+   "tokensIn": 30271,
+   "tokensOut": 2632,
+   "seconds": 18.1,
+   "toolCalls": 12,
+   "diffFiles": [
+    [
+     "health.go",
+     "added",
+     57,
+     0
+    ],
+    [
+     "health_test.go",
+     "added",
+     132,
+     0
+    ],
+    [
+     "main.go",
+     "modified",
+     27,
+     7
+    ]
+   ],
+   "summary": "全部通过。\n\n改动：\n- 新增 `health.go`：`healthCache` 用 `sync.Mutex` 保护缓存状态，TTL 5 秒（`healthTTL`），`now` 字段可注入以便测试时间，返回 `{\"ok\":true,\"version\":\"1.0\"}`。\n- 改 `main.go`：`newMux()` 挂载 `/api/health`，新增 `newMuxWithHealthCache(hc)` 供测试注入时钟。\n- 新增 `health_test.go`：验证 payload/Content-Type、TTL 内命中（同一底层 buffer，不重新生成）、TTL 边界过期并刷新、跨 HTTP 请求的缓存行为、50 并发请求结果一致。\n\n验证：`go test ./... -race -count=1` → `ok tinysrv`，`go vet ./...` 无输出。\n\n剩余注意点：缓存是进程内单例，重启即失效；路由未做方法限制（POST /api/health 也会返回同样结果），需要的话可以加 `405`。",
+   "error": ""
+  }
+ ],
+ "review": null,
+ "at": "2026-10-22 03:05:57"
+}

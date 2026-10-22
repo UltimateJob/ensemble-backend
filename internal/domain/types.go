@@ -1,7 +1,10 @@
 // Package domain 定义领域模型。所有层共享，不依赖任何外部包。
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Role 会话角色。
 type Role string
@@ -109,12 +112,20 @@ type SavedStudio struct {
 
 // ConvAgent 会话内的自定义角色，带完整设定。
 type ConvAgent struct {
-	Key    string `json:"key"`
-	Name   string `json:"name"`
-	Title  string `json:"title"`
-	Emoji  string `json:"emoji,omitempty"`
-	Color  string `json:"color,omitempty"`
-	Prompt string `json:"prompt"`
+	Key string `json:"key"`
+	// CharacterID 是跨群记忆的身份。同一个角色被复制到不同群时保持不变；
+	// 旧数据没有这个字段，读取时按名字派生。
+	CharacterID string `json:"characterId,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Emoji       string `json:"emoji,omitempty"`
+	Color       string `json:"color,omitempty"`
+	Prompt      string `json:"prompt"`
+	// Permission 该角色的执行权限：readonly / approval / full。
+	// 空值表示未设置，由工作层按场景默认（approval）。
+	Permission string `json:"permission,omitempty"`
+	// Scope 该角色允许写的路径（如 "web/" 或 "*.go"）。空表示不限。
+	Scope []string `json:"scope,omitempty"`
 }
 
 // Message 一条消息。Agent 消息带产物引用。
@@ -133,9 +144,37 @@ type Message struct {
 }
 
 // ChatMessage 送往模型的消息。
+//
+// 支持 OpenAI 兼容的 tool calling：assistant 消息可携带 ToolCalls，
+// role=tool 的消息用 ToolCallID 关联到被回答的那次调用。
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Name       string     `json:"name,omitempty"`
+}
+
+// Tool 暴露给模型的一个工具（JSON Schema 描述入参）。
+type Tool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+// ToolCall 一次工具调用。Arguments 是模型产出的 JSON 字符串，原样保留。
+type ToolCall struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolCallDelta 流式工具调用增量。Index 标识同一次调用。
+type ToolCallDelta struct {
+	Index     int    `json:"index"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 // ChatRequest 网关统一入参。
@@ -147,12 +186,19 @@ type ChatRequest struct {
 	Stream      bool          `json:"stream"`
 	// 路由提示：指定 provider 时优先使用
 	Provider string `json:"provider,omitempty"`
+	// Tools 非空时开启 tool calling；ToolChoice: auto | none | required
+	Tools      []Tool `json:"tools,omitempty"`
+	ToolChoice string `json:"toolChoice,omitempty"`
 }
 
 // Chunk 流式返回的一段。
 type Chunk struct {
 	Content string `json:"content"`
 	Done    bool   `json:"done"`
+	// ToolCall 非空表示这一段是工具调用增量
+	ToolCall *ToolCallDelta `json:"toolCall,omitempty"`
+	// FinishReason 上游结束原因：stop | tool_calls | length
+	FinishReason string `json:"finishReason,omitempty"`
 	// 最后一个 chunk 携带用量
 	Usage *Usage `json:"usage,omitempty"`
 	Err   error  `json:"-"`

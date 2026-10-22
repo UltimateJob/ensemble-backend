@@ -1,0 +1,103 @@
+{
+ "case": "bugs",
+ "task": "审查 main.go / users.go / users_test.go，找出并修复所有缺陷：并发安全、输入校验、错误处理、资源泄漏、逻辑错误。修完跑 go test ./... 和 go test -race ./... 确认干净。",
+ "root": "/tmp/dsh-bugs",
+ "mode": "collab",
+ "wallSeconds": 42.3,
+ "quotaUsed": 14,
+ "discussion": {
+  "seconds": 4.1,
+  "tokens": 203,
+  "utterances": [
+   {
+    "agent": "架构师",
+    "text": "@用户 三个文件我还没看到内容，先把代码贴上来或给个路径，我拆完再分工：并发安全多半在 users.go 的共享 map，校验和错误处理在 main.go 入参那层，测试要补上 -race 能暴露的用例。风险先说一句——并发那块如果改法不对，race 干净了逻辑也可能悄悄坏，得让测试盯着。",
+    "tokens": 86,
+    "latency": 1191
+   },
+   {
+    "agent": "前端",
+    "text": "后端那边先把三个文件发出来，我负责的 web/ 页面不涉及这些 Go 逻辑，不过并发和校验的改动会不会影响接口返回的字段和错误码，你定完告诉我一声。",
+    "tokens": 44,
+    "latency": 934
+   },
+   {
+    "agent": "测试",
+    "text": "@用户 代码还没贴，麻烦把三个文件发上来或者给个仓库路径，不然只能空谈。另外确认一下：race 干净是硬门槛，那修 bug 时允许改函数签名吗？比如 users.go 里如果是裸 map 加锁，可能要换成带 mutex 的结构体，这会牵动调用方。",
+    "tokens": 73,
+    "latency": 1051
+   }
+  ]
+ },
+ "runs": [
+  {
+   "approvals": 1,
+   "agent": "前端",
+   "runId": "run_35b073cc0ab4d733",
+   "status": "done",
+   "steps": 5,
+   "tokensIn": 11858,
+   "tokensOut": 2617,
+   "seconds": 16.1,
+   "toolCalls": 9,
+   "diffFiles": [],
+   "summary": "边界被触发，我如实说明一下。\n\n**发生了什么**：写 `users.go` 被运行时拒绝，错误是：\n\n```\n越界：fe 只允许改 web/，不能改 users.go\n```\n\n也就是说，虽然群里的需求写的是“审查并修复 main.go / users.go / users_test.go”，但我的执行角色（fe，前端）在运行时权限上被限制在 `web/` 目录，这三个 Go 文件我一个都改不了。这不是路径写法问题，是运行时层面的写权限拒绝，我不绕过。\n\n**已完成的只读产出**（这部分不受限制，是实打实的审查结果）：\n\n`users.go`\n1. `users` 切片 + `nextID` 全局可变无锁，并发读写数据竞争。\n2. `u.ID = nextID; nextID++` 非原子，并发下会分配重复 ID。\n3. POST 忽略 `Decode` 错误，空 body / 非法 JSON 会静默创建 `Name:\"\"` 的用户。\n4. 无输入校验：空名、全空白、客户端自带 `id` 覆盖、超长名字都放行。\n5. 无 `http.MaxBytesReader`，超大 body 可打爆内存。\n6. 未处理的方法（PUT/DELETE 等）直接落到 switch 外，返回 200 空响应。\n7. `Encode` 错误被丢弃。\n8. `statsHandler` 返回 `len(users)+1`，off-by-one 逻辑错误，且 `len(users)` 读取同样有竞争。\n\n`main.go`\n9. `http.ListenAndServe` 无 `ReadHeaderTimeout`/`ReadTimeout`/`WriteTimeout`，慢连接可长期占用资源；无优雅关闭。\n\n`users_test.go`\n10. 只断言状态码，不校验 body 与 ID 唯一性，不覆盖错误路径，无并发用例 —— 这就是 `go test -race ./...` 当前显示 `ok` 的原因：没有并发用例去触发竞争，不代表代码干净。\n\n**一个纠偏**：你的任务描述里让我做“页面/样式”，但这个仓库是纯 Go 服务，没有 `web/` 目录也没有任何前端文件（`glob **/*.go` 只命中三个 Go 文件）。所以我既没有前端可改，也没有权限改后端。\n\n**需要你决定的**：\n1. 把执行者换成能写根目录 Go 文件的后端角色，我可以把上面这份缺陷清单和修复方案（`sync.RWMutex` + 锁内分配 ID、`MaxBytesReader` + `DisallowUnknownFields` + 名字校验、404/405/400 语义、`stats` 去掉 `+1`、server 加超时、补并发与错误路径测试）直接交给它，方案是完整可落地的。\n2. 如果你确实要做前端，请在 `web/` 下放入页面代码（或告诉我新建哪些文件），我就能在权限范围内干活。\n\n修复代码我没有半途写入任何文件，工作区目前保持原状，`go test -race ./...` 仍为空跑通过。",
+   "error": ""
+  },
+  {
+   "approvals": 1,
+   "agent": "后端",
+   "runId": "run_270f603672987318",
+   "status": "done",
+   "steps": 12,
+   "tokensIn": 59448,
+   "tokensOut": 5335,
+   "seconds": 26.1,
+   "toolCalls": 17,
+   "diffFiles": [
+    [
+     "main.go",
+     "modified",
+     16,
+     54
+    ],
+    [
+     "users.go",
+     "modified",
+     22,
+     120
+    ],
+    [
+     "users_test.go",
+     "modified",
+     17,
+     200
+    ]
+   ],
+   "summary": "完成 12 步，改动 3 个文件",
+   "error": ""
+  }
+ ],
+ "review": {
+  "approvals": 0,
+  "agent": "QA 审查",
+  "runId": "run_7f6558a631e2bc48",
+  "status": "done",
+  "steps": 4,
+  "tokensIn": 15686,
+  "tokensOut": 1933,
+  "seconds": 12.1,
+  "toolCalls": 5,
+  "diffFiles": [
+   [
+    "bugshop",
+    "added",
+    0,
+    0
+   ]
+  ],
+  "summary": "当前是只读模式，无法执行命令。我直接给出审查结论。\n\n## 审查结论\n\n我逐行读了这三个文件（`main.go` 68 行、`users.go` 129 行、`users_test.go` 210 行）。**主要逻辑是干净的**：锁的使用规范，`snapshot` 确实拷贝了底层数组，`add` 在单次持锁内分配 ID，`decodeUser` 有 `MaxBytesReader` + `DisallowUnknownFields` + 尾随数据检查，校验失败没有副作用，`main` 的 graceful shutdown 也正确处理了 `ErrServerClosed`。下面按严重度列出我**能确认**的真实问题，不凑数。\n\n### 高\n\n**1. `users_test.go:6-9 / 17-23` — 全局 `store` + `reset()` 与并发测试存在竞态窗口**\n`TestConcurrentCreate` 里 100 个 goroutine 直接打 `newMux()`，依赖的是包级 `store`。`reset()` 在测试开头无锁之外的保护，但真正的问题是**测试并行性**：如果任何测试加了 `t.Parallel()`，或 `go test -race` 下 `TestConcurrentCreate` 读 `store.nextID`（`:94-98`）与还在收尾的 goroutine 交错，`-race` 会报警。当前代码没加 `t.Parallel()` 所以实际不会触发，但这是脆弱的：`reset()` 在 `:17` 持锁改 `users`，而 `TestConcurrentCreate` 只在 `wg.Wait()` 之后才读 `nextID`，这条路径目前是安全的。**这是设计脆弱性，不是现行失败**——我把它列出来是因为它是最容易被后续改动踩爆的地方。\n\n**2. `users_test.go:114-121` — `TestOversizedBody` 只断言 400，没区分「超限」和「JSON 解析失败」**\n`strings.Repeat(\"a\", 1<<20)` 生成的 body 确实超过 4KB，`MaxBytesReader` 会返回错误，handler 回 400。但这条测试**无法证明限流生效**：如果哪天 `MaxBytesReader` 被删掉，超大 body 依然会因为其他原因返回 400（比如名字过长→但那是 400 也是 400）。测试对「限流」这个具体机制是**漏测**的——它只锁定了状态码，没锁定「不是因为无关原因而 400」。真实缺陷：**测试未隔离被测行为**。\n\n### 中\n\n**3. `users.go:78-89` — `decodeUser` 的 `MaxBytesReader` 报错被当作普通 400 吞掉**\n`:78` 用 `http.MaxBytesReader(w, r.Body, maxBodySize)`，超限时 `Decode` 返回 `*http.MaxBytesError`，`:81-83` 直接返回原始 error，`:120` 拼成 `\"invalid body: \"+err.Error()` 回 400。这本身可接受，但 **`MaxBytesReader` 在超限时已向 `w` 写过状态码**（Go 1.19+ 会尝试写 413/关闭连接语义），随后 `writeJSON` 在 `:91` 再 `WriteHeader(400)` 会产生 **superfluous WriteHeader 警告 / 重复写头**。这是真实的错误处理缺陷：响应状态码可能实际是 413 或出现日志噪音，而非预期的 400。`users_test.go:114` 的断言在 `httptest.ResponseRecorder` 下能过，是因为 recorder 宽容了重复 WriteHeader，**掩盖了生产环境的真实行为**。\n\n**4. `users.go:105-111` — `writeJSON` 编码失败被静默丢弃**\n`:108` 注释说「状态码已写出，编码失败无法补救，只能忽略」。对 `map[string]string` 和 `[]User` 这类简单类型确实不会失败，**但** `writeJSON(w, http.StatusOK, store.snapshot())` 传的是值拷贝，没问题；真正的隐患是**没有兜底日志**。若将来传入不可编码类型（如含 `func`、`chan`、NaN float），客户端会收到**部分写入的 JSON 或空 body + 200**，且服务端无任何痕迹。属于错误处理缺陷，严重度中。\n\n**5. `users.go:95-99` — `usersHandler` 的 `writeJSON` 对 `store.add` 的结果无失败处理**\n同 #4，但这里更具体：`:99` 在 201 下编码 `User`。`User` 是安全类型，当前无实际失败路径。**这条我不认为是现行缺陷**，列在此仅为说明「无问题」，不算发现。\n\n### 低\n\n**6. `users.go:107` — `Content-Type` 语序/覆盖**\n`:107` `w.Header().Set(\"Content-Type\", \"application/json\")`，正确。无问题。\n\n**7. `main.go:59-66` — 优雅关闭分支里 `os.Exit(1)` 会跳过 `defer cancel()` 和 `defer stop()`**\n`:64` 和 `:66`（实际 `:60-62` 的 `os.Exit(1)`）在 `Shutdown` 失败路径里调用 `os.Exit`，`defer` 不执行。对进程退出无实质影响（退出码 1 符合意图），但如果将来在 defer 里有 flush/close 逻辑会漏执行。低危。\n\n**8. `users_test.go` 覆盖缺口（漏测，非代码缺陷）**\n- 没测 `POST` 的 `Content-Type` 校验（handler 实际也未校验，**这是输入校验缺口**：`decodeUser` 不检查 `Content-Type`，任意 type 的 body 都会被当 JSON 解析——按 RFC 应回 415，但你需求没要求，属设计选择，我标为低）。\n- 没测名字恰好 32 字符（`maxNameLen`）的**边界通过**用例，只测了 33 拒绝（`:118`）。边界成功路径漏测。\n- 没测名字含多字节 rune 的 32 字符边界（`utf8.RuneCountInString` 语义），`:118` 只用 ASCII，**无法证明按 rune 而非 byte 计数**。\n- 没测 `GET /api/users` 返回的是拷贝（外部修改不影响 store），`snapshot` 的正确性仅靠间接断言。\n\n## 总结\n\n- **真实代码缺陷（建议修）**：`users.go:78-83` 的 `MaxBytesReader` 超限后重复写头/状态码可能非 400（#3）；`users.go:105-111` 编码失败无日志兜底（#4）。\n- **真实测试缺陷**：`users_test.go:114` 的 `TestOversizedBody` 测不到限流机制本身（#2）；边界与多字节 rune 用例缺失（#8）。\n- **脆弱但当前不失败**：全局 `store` + `reset()` 模式（#1）。\n- `main.go` 除了 `os.Exit` 跳过 defer 的低危点（#7）外**没有实质问题**，graceful shutdown 写得正确。\n\n我**没有**发现「并发写 `users` 未加锁」「ID 重复分配」「校验失败产生副作用」这类严重缺陷——这几个方面代码是对的，`TestConcurrentCreate` 的 ID 唯一性和 `nextID` 断言也覆盖到了。\n\n另外说明：本次是只读模式，`git status` 被拒（\"只读权限不能写文件或执行命令\"），我无法运行 `go test ./...` / `go test -race ./...` 做实证验证，以上结论全部来自静态阅读，未经过运行时确认。",
+  "error": ""
+ },
+ "at": "2026-10-22 03:03:45"
+}

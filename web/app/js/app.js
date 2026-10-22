@@ -14,6 +14,8 @@ import {
 } from './chat.js';
 import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
 import { uiConfirm, uiPrompt } from './dialog.js';
+import { initMemory } from './memory.js';
+import { initStudio, openStudio } from './studio.js';
 
 /* ---------------- 登录 ---------------- */
 let segKind = 'phone';
@@ -516,6 +518,7 @@ const TRY = {
   code: ['做个功能：上传 Excel 自动生成图表并导出 PNG', '这个模块该怎么拆？', '帮我看看这段逻辑的边界情况'],
   research: ['分析 2024 年国内储能行业的装机量和增速', '这个数字的来源可靠吗？', '帮我搭一个分析框架'],
   anime: ['今天好无聊，来点有意思的', '你们觉得加班值得吗？', '介绍下你们自己'],
+  onepiece: ['你们现在到哪了？各自说说接下来想做什么', '路飞，你的五档到底是怎么回事？', '索隆，你和鹰眼还差多少？', '罗宾，历史正文和空白一百年有什么关系？', '如果黑胡子现在打过来，你们怎么分工？'],
   companion: ['今天加班到十点，有点累', '最近有点迷茫', '周末干点什么好'],
 };
 
@@ -609,6 +612,7 @@ $('#sceneCreate').addEventListener('click', async () => {
 
 /* ---------------- 角色编辑器 ---------------- */
 const forged = [];
+let polishIndex = -1;
 
 function renderForge() {
   const box = $('#forgeList');
@@ -629,8 +633,10 @@ function renderForge() {
         <div style="min-width:0;flex:1">
           <div class="fcard-n">${esc(a.name)}</div>
           <div class="fcard-t">${esc(a.title)}</div>
+          ${a.polished && a.source ? `<div class="fcard-s">${esc(a.source)} · 已按原作润色</div>` : ''}
           <div class="fcard-p">${esc(a.prompt || '')}</div>
         </div>
+        <button class="fpolish" data-polish="${i}" title="按原作润色">${icon('sparkles', 14)}</button>
         <button class="x" data-i="${i}">
           <svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
         </button>
@@ -639,6 +645,21 @@ function renderForge() {
       b.addEventListener('click', () => {
         forged.splice(+b.dataset.i, 1);
         renderForge();
+      });
+    });
+    box.querySelectorAll('[data-polish]').forEach(b => {
+      b.addEventListener('click', e => {
+        e.stopPropagation();
+        const i = +b.dataset.polish;
+        const a = forged[i];
+        if (!a) return;
+        polishIndex = i;
+        switchForgeTab('polish');
+        $('#pName').value = a.name;
+        $('#pSource').value = '';
+        $('#pNote').value = '';
+        showPolishNote('补上作品/来源，检索会更准。', 'info');
+        $('#pSource').focus();
       });
     });
   }
@@ -659,6 +680,15 @@ $('#openForge').addEventListener('click', () => {
 /* ---------------- 角色库搜索 ---------------- */
 // 用户要的是「搜索之后丰富设定」，所以这里先搜再补全，
 // 不是让 AI 凭空编一个人。
+function switchForgeTab(key) {
+  $$('.forge-tabs .ft').forEach(x => x.classList.toggle('on', x.dataset.ft === key));
+  $('#paneSearch').style.display = key === 'search' ? '' : 'none';
+  $('#paneMake').style.display = key === 'make' ? '' : 'none';
+  $('#panePolish').style.display = key === 'polish' ? '' : 'none';
+  if (key === 'search' && !$('#charList').dataset.loaded) searchChars('');
+  if (key !== 'polish') polishIndex = -1;
+}
+
 $$('.forge-tabs .ft').forEach(b => {
   b.addEventListener('click', () => {
     $$('.forge-tabs .ft').forEach(x => x.classList.remove('on'));
@@ -666,6 +696,7 @@ $$('.forge-tabs .ft').forEach(b => {
     const isSearch = b.dataset.ft === 'search';
     $('#paneSearch').style.display = isSearch ? '' : 'none';
     $('#paneMake').style.display = isSearch ? 'none' : '';
+    $('#panePolish').style.display = isSearch ? 'none' : '';
     renderForge();  // 空文案跟着 tab 变
     if (isSearch && !$('#charList').dataset.loaded) searchChars('');
   });
@@ -764,6 +795,92 @@ $('#fMake').addEventListener('click', async () => {
   });
 });
 
+function showPolishNote(msg, kind = 'info') {
+  const el = $('#polishNote');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'polish-note on ' + kind;
+}
+
+function showPolishSources(sources) {
+  const el = $('#polishSources');
+  if (!el) return;
+  const list = (sources || []).filter(s => s && /^https?:\/\//i.test(s.url || ''));
+  if (!list.length) {
+    el.innerHTML = '';
+    el.classList.remove('on');
+    return;
+  }
+  el.innerHTML = '<b>联网来源</b>' + list.slice(0, 5).map(s =>
+    `<a href="${esc(s.url)}" target="_blank" rel="noreferrer" title="${esc(s.title || s.url)}">${esc(s.siteName || s.title || '来源')}</a>`
+  ).join('');
+  el.classList.add('on');
+}
+
+let polishing = false;
+$('#fPolish').addEventListener('click', async () => {
+  if (polishing) return;
+  const name = $('#pName').value.trim();
+  if (!name) {
+    showPolishNote('先填名字，再检索。', 'err');
+    $('#pName').focus();
+    return;
+  }
+  const source = $('#pSource').value.trim();
+  const kind = $('#pKind').value;
+  const note = $('#pNote').value.trim();
+  const btn = $('#fPolish');
+
+  polishing = true;
+  btn.disabled = true;
+  btn.textContent = '检索中…';
+  showPolishNote('正在联网检索并写成能直接进群的人设…', 'info');
+  showPolishSources([]);
+  try {
+    const res = await api('/v1/agents/polish', {
+      method: 'POST',
+      body: { name, source, kind, note },
+    });
+    if (!res.found || !res.agent || !res.agent.prompt) {
+      showPolishSources(res.sources);
+      showPolishNote(res.message || '没有找到足够可靠的资料。补充作品/来源，或者换用全名再试。', 'err');
+      return;
+    }
+    const a = res.agent;
+    a.polished = true;
+    if (polishIndex >= 0 && forged[polishIndex]) {
+      forged[polishIndex] = a;
+    } else {
+      const same = forged.findIndex(x => x.name === a.name);
+      if (same >= 0) forged[same] = a;
+      else forged.push(a);
+    }
+    renderForge();
+    const from = a.source ? `《${a.source}》` : '原作';
+    const conf = a.confidence === 'medium' ? '（置信度中等，建议核对）' : '';
+    const web = res.searchUsed ? ` · 联网检索 ${ (res.sources || []).length } 个来源` : '';
+    showPolishSources(res.sources);
+    showPolishNote(`已润色：${a.name} · ${a.title}，来源 ${from}${web}${conf}`, 'ok');
+    toast(a.name + ' 已润色');
+    $('#pName').value = '';
+    $('#pSource').value = '';
+    $('#pNote').value = '';
+    polishIndex = -1;
+  } catch (e) {
+    showPolishNote('检索失败：' + e.message, 'err');
+  } finally {
+    polishing = false;
+    btn.disabled = false;
+    btn.textContent = '检索并润色';
+  }
+});
+
+['#pName', '#pSource', '#pNote'].forEach(sel => {
+  $(sel).addEventListener('keydown', e => {
+    if (e.key === 'Enter') $('#fPolish').click();
+  });
+});
+
 // 存入角色库：之后建群可以直接勾选，不用再造一遍
 $('#forgeSave').addEventListener('click', async () => {
   if (!forged.length) return;
@@ -777,7 +894,7 @@ $('#forgeSave').addEventListener('click', async () => {
         method: 'POST',
         body: {
           name: a.name, title: a.title, prompt: a.prompt,
-          emoji: a.emoji, color: a.color, source: 'draft',
+          emoji: a.emoji, color: a.color, source: a.polished ? 'polished' : 'draft',
         },
       });
       saved++;
@@ -1174,8 +1291,12 @@ window.addEventListener('beforeunload', e => {
 });
 
 // 供 chat.js 反向刷新引导清单
+initMemory();
+initStudio();
+$('#studioBtn')?.addEventListener('click', openStudio);
+
 window.__refreshOnboard = renderOnboard;
 window.__openScenes = openScenes;
 
 // 调试出口：出问题时可以在控制台直接调
-window.__ens = { kickoff, send, openConv, loadConvs, state, renderOnboard };
+window.__ens = { kickoff, send, openConv, loadConvs, state, renderOnboard, openStudio };

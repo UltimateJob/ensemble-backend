@@ -2,7 +2,7 @@
 
 > 五个声部，一个成品。
 
-**1.0.0-rc.4** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
+**1.1.1** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
 
 一个多角色群聊的 Agent 工作台。每个群是一组角色，它们自己判断要不要说话、可以互相接话、缺信息时直接问你。真跑了 DeepSeek。
 
@@ -59,6 +59,45 @@ make demo
 ![演示数据](docs/demo-ready.png)
 
 演示账号 `13800000000`，验证码随便填。原有的 `data/` 会自动备份成 `data.bak`。
+
+## 让它真的动手
+
+群聊只解决「讨论」，代码工作室解决「落地」。打开顶栏的 `</>`：
+
+![代码工作室](docs/studio.png)
+
+- **工作区**：选一个本机目录（桌面端 ⌘O 调原生选择器），所有文件操作都被限制在它里面
+- **权限**：每个角色单独设 `只读` / `命令需批准` / `完全访问`
+- **scope**：角色只能改自己负责的路径（前端 `web/`、后端 `*.go`），越界由服务端拒绝
+- **时间线**：每一步读了什么、改了哪个文件、命令输出、diff，全在右边
+- **审批**：`approval` 权限下跑命令要你点「允许」，可以只批一次或本任务都批
+- **回滚**：执行前自动快照，改坏了点一下回到动手前
+
+角色会说「我来改」，但只有调了 `write`/`edit` 才算真的改了。工具在服务端执行，`run` 支持 argv 优先、最小环境变量、超时杀进程组、输出截断。
+
+**本地运行时不是沙箱**：文件工具受工作区约束，但 `full` 权限下的 shell 命令等同当前用户。这个边界在 UI 和文档里都如实标注。
+
+### 群聊协作：讨论完再派活
+
+工作室里可以关联一个群：先让角色讨论一轮（选「先讨论」或「讨论并执行」），再把任务派给有写权限的角色，各自开工。
+
+![群聊协作](docs/studio.png)
+
+实测里这套机制最值钱的地方不是速度，是**会先问清楚**：
+
+> 测试：POST 空 name、重名、并发追加这几种情况预期是什么？
+> 后端：缓存这块我来做，用带锁的单飞思路…测试我打算覆盖三条，这样够吗？
+> 架构师：范围我划一下：后端改 handler 和路由，内存存储即可。
+
+完整数据（15 个案例、含单 agent 对照）在 [docs/collab-benchmark.md](docs/collab-benchmark.md)。
+
+**先说结论**：协作在效率上**不如**单 agent（22s vs 8s、24s vs 12s），质量和单 agent 打平。它的真实价值是需求澄清和强制复审，不是提速。
+
+### 文档生成
+
+角色可以调 `docx_create` / `xlsx_create` 直接产出 Office 文件（纯标准库写 OOXML，不依赖 Python）。
+
+**文档里的统计数字必须有来源**：写「12 条用例」，这个 12 必须在本次任务的命令输出里出现过，否则被拒——防止编造看起来很专业的数据。
 
 ## 30 秒跑起来
 
@@ -189,7 +228,55 @@ make reset    # 清空本地数据
 
 ---
 
-## 五个内置场景
+## 检索润色：把已有角色补成完整人设
+
+![检索润色](docs/polish.png)
+
+「自己造一个」适合原创角色；如果用户要加的是已经有原作的角色、电视剧角色或公众人物，用「添加角色 → 检索润色」：
+
+1. 填名字；
+2. 填来源/作品（强烈建议，能解决重名）；
+3. 选类型（动漫、电视剧、电影、明星、游戏、其他）；
+4. 可选补充时期/版本，比如「疾风传时期」「只保留剧版人设」。
+
+系统先查本地角色库，再调用 **DeepSeek Search API** 真联网检索，把网页摘要/正文和来源一起交给模型；模型输出身份、性格、说话方式、关系、能力、关键经历、情感核心、边界和语气示例，最后写成能直接进群的角色提示词。结果下方会列出「联网来源」，可以直接点开核对。
+
+找不到时不会硬编，会明确告诉用户「无法确认」，并建议补充规范全名、作品名或版本。实测：
+
+- `漩涡鸣人` + `火影忍者` + `疾风传时期` → 命中，提示词会写九尾、影分身、螺旋丸、伊鲁卡、佐助、自来也、“说到做到”。
+- `小樱` + `火影忍者` → 春野樱；`小樱` + `魔卡少女樱` → 木之本樱。来源能消歧。
+- `华妃` + `甄嬛传` → 年世兰，骄傲、痴情、年家、欢宜香。
+- `周杰伦` + `华语歌手` → 只取公开音乐人形象，不写私生活。
+- `不存在角色XYZ` + `测试作品` → `found:false`，说明为什么无法确认，并提示补充什么。
+
+详细设计、接口和实测记录见 [docs/character-polish.md](docs/character-polish.md)。
+
+---
+
+## 长期记忆
+
+![他们记得](docs/memory.png)
+
+群聊之间互相独立：A 群的记忆不会出现在 B 群。
+但同一个角色被拉进别的群，会保留和这个用户的记忆。
+
+- **群记忆**：按 `conversation_id` 存，只在本群检索。
+- **角色记忆**：按 `(character_id, user_id)` 存，可以跨群；只记角色自己与用户本人的内容，不把旧群其他人的私事带进新群。
+- **多人群**：角色仍然知道当前说话用户的记忆，但提示词要求它不要主动公开；用户自己提起时可以接。
+- **手动清空**：群聊顶栏「他们记得」面板里，可以清空群记忆，也可以清空某个角色和你的全部记忆（跨群）。
+
+实现上不是按固定轮数压缩成一段摘要：
+
+- 消息照常落盘；后台每积累 8 条做一次**事件级整理**，把话题、情绪、承诺、没聊完的事、关系变化分别记下来。
+- 群记忆和角色记忆分开存；原始消息仍然保留，检索时按相关度、重要度、时间和情绪取回。
+- 记忆会去重、合并；清空群记忆不会重置处理游标，避免把旧消息重新学一遍。
+- 记忆整理失败会保留游标，下一轮重试；不会阻塞聊天，也不消耗用户额度。
+
+完整设计见 [docs/memory-architecture.md](docs/memory-architecture.md)，真实环境测试记录见 [docs/memory-test-report.md](docs/memory-test-report.md)。
+
+---
+
+## 六个内置场景
 
 | 场景 | 角色 | 用来干什么 |
 |---|---|---|
@@ -198,6 +285,7 @@ make reset    # 清空本地数据
 | 研报工作室 | 主笔·检索·交叉验证·成文 | 每个数字可溯源 |
 | 二次元茶话会 | 每次随机 | 从角色库挑，尽量不同作品 |
 | 日常陪聊 | 每次随机 | 6 种性格 × 名字池，每次开群不一样 |
+| 草帽一伙 · 伟大航路 | 路飞、索隆、娜美、乌索普、山治、乔巴、罗宾、弗兰奇、布鲁克、甚平 | 和之国后、蛋头岛前；知道自己的经历，不知道未来 |
 
 ![随机朋友](docs/friends.png)
 
@@ -207,6 +295,21 @@ make reset    # 清空本地数据
 - **二次元茶话会**：从内置角色库随机挑 3 个，尽量来自不同作品。实测连开三次：`高坂桐乃/Saber/御坂美琴`、`雪见/加藤惠/Saber`、`八九寺真宵/小野寺小咲/雪见`
 
 原来的四个原创角色（雪见/桃桃/凛/葵）已经收进角色库，可以搜到、可以单独拉进群。
+
+### 草帽一伙聊天室
+
+![草帽一伙](docs/onepiece.png)
+
+这是一个专门的「草帽一伙 · 伟大航路」场景，不是把十个名字塞进群聊：
+
+- **时间线固定**：和之国大战结束、刚离开和之国、蛋头岛尚未发生。角色知道自己的过去和伙伴的经历，但不会编未来；用户问后面的事，他们会说没听说。
+- **共享世界设定**：伟大航路、四皇、海军、世界政府、王下七武海废除、恶魔果实、霸气、历史正文、空白一百年、古代兵器、D之一族、拉夫德鲁、ONE PIECE。
+- **每个人有自己的边界**：路飞记不住复杂名字，乔巴不懂政治，娜美懂航海和天气，罗宾懂历史正文，甚平懂鱼人岛和地下世界，山治懂食谱和杰尔马，弗兰奇懂船和科技，布鲁克懂音乐和灵魂，乌索普会吹牛但也懂狙击，索隆只关心剑、酒和方向。
+- **会认人**：你点名「甚平，你怎么看」，甚平会先答；「布鲁克，你怎么看罗宾」会先由布鲁克回答，而不是罗宾抢答。
+- **会全员**：普通「你们怎么看」最多 5 个人开口；明确说「每个人/所有人」时，十个人才会都回答。
+- **会认错**：提示词要求「记不清就说记不清」，不把听来的事说成亲眼见过；也不模仿别人的口癖。
+
+想改时间线或某个人设，入口在 [internal/service/scenario_onepiece.go](internal/service/scenario_onepiece.go)，设计说明见 [docs/onepiece-room.md](docs/onepiece-room.md)。
 
 ---
 
@@ -274,6 +377,17 @@ type Provider interface {
 
 ---
 
+## 原生桌面端
+
+```bash
+./desktop/build.sh          # 产出 desktop/build/Ensemble.app
+open desktop/build/Ensemble.app
+```
+
+WKWebView 包一层原生壳（约 200KB，不是 Electron）：原生菜单、⌘O 目录选择器、后端没起来时自动拉起。
+
+![桌面端](docs/desktop.png)
+
 ## 部署到公网之前
 
 默认配置是「本地能跑」的。直接搬上公网有三个洞：`DEV_BYPASS=true` 任何人能登录、`ADMIN_TOKEN` 是默认值任何人都能进运维台、没配 Key 一直在说演示台词。
@@ -291,6 +405,7 @@ type Provider interface {
 | [docs/hacking.md](docs/hacking.md) | 想改点什么，改哪 |
 | [docs/handoff.md](docs/handoff.md) | 接手的人需要知道什么：验证过什么、没验证什么 |
 | [docs/roadmap.md](docs/roadmap.md) | 已知缺口怎么补：改哪、多久、会碰坏什么 |
+| [docs/agent-executor.md](docs/agent-executor.md) | 代码/文档执行器、工作区、沙箱与权限怎么设计 |
 
 ## 想改点什么
 
@@ -464,11 +579,15 @@ node scripts/walk.mjs
 | GET | `/v1/conversations/{id}/messages` | 历史消息（`?page=1&before=<id>&limit=30` 走游标分页） |
 | POST | `/v1/conversations/{id}/orchestrate` | **用户发言**，角色自主决定接不接 |
 | POST | `/v1/conversations/{id}/kickoff` | **无人触发**，让群里自己聊 |
+| GET | `/v1/memories?conversationId=` | 「他们记得」：群记忆 + 当前用户的角色记忆 |
+| DELETE | `/v1/memories?conversationId=` | 清空这个群的群记忆（角色记忆保留） |
+| DELETE | `/v1/memories?characterId=` | 清空该角色对当前用户的全部记忆（跨群） |
 | GET | `/v1/conversations/{id}/collaborators` | 协作者列表 |
 | POST | `/v1/conversations/{id}/collaborators` | 邀请协作者（仅创建者） |
 | DELETE | `/v1/conversations/{id}/collaborators/{uid}` | 移出协作者（仅创建者） |
 | POST | `/v1/conversations/{id}/leave` | 主动退出（协作者） |
-| POST | `/v1/agents/draft` | 生成角色人设 |
+| POST | `/v1/agents/draft` | 生成原创角色人设 |
+| POST | `/v1/agents/polish` | 检索并润色已有角色/公众人物；找不到返回 `found:false` |
 | POST | `/v1/chat/completions` | 网关直连 |
 
 ### 管理（`X-Admin-Token`）
@@ -616,12 +735,12 @@ node scripts/walk.mjs
 | `ADDR` | `:8080` | 监听地址 |
 | `ADMIN_TOKEN` | `admin-dev-token` | 运维台令牌 |
 | `JWT_SECRET` | `change-me-in-production` | 会话签名 |
-| `DEEPSEEK_API_KEY` | 空 | 留空启用 mock |
+| `DEEPSEEK_API_KEY` | 空 | 留空启用 mock；Search API 也用这把 Key |
+| `DEEPSEEK_SEARCH` | `true` | 角色润色是否调用 DeepSeek Search API；`false` 退回纯模型知识 |
 | `DATA_DIR` | `data` | 数据目录 |
 | `SMS_PROVIDER` | `log` | 验证码通道：`log` 写日志回显，`aliyun`/`tencent` 接真短信 |
 | `DEV_BYPASS` | `true` | 演示账号免验证码，**生产必须 false** |
 | `RATE_PER_MINUTE` | `120` | 每用户每分钟请求 |
-| `ORCHESTRA_HISTORY` | `32` | 编排时带给角色的历史消息条数（8-64） |
 | `DEFAULT_QUOTA` | `800` | 新用户初始额度（次） |
 | `MAX_RETRIES` | `2` | 上游重试 |
 | `BREAKER_ERRORS` | `5` | 熔断阈值 |
@@ -664,6 +783,7 @@ data/
   conversations.json   会话
   audits.json          审计
   events.json          行为事件
+  memories.json        长期记忆（群 + 角色×用户）
   messages/
     c_xxx.json         每个会话的消息独立一个文件
 ```
@@ -1020,7 +1140,10 @@ type CodeSender interface {
 1. **单实例** —— 已加文件锁防止并发写，但也就意味着不能水平扩展。要么换 PostgreSQL，要么做读写分离
 2. **限流与熔断是进程内状态** —— 多实例需接 Redis 共享
 3. **没有鉴权分级** —— 所有登录用户权限相同，没有团队/空间概念
-4. **真实上游没有自动化测试** —— E2E 跑 mock，避免 CI 烧额度
+4. **记忆整理按 8 条批次触发** —— 批次只是调用频率，不是记忆边界；但极短对话可能要等下一轮才会被整理
+5. **记忆检索是关键词 + 权重，不是向量检索** —— 首版够用，长对话后期需要换 BM25/embedding
+6. **关系摘要由模型生成** —— 偶有偏差，用户可以查看并清空，后续再做人工修正入口
+7. **真实上游没有自动化测试** —— E2E 跑 mock，避免 CI 烧额度
 
 ---
 
@@ -1031,7 +1154,8 @@ cmd/server          入口、依赖装配、优雅关闭
 internal/config     环境变量
 internal/domain     数据结构
 internal/gateway    Provider / 熔断 / 限流 / 模型表
-internal/service    auth / chat / orchestrator / scenario / draft
+internal/service    auth / chat / orchestrator / scenario / draft / memory
+internal/memory     长期记忆存储（群 / 角色×用户）
 internal/store      接口 + 内存 + 文件持久化
 internal/httpapi    路由 / 中间件 / handler
 web/app             客户端（单页，无构建）

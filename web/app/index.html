@@ -94,6 +94,9 @@
         <i data-ic="search" data-size="17"></i>
       </button>
       <div class="av-stack" id="topAvatars"></div>
+      <button class="icon-btn" id="studioBtn" title="代码工作室">
+        <i data-ic="code" data-size="17"></i>
+      </button>
       <button class="icon-btn" id="newConvBtn" title="新建群聊">
         <i data-ic="plus" data-size="18"></i>
       </button>
@@ -127,6 +130,9 @@
         <button class="btn btn-line btn-nudge" id="nudgeBtn" title="让他们继续聊">
           <i data-ic="sparkles" data-size="14"></i>
           继续聊
+        </button>
+        <button class="icon-btn" id="memoryBtn" title="他们记得">
+          <i data-ic="brain" data-size="16"></i>
         </button>
         <button class="icon-btn" id="clearBtn" title="清空当前显示">
           <i data-ic="trash" data-size="16"></i>
@@ -211,6 +217,75 @@
   </div>
 </div>
 
+
+<!-- ============ 代码工作室 ============ -->
+<div class="studio" id="studio">
+  <div class="studio-in">
+    <div class="studio-head">
+      <div>
+        <div class="k">Code studio</div>
+        <h2>让角色真的动手</h2>
+        <p>选一个本机目录，派一个任务。它会读文件、改代码、跑测试；每一步都在时间线上，改动可以回滚。</p>
+      </div>
+      <button class="icon-btn" id="studioClose"><i data-ic="x" data-size="16"></i></button>
+    </div>
+    <div class="studio-body">
+      <div class="studio-side">
+        <div class="field">
+          <label>工作区（本机绝对路径）</label>
+          <div class="field-row">
+            <input id="wsRoot" placeholder="/Users/you/project" spellcheck="false">
+            <button class="btn btn-line" id="wsPick">选择…</button>
+          </div>
+          <div class="studio-hint">桌面端可用 ⌘O 调原生目录选择器；浏览器里请直接填路径。</div>
+          <div class="studio-warn" id="wsWarn" style="display:none"></div>
+        </div>
+        <div class="field">
+          <label>权限</label>
+          <select id="runPerm">
+            <option value="readonly">只读（不能改文件、不能跑命令）</option>
+            <option value="approval" selected>命令需批准（写文件自动，跑命令要你点）</option>
+            <option value="full">完全访问（命令等同当前系统用户）</option>
+          </select>
+          <div class="studio-hint">本地运行时不是沙箱。full 下命令能做的事和你本人一样多。</div>
+        </div>
+        <div class="field">
+          <label>任务</label>
+          <textarea id="runTask" rows="5" placeholder="比如：修一下 calc.go 里 Add 的 bug，跑 go test 确认通过"></textarea>
+        </div>
+        <div class="field">
+          <label class="studio-check">
+            <input type="checkbox" id="autoReview" checked>
+            <span>执行完自动复审一遍（只读，能跑测试）</span>
+          </label>
+          <div class="studio-hint">复审是新的上下文，不是让它在同一个对话里检查自己。</div>
+        </div>
+        <div class="field">
+          <label>群聊协作（可选）</label>
+          <select id="collabConv"><option value="">不关联群聊，直接执行</option></select>
+          <div class="studio-hint">关联后先让角色讨论一轮，再把任务派给有写权限的角色。</div>
+        </div>
+        <div class="studio-row">
+          <button class="btn btn-grad" id="runStart">开始执行</button>
+          <button class="btn btn-line" id="collabDiscuss">先讨论</button>
+          <button class="btn btn-line" id="collabRun">讨论并执行</button>
+        </div>
+        <div id="collabOut"></div>
+        <div class="ws-wrap">
+          <div class="info-h">已绑定工作区</div>
+          <div id="wsList"></div>
+        </div>
+      </div>
+      <div class="studio-tl">
+        <div class="info-h">执行时间线</div>
+        <div class="timeline" id="runTimeline">
+          <div class="tl-empty">还没有任务。填好任务点「开始执行」，这里会出现每一步的工具调用。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 移动端会话抽屉 -->
 <div class="drawer-mask" id="drawerMask"></div>
 <div class="drawer" id="drawer">
@@ -238,7 +313,7 @@
 <div class="forge" id="forge">
   <div class="forge-card">
     <div class="forge-head">
-      <h3>造一个角色</h3>
+      <h3>添加角色</h3>
       <button class="icon-btn" id="forgeClose">
         <i data-ic="x" data-size="16"></i>
       </button>
@@ -246,6 +321,7 @@
     <div class="forge-tabs">
       <button class="ft on" data-ft="search">从角色库找</button>
       <button class="ft" data-ft="make">自己造一个</button>
+      <button class="ft" data-ft="polish">检索润色</button>
     </div>
 
     <div class="forge-pane" id="paneSearch">
@@ -272,6 +348,39 @@
     </div>
     </div>
 
+    <div class="forge-pane" id="panePolish" style="display:none">
+      <p class="forge-sub">给已有作品里的角色、电视剧角色或公众人物做一张完整角色卡。写清来源能减少重名误判；找不到会直接告诉你，不会硬编。</p>
+
+      <div class="forge-form">
+        <div class="field">
+          <label>名字</label>
+          <input id="pName" placeholder="比如：漩涡鸣人" maxlength="40">
+        </div>
+        <div class="field">
+          <label>来源 / 作品</label>
+          <input id="pSource" placeholder="比如：《火影忍者》 / 《甄嬛传》 / 某歌手" maxlength="80">
+        </div>
+        <div class="field">
+          <label>类型</label>
+          <select id="pKind">
+            <option value="anime">动漫 / 漫画</option>
+            <option value="tv">电视剧</option>
+            <option value="movie">电影</option>
+            <option value="celebrity">明星 / 公众人物</option>
+            <option value="game">游戏</option>
+            <option value="other">其他</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>补充（可选）</label>
+          <input id="pNote" placeholder="比如：疾风传时期 / 只保留剧版人设" maxlength="120">
+        </div>
+        <button class="btn btn-grad" id="fPolish" style="width:100%">检索并润色</button>
+      </div>
+      <div class="polish-note" id="polishNote"></div>
+      <div class="polish-sources" id="polishSources"></div>
+    </div>
+
     <div class="forge-list" id="forgeList"></div>
 
     <div class="forge-foot">
@@ -279,6 +388,22 @@
       <button class="btn btn-line" id="forgeSave" disabled>存入角色库</button>
       <button class="btn btn-grad" id="forgeDone" disabled>用这些角色开群</button>
     </div>
+  </div>
+</div>
+
+<!-- 长期记忆 -->
+<div class="memory" id="memory">
+  <div class="memory-card">
+    <div class="memory-head">
+      <div style="min-width:0;flex:1">
+        <h3>他们记得</h3>
+        <p class="memory-sub">群记忆只属于这个群；角色记得和你有关的事，换群也会保留。</p>
+      </div>
+      <button class="icon-btn" id="memoryClose" title="关闭">
+        <i data-ic="x" data-size="16"></i>
+      </button>
+    </div>
+    <div class="memory-body" id="memoryBody"></div>
   </div>
 </div>
 

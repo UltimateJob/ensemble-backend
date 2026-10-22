@@ -1,0 +1,89 @@
+{
+ "case": "six-solo",
+ "mode": "solo",
+ "root": "/tmp/dsh-team6-solo",
+ "wallSeconds": 90.6,
+ "seconds": 90.6,
+ "runs": [
+  {
+   "agent": "solo",
+   "runId": "run_e20d4a4d2fd358a6",
+   "status": "done",
+   "steps": 26,
+   "tokensIn": 249055,
+   "tokensOut": 14627,
+   "seconds": 78.4,
+   "toolCalls": 33,
+   "approvals": 0,
+   "diffs": [
+    [
+     "api/api.go",
+     "added"
+    ],
+    [
+     "api/api_test.go",
+     "added"
+    ],
+    [
+     "auth/auth.go",
+     "added"
+    ],
+    [
+     "auth/auth_test.go",
+     "added"
+    ],
+    [
+     "cache/cache.go",
+     "added"
+    ],
+    [
+     "cache/cache_test.go",
+     "added"
+    ],
+    [
+     "queue/queue.go",
+     "added"
+    ],
+    [
+     "queue/queue_test.go",
+     "added"
+    ],
+    [
+     "store/store.go",
+     "added"
+    ],
+    [
+     "store/store_test.go",
+     "added"
+    ],
+    [
+     "web/login.html",
+     "added"
+    ],
+    [
+     "web/login_test.go",
+     "added"
+    ]
+   ],
+   "summary": "六个模块已按 auth → store → cache → queue → api → web 的顺序全部完成。\n\n**每个模块的交付内容**\n\n| 目录 | 实现 | 测试覆盖 |\n|---|---|---|\n| `auth/` | `auth.go` 提供 HS256 签名，token 由 base64url 编码的载荷和 HMAC-SHA256 签名两部分组成；既支持包级 `Sign/Verify`，也支持 `Signer` 实例 | 四种错误都已覆盖：过期、篡改（改签名、改载荷、换密钥）、格式错（6 种畸形输入）、空密钥；另外还测了空 userID、时钟注入和签名编码 |\n| `store/` | `store.go` 用 `RWMutex` 加 map 实现，支持 TTL；`Get` 会在读取时顺带删除已过期的键，并提供 `cleanup` | 测了并发（16 goroutine × 200 次）、时钟注入的过期、真实时钟过期、ttl=0 永不过期、删除语义和 cleanup |\n| `cache/` | `cache.go` 用 `container/list` 加 map 实现 LRU，`Get` 会把命中的键移到表头，超出容量时淘汰最久未用的键 | 测了淘汰顺序、`Get` 刷新使用顺序、批量淘汰后的 `Keys()` 顺序、更新已有键、容量为 0 和并发 |\n| `queue/` | `queue.go` 用环形缓冲加条件变量，自动扩容；`Pop` 非阻塞，另有 `PopBlock`/`Close` | 测了空队列返回 false、FIFO 顺序、混插混取、1000 条扩容、阻塞唤醒、Close 唤醒，以及多生产者、多消费者下**总数守恒** |\n| `api/` | `api.go` 提供 `NewMux()` 注册 `/health`；`WithTiming(next, report)` 是记录耗时的中间件，带 responseRecorder 采集状态码 | 测了 `/health` 响应体与 Content-Type、405 和 Allow 头、404，以及**中间件确实被调用**（次数、方法、路径、状态、耗时）和默认 200 状态 |\n| `web/` | `login.html` 表单 POST 到 `/api/login`，`setState()` 驱动 idle/loading/success/error 四态，loading 时禁用表单 | 测了表单结构与提交目标、三种状态提示元素与文案、JS 状态机（loading/success/error 分支和禁用按钮）、无硬编码密码 |\n\n**验证结果**\n- `go test -race -count=3 ./...` → 六个包全部 ok\n- `go vet ./...` →",
+   "error": ""
+  }
+ ],
+ "review": {
+  "agent": "审核",
+  "runId": "run_ce132766f0edd449",
+  "status": "done",
+  "steps": 6,
+  "tokensIn": 15495,
+  "tokensOut": 845,
+  "seconds": 12.1,
+  "toolCalls": 6,
+  "approvals": 0,
+  "diffs": [],
+  "summary": "结论：三个模块都跑通了，`go test ./... -count=1` 与 `go test -race ./... -count=1` 都是 6 个包全绿、无 FAIL、无 DATA RACE，但“全都通过”不等于全部达标——测试存在明显的空转和漏边界。`cache/cache_test.go` 的断言本身不是恒真的（`TestEvictionOrder`、`TestGetRefreshesRecency`、`TestEvictionOrderMany` 都真的在验证 LRU 顺序，`TestZeroCapacity` 也覆盖了容量 0 的写入与读取），这部分我认为可信：它们能够抓住真实的淘汰逻辑错误；但并发测试 `TestConcurrent` 只断言 `Len() <= 8`，这是一个只要不崩就成立的弱断言——它既没有验证脏数据或丢失更新，也没有验证淘汰后数据的一致性，实质作用只是用来检查 `-race`（好在 race 探测器是真跑了的，所以并发安全这一项尚有实际证据，而功能正确性在并发下基本没有被测试）。更关键的遗漏在于边界：没有测试容量 1；也没有测试淘汰后重新 `Put` 同一个键、`Remove` 后再 `Put` 时顺序如何；没有验证 `Keys()` 的返回值是否为拷贝（调用方修改它是否会破坏内部状态）；并发测试完全没有覆盖 `Cap()`、`Keys()` 与 `Put` 同时读写的竞态。另外 `TestEvictionOrderMany` 对 `Keys()` 顺序做了严格断言，这等于把一个“未在文档中承诺”的返回顺序固定进测试，将来实现改成 map 遍历就会假红。其余五个包（api/auth/store/queue/web）我按要求没有逐个阅读，它们的“达标”仅仅建立在能编译、能跑通、无竞态这一层证据上，断言强度未经验证，不能当作已确认合格；你要求我在 6 步预算内下结论，因此这部分是我的结论中最大的未验证盲区。\n\nVERDICT: issues",
+  "error": ""
+ },
+ "quotaUsed": 29,
+ "at": "2026-10-22 10:34:39",
+ "totalTokens": 280022
+}

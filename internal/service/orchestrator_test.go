@@ -92,29 +92,6 @@ func TestStartsWithMention(t *testing.T) {
 	}
 }
 
-func TestHistoryWindow(t *testing.T) {
-	t.Setenv("ORCHESTRA_HISTORY", "")
-	if got := historyWindow(); got != 32 {
-		t.Fatalf("默认窗口应为 32，得到 %d", got)
-	}
-	t.Setenv("ORCHESTRA_HISTORY", "16")
-	if got := historyWindow(); got != 16 {
-		t.Fatalf("环境变量应生效，得到 %d", got)
-	}
-	t.Setenv("ORCHESTRA_HISTORY", "4") // 低于下限
-	if got := historyWindow(); got != 8 {
-		t.Fatalf("下限应为 8，得到 %d", got)
-	}
-	t.Setenv("ORCHESTRA_HISTORY", "999") // 超过上限
-	if got := historyWindow(); got != 64 {
-		t.Fatalf("上限应为 64，得到 %d", got)
-	}
-	t.Setenv("ORCHESTRA_HISTORY", "oops") // 非法值
-	if got := historyWindow(); got != 32 {
-		t.Fatalf("非法值应回退默认 32，得到 %d", got)
-	}
-}
-
 func TestPickSpeaker(t *testing.T) {
 	agents := []Agent{
 		{Key: "a", Name: "甲"},
@@ -358,9 +335,106 @@ func TestSlowLog(t *testing.T) {
 	}
 }
 
-/* ---------- 编排器与网关的集成行为（用假上游验证） ---------- */
+func TestAgentsFromConversationFillsMissingKeys(t *testing.T) {
+	conv := &domain.Conversation{Agents: []domain.ConvAgent{
+		{Name: "雪之下雪乃", Title: "毒舌"},
+		{Name: "由比滨结衣", Title: "温柔"},
+		{Key: "", Name: "一色彩羽", Title: "小恶魔"},
+	}}
 
-// fakeProvider 测试用上游：可按脚本失败，记录每次收到的模型名。
+	agents := agentsFromConversation(conv)
+	if len(agents) != 3 {
+		t.Fatalf("应转出 3 个角色，得到 %d", len(agents))
+	}
+	seen := map[string]bool{}
+	for _, a := range agents {
+		if a.Key == "" {
+			t.Fatalf("角色 %s 的 key 不能为空", a.Name)
+		}
+		if seen[a.Key] {
+			t.Fatalf("角色 key 重复：%s", a.Key)
+		}
+		seen[a.Key] = true
+	}
+}
+
+func TestCharacterKeyStable(t *testing.T) {
+	a := CharacterKey("雪之下雪乃")
+	if a == "" || a != CharacterKey("雪之下雪乃") {
+		t.Fatal("同一个角色应得到稳定的 key")
+	}
+	if a == CharacterKey("由比滨结衣") {
+		t.Fatal("不同角色的 key 不应相同")
+	}
+}
+
+func TestWantsEveryone(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"你们三个分别怎么看加班", true},
+		{"大家怎么看", true},
+		{"你们觉得呢", true},
+		{"你们好", false},
+		{"今天天气怎样", false},
+		{"帮我拆一下这个需求", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := wantsEveryone(c.in); got != c.want {
+			t.Fatalf("wantsEveryone(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestResolveAgentsCharacterIDs(t *testing.T) {
+	bid := &domain.Conversation{Studio: "bid"}
+	_, agents := ResolveAgents(bid)
+	if len(agents) == 0 {
+		t.Fatal("竞标场景应至少有一个角色")
+	}
+	if agents[0].CharacterID != "bid:conductor" {
+		t.Fatalf("内置角色身份应是 场景:key，得到 %q", agents[0].CharacterID)
+	}
+
+	custom := &domain.Conversation{
+		Studio: "custom",
+		Agents: []domain.ConvAgent{{Key: "char_abc", Name: "雪之下雪乃"}},
+	}
+	_, agents = ResolveAgents(custom)
+	if len(agents) != 1 || agents[0].CharacterID != "char_abc" {
+		t.Fatalf("自定义角色应沿用 key 作为身份，得到 %+v", agents)
+	}
+}
+
+func TestTrimHistory(t *testing.T) {
+	msgs := []*domain.Message{
+		{Content: "一"},
+		{Content: "二"},
+		{Content: "三"},
+	}
+	got := trimHistory(msgs, 80)
+	if len(got) != 3 {
+		t.Fatalf("预算足够时应保留全部，得到 %d", len(got))
+	}
+	got = trimHistory(msgs, 30)
+	if len(got) == 0 || got[len(got)-1].Content != "三" {
+		t.Fatalf("裁剪后必须保留最后一条，得到 %+v", got)
+	}
+}
+
+func TestWantsAll(t *testing.T) {
+	if !wantsAll("你们每个人分别怎么看？") {
+		t.Fatal("「每个人」应触发全员")
+	}
+	if wantsAll("你们怎么看？") {
+		t.Fatal("普通群问不应触发全员")
+	}
+}
+
+/* ---------------- 编排层集成测试（假上游走真实网关） ---------------- */
+
 type fakeProvider struct {
 	mu     sync.Mutex
 	calls  int
@@ -396,8 +470,7 @@ func (f *fakeProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan
 	return ch, nil
 }
 
-// newTestOrch 搭一个带假上游的编排器。
-// retries=0：网关不重试，测的是编排层自己的重试；threshold 放大，熔断不会在测试里打开。
+// newTestOrch retries=0：网关不重试，测的是编排层自己的重试；threshold 放大，熔断不会在测试里打开。
 func newTestOrch(t *testing.T, p gateway.Provider) (*Orchestrator, *store.Memory) {
 	t.Helper()
 	reg := gateway.NewRegistry()
@@ -484,8 +557,10 @@ func TestOrchestratorPartialFailureSoftHint(t *testing.T) {
 	fp := &fakeProvider{failName: "甲", reply: "我来说两句。"}
 	o, st := newTestOrch(t, fp)
 	_, conv := newTestConv(t, st, "m-a", 1, // 额度 1 → 本轮只 1 人说话，跳过发言间隔等待
-		domain.ConvAgent{Key: "a", Name: "甲", Title: "拆解", Prompt: "你负责拆解任务。"},
-		domain.ConvAgent{Key: "b", Name: "乙", Title: "审校", Prompt: "你负责审校文档。"},
+		// Permission 非空 → 工作群（非闲聊）：pickSpeaker 确定性地先挑 agents[0]，
+		// 否则闲聊群随机挑人，甲是否被重试取决于运气。
+		domain.ConvAgent{Key: "a", Name: "甲", Title: "拆解", Prompt: "你负责拆解任务。", Permission: "readonly"},
+		domain.ConvAgent{Key: "b", Name: "乙", Title: "审校", Prompt: "你负责审校文档。", Permission: "readonly"},
 	)
 
 	var hints []Event

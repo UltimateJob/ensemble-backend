@@ -1,0 +1,56 @@
+{
+ "case": "vague-solo-solo",
+ "task": "让这个服务更可靠一点。",
+ "root": "/tmp/dsh-vague-a",
+ "mode": "solo",
+ "wallSeconds": 18.1,
+ "quotaUsed": 6,
+ "discussion": {
+  "seconds": 0,
+  "tokens": 0,
+  "utterances": []
+ },
+ "runs": [
+  {
+   "approvals": 0,
+   "agent": "单agent",
+   "runId": "run_796351e7e934406e",
+   "status": "done",
+   "steps": 12,
+   "tokensIn": 53967,
+   "tokensOut": 2888,
+   "seconds": 18.1,
+   "toolCalls": 17,
+   "diffFiles": [
+    [
+     "health.go",
+     "modified",
+     53,
+     16
+    ],
+    [
+     "main.go",
+     "modified",
+     28,
+     75
+    ],
+    [
+     "server_test.go",
+     "added",
+     108,
+     0
+    ],
+    [
+     "tinysrv",
+     "added",
+     0,
+     0
+    ]
+   ],
+   "summary": "完成 12 步，改动 4 个文件",
+   "error": ""
+  }
+ ],
+ "review": null,
+ "at": "2026-10-22 03:08:22"
+}

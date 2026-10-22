@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/UltimateJob/ensemble-backend/internal/config"
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
+	"github.com/UltimateJob/ensemble-backend/internal/memory"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
 	"github.com/UltimateJob/ensemble-backend/internal/store"
 )
@@ -51,7 +53,7 @@ func newTestServer(t *testing.T) (*Server, http.Handler) {
 	}
 	admin := service.NewAdmin(st, gw, shared)
 
-	srv := NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, shared.Limiter)
+	srv := NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, nil, shared.Limiter)
 	return srv, srv.Handler()
 }
 
@@ -818,6 +820,127 @@ func TestMetricsEndpoint(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("缺少指标 %s", want)
 		}
+	}
+}
+
+func TestCharacterLibrary(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	rec, out := doJSON(t, h, "GET", "/v1/characters?q=%E6%AF%92%E8%88%8C", token, nil)
+	if rec.Code != 200 {
+		t.Fatalf("搜索角色失败：%d %s", rec.Code, rec.Body.String())
+	}
+	items, _ := out["data"].([]interface{})
+	if len(items) == 0 {
+		t.Fatal("搜「毒舌」应该有结果")
+	}
+
+	rec, out = doJSON(t, h, "POST", "/v1/characters/to-agent", token, map[string]string{
+		"name": "雪之下雪乃",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("角色转 Agent 失败：%d %s", rec.Code, rec.Body.String())
+	}
+	agent := out["data"].(map[string]interface{})
+	if agent["key"] == "" || agent["key"] == nil {
+		t.Fatal("角色转 Agent 必须带上 key，否则多人建群会全部被当成同一个人")
+	}
+	if agent["prompt"] == "" || agent["prompt"] == nil {
+		t.Fatal("角色转 Agent 应带完整人设")
+	}
+}
+
+func TestMemorySnapshotAndClear(t *testing.T) {
+	srv, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	// 当前用户 ID
+	_, me := doJSON(t, h, "GET", "/v1/me", token, nil)
+	uid := me["data"].(map[string]interface{})["user"].(map[string]interface{})["id"].(string)
+
+	// 建一个群，挂上记忆服务
+	_, out := doJSON(t, h, "POST", "/v1/conversations", token, map[string]interface{}{
+		"title": "记忆接口测试", "studio": "bid",
+	})
+	convID := out["data"].(map[string]interface{})["id"].(string)
+
+	ms, err := memory.NewFileStore(filepath.Join(t.TempDir(), "memories.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.mem = service.NewMemoryService(ms, nil)
+	_ = ms.AddConversation(convID, []*domain.Memory{
+		{Kind: domain.KindFact, Text: "用户下周三要交标书"},
+	})
+	_ = ms.AddAgent("bid:conductor", "工头", uid, []*domain.Memory{
+		{Kind: domain.KindFact, Text: "用户最近压力很大"},
+		{Kind: domain.KindRelation, Text: "你们一起扛过一个截止日期"},
+	})
+
+	rec, out := doJSON(t, h, "GET", "/v1/memories?conversationId="+convID, token, nil)
+	if rec.Code != 200 {
+		t.Fatalf("读取记忆失败：%d %s", rec.Code, rec.Body.String())
+	}
+	data := out["data"].(map[string]interface{})
+	if n := len(data["conversation"].([]interface{})); n != 1 {
+		t.Fatalf("群记忆应为 1 条，得到 %d", n)
+	}
+	agents := data["agents"].([]interface{})
+	if len(agents) != 1 {
+		t.Fatalf("应有 1 个角色记忆，得到 %d", len(agents))
+	}
+	if agents[0].(map[string]interface{})["relation"] == nil {
+		t.Fatal("关系记忆应被单独返回")
+	}
+
+	rec, out = doJSON(t, h, "DELETE", "/v1/memories?characterId=bid:conductor", token, nil)
+	if rec.Code != 200 || out["data"].(map[string]interface{})["cleared"].(float64) != 2 {
+		t.Fatalf("清空角色记忆应返回 2，得到 %d %v", rec.Code, out)
+	}
+	_, out = doJSON(t, h, "GET", "/v1/memories?conversationId="+convID, token, nil)
+	if n := len(out["data"].(map[string]interface{})["agents"].([]interface{})); n != 0 {
+		t.Fatalf("清空后角色记忆应为空，得到 %d", n)
+	}
+
+	rec, out = doJSON(t, h, "DELETE", "/v1/memories?conversationId="+convID, token, nil)
+	if rec.Code != 200 || out["data"].(map[string]interface{})["cleared"].(float64) != 1 {
+		t.Fatalf("清空群记忆应返回 1，得到 %d %v", rec.Code, out)
+	}
+
+	// 空快照返回 [] 而不是 null，前端和第三方调用都少一层判空。
+	_, out = doJSON(t, h, "GET", "/v1/memories?conversationId="+convID, token, nil)
+	data = out["data"].(map[string]interface{})
+	if data["conversation"] == nil || data["agents"] == nil {
+		t.Fatalf("空记忆应返回空数组，得到 %v", data)
+	}
+}
+
+func TestPolishAgentValidationAndLibraryFallback(t *testing.T) {
+	_, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	rec, _ := doJSON(t, h, "POST", "/v1/agents/polish", token, map[string]interface{}{
+		"name": "", "source": "火影忍者", "kind": "anime",
+	})
+	if rec.Code != 400 {
+		t.Fatalf("空名字应返回 400，得到 %d", rec.Code)
+	}
+
+	// 测试上游是 mock，解析不出 JSON 时应回退到本地角色库。
+	rec, out := doJSON(t, h, "POST", "/v1/agents/polish", token, map[string]interface{}{
+		"name": "雪之下雪乃", "source": "", "kind": "anime",
+	})
+	if rec.Code != 200 {
+		t.Fatalf("本地库命中应返回 200，得到 %d %s", rec.Code, rec.Body.String())
+	}
+	data := out["data"].(map[string]interface{})
+	if data["found"] != true {
+		t.Fatalf("本地库命中应 found=true：%v", data)
+	}
+	agent := data["agent"].(map[string]interface{})
+	if agent["name"] != "雪之下雪乃" || agent["prompt"] == "" {
+		t.Fatalf("回退角色不完整：%v", agent)
 	}
 }
 

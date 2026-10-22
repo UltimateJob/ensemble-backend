@@ -12,13 +12,16 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/UltimateJob/ensemble-backend/internal/agent"
 	"github.com/UltimateJob/ensemble-backend/internal/config"
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
 	"github.com/UltimateJob/ensemble-backend/internal/httpapi"
+	"github.com/UltimateJob/ensemble-backend/internal/memory"
 	"github.com/UltimateJob/ensemble-backend/internal/pkg/logx"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
 	"github.com/UltimateJob/ensemble-backend/internal/store"
@@ -27,7 +30,7 @@ import (
 // 1.0.0 意味着「可以承诺 API 稳定、可以对外」。
 // 现在的功能是完整的，但运营基础设施还缺（计费、账号找回、短信通道、
 // 多实例）。所以标 RC——候选版本，功能冻结，等基础设施补齐。
-const version = "1.0.0-rc.4"
+const version = "1.1.1"
 
 func main() {
 	cfg := config.Load()
@@ -96,8 +99,20 @@ func main() {
 	auth := service.NewAuth(st, cfg.JWTSecret, sender, cfg.DevBypass)
 	chat := service.NewChat(st, gw)
 	slow := service.NewSlowLog(200, int64(cfg.SlowThresholdMS))
-	orch := service.NewOrchestrator(st, gw, slow)
-	drafter := service.NewDrafter(gw)
+
+	var memStore memory.Store
+	if ms, err := memory.NewFileStore(filepath.Join(dataDir, "memories.json")); err != nil {
+		log.Warn("记忆存储初始化失败，先以无记忆模式运行", "err", err.Error())
+	} else {
+		memStore = ms
+	}
+	memSvc := service.NewMemoryService(memStore, gw)
+	orch := service.NewOrchestrator(st, gw, slow, memSvc)
+	var searcher *service.SearchClient
+	if cfg.SearchEnabled && cfg.UpstreamConfigured() {
+		searcher = service.NewSearchClient(cfg.DeepSeekBaseURL, cfg.DeepSeekAPIKey, cfg.UpstreamTimeout)
+	}
+	drafter := service.NewDrafter(gw, searcher)
 	shared := &service.Shared{
 		Limiter: gateway.NewLimiter(cfg.RatePerMinute, cfg.Burst),
 		Started: time.Now(),
@@ -106,7 +121,27 @@ func main() {
 	admin := service.NewAdmin(st, gw, shared)
 
 	// ---- HTTP ----
-	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, shared.Limiter)
+	// 工作层：本地工作区、Run、审批、回滚。
+	agentMgr := agent.NewManager()
+	// 执行器的 token 按「每 10k token 折 1 次额度」计入用量，最少 1 次。
+	agentMgr.SetUsageRecorder(func(userID string, in, out int) {
+		credits := (in + out + 9999) / 10000
+		if credits < 1 {
+			credits = 1
+		}
+		if err := st.IncrementUsed(userID, credits); err != nil {
+			log.Warn("记录执行用量失败", "err", err.Error())
+		}
+	})
+	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc, shared.Limiter)
+	agentMgr.SetModel(gw)
+	// 工作区与最近 100 个 Run 落盘：重启后不用重新绑目录
+	stateFile := filepath.Join(dataDir, "agent-state.json")
+	if err := agentMgr.Load(stateFile); err != nil {
+		log.Warn("加载工作区状态失败，从空状态开始", "err", err.Error())
+	}
+	agentMgr.SetPersistence(stateFile)
+	srv.SetAgentManager(agentMgr)
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Handler(),

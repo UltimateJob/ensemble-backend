@@ -35,7 +35,7 @@ func newTightServer(t *testing.T) http.Handler {
 	limiter := gateway.NewLimiter(1, 2) // 每分钟 1 个、突发 2 个：第三次必被拒
 	admin := service.NewAdmin(st, gw, &service.Shared{Limiter: limiter, Version: "test"})
 	srv := NewServer(cfg, st, auth, service.NewChat(st, gw), admin, gw,
-		service.NewOrchestrator(st, gw, service.NewSlowLog(50, 1000)), service.NewDrafter(gw), limiter)
+		service.NewOrchestrator(st, gw, service.NewSlowLog(50, 1000)), service.NewDrafter(gw), nil, limiter)
 	return srv.Handler()
 }
 
