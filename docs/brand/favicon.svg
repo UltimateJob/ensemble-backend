@@ -1,8 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-<defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1">
-<stop offset="0" stop-color="#4F46E5"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
-<rect width="256" height="256" fill="url(#t)"/>
-<path transform="translate(128,128)" d="M 0,-62 C 9,-26 26,-9 62,0 C 26,9 9,26 0,62 C -9,26 -26,9 -62,0 C -26,-9 -9,-26 0,-62 Z" fill="#fff"/>
-<path transform="translate(196,74) scale(.38)" d="M 0,-62 C 9,-26 26,-9 62,0 C 26,9 9,26 0,62 C -9,26 -26,9 -62,0 C -26,-9 -9,-26 0,-62 Z" fill="#fff" opacity=".95"/>
-<path transform="translate(58,172) scale(.26)" d="M 0,-62 C 9,-26 26,-9 62,0 C 26,9 9,26 0,62 C -9,26 -26,9 -62,0 C -26,-9 -9,-26 0,-62 Z" fill="#fff" opacity=".7"/>
+<defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#5B5BF0"/><stop offset=".55" stop-color="#6D4FE8"/><stop offset="1" stop-color="#8B5CF6"/>
+</linearGradient></defs>
+<rect width="256" height="256" fill="url(#tg)"/>
+<rect x="42" y="48" width="172" height="136" rx="40" fill="#fff"/>
+<path d="M 76,182 L 54,220 L 120,184 Z" fill="#fff"/>
+<circle cx="128" cy="96" r="17" fill="url(#tg)"/>
+<circle cx="103" cy="136" r="17" fill="url(#tg)"/>
+<circle cx="153" cy="136" r="17" fill="url(#tg)"/>
 </svg>

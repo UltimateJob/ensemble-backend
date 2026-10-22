@@ -641,6 +641,17 @@ button:disabled{opacity:.55;cursor:default}
     return Math.floor(d/86400) + '天前';
   }
 
+  /* 渠道/模型体检结果：首字延迟 + 输出 token 速度 */
+  function probeHTML(res){
+    if(res.note) return `<div class="pr-line pr-ok">${esc(res.note)}</div>`;
+    if(!res.ok) return `<div class="pr-line pr-bad">✗ HTTP ${res.httpStatus || '-'} ${esc(String(res.err || '').slice(0, 140))}</div>`;
+    const model = res.model ? ` · ${esc(res.model)}` : '';
+    const tok = res.tokens != null ? ` · ${nf(res.tokens)} tok` : '';
+    const speed = res.tokPerSec != null ? ` · ${Number(res.tokPerSec).toFixed(1)} tok/s` : '';
+    const bill = res.billingUsd != null ? ` · 余额 $${res.billingUsd}` : '';
+    return `<div class="pr-line pr-ok">✓ 首字 ${ms(res.firstByteMs)} · 全程 ${(res.totalMs/1000).toFixed(1)}s${tok}${speed}${model}${bill}</div>`;
+  }
+
   /* ---- 总览 ---- */
   async function loadDash(){
     const d = await api('/overview');
@@ -665,18 +676,12 @@ button:disabled{opacity:.55;cursor:default}
 
     $('#provAt').textContent = new Date().toLocaleTimeString('zh-CN');
         const probeRes = window.__probeRes || (window.__probeRes = {});
-    const probeHTML = res => {
-      if (res.note) return `<div class="pr-line pr-ok">${esc(res.note)}</div>`;
-      const bill = res.billingUsd != null ? ` · 余额 $${res.billingUsd}` : '';
-      if (res.ok) return `<div class="pr-line pr-ok">✓ 连通 · 首字 ${ms(res.firstByteMs)} · 全程 ${(res.totalMs/1000).toFixed(1)}s · 吐字 ${res.chars} · ${esc(res.model || '')}${bill}</div>`;
-      return `<div class="pr-line pr-bad">✗ HTTP ${res.httpStatus || '-'} ${esc(String(res.err || '').slice(0, 140))}</div>`;
-    };
     const bindProbes = () => document.querySelectorAll('.prov-check').forEach(b => {
       b.onclick = async () => {
         const name = b.dataset.p;
         b.disabled = true; b.textContent = '检测中…';
         try {
-          const res = await api('/admin/api/providers/' + encodeURIComponent(name) + '/check', { method: 'POST' });
+          const res = await api('/providers/' + encodeURIComponent(name) + '/check', { method: 'POST' });
           probeRes[name] = res;
           const box = document.querySelector(`.prov-probe[data-p="${CSS.escape(name)}"]`);
           if (box) box.innerHTML = probeHTML(res);
@@ -696,7 +701,7 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
           <span class="prov-n">${esc(p.name)}</span>
           <span class="b ${cls}">${p.state === 'closed' ? '正常' : p.state === 'half-open' ? '试探中' : '熔断'}</span>
           <span class="prov-st"></span>
-          <button class="prov-check" data-p="${esc(p.name)}" title="真发一次小请求：连通、首字延迟、吐字量、剩余额度">体检</button>
+          <button class="prov-check" data-p="${esc(p.name)}" title="真发一次小请求（约 160 token）：连通、首字延迟、输出速度、剩余额度">体检</button>
         </div>
         <div class="prov-stats">
           <div>成功<b>${nf(p.success)}</b></div>
@@ -719,18 +724,19 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
 
   /* ---- 模型 ---- */
   async function loadModels(){
+    const modelProbe = window.__modelProbe || (window.__modelProbe = {});
     const list = await api('/models');
     $('#modelBody').innerHTML = list.map(m => {
       const cost = m.costPer1K != null ? m.costPer1K : m.costPer1k;  // 新旧字段名都认
       return `
       <tr>
-        <td class="mono" data-label="模型">${esc(m.key)}${m.taskOnly ? ' <span class="b b-warn" title="只给执行器用，用户不可见">任务</span>' : ''}</td>
+        <td class="mono" data-label="模型">${esc(m.key)}${m.taskOnly ? ' <span class="b b-warn" title="只给执行器用，用户不可见">任务</span>' : ''}<div class="model-probe" data-probe-box="${esc(m.key)}">${modelProbe[m.key] ? probeHTML(modelProbe[m.key]) : ''}</div></td>
         <td data-label="上游"><span class="b b-pri">${esc(m.provider)}</span></td>
         <td class="mono" data-label="模型名">${esc(m.upstream || '—')}</td>
         <td class="num" data-label="权重">${esc(m.weight)}</td>
         <td class="num" data-label="单价">${cost != null ? Number(cost).toFixed(4) : '—'}</td>
         <td data-label="启用"><button class="sw ${m.enabled?'on':''}" data-toggle="${esc(m.key)}"></button></td>
-        <td data-label=""><button class="btn btn-line btn-sm" data-del="${esc(m.key)}">删除</button></td>
+        <td data-label=""><div class="row-actions"><button class="btn btn-line btn-sm" data-probe="${esc(m.key)}" data-provider="${esc(m.provider)}" data-model="${esc(m.upstream || m.key)}" title="真发一次小请求（约 160 token）：首字延迟、输出 token 速度">测试</button><button class="btn btn-line btn-sm" data-del="${esc(m.key)}">删除</button></div></td>
       </tr>`;}).join('');
 
     /* 选择器都圈在本表内：[data-reset] 在用户表和熔断卡里撞名，全文档扫会串处理器 */
@@ -755,6 +761,24 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
           await api('/models/' + encodeURIComponent(b.dataset.del), { method:'DELETE' });
           toast('已删除'); loadModels();
         }catch(e){ toast(e.message); }
+      });
+    });
+    $('#modelBody').querySelectorAll('[data-probe]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const key = b.dataset.probe;
+        const box = document.querySelector(`[data-probe-box="${CSS.escape(key)}"]`);
+        b.disabled = true; b.textContent = '测速中…';
+        try{
+          // 复用渠道体检：指定 provider，再透传这个模型的上游名
+          const res = await api('/providers/' + encodeURIComponent(b.dataset.provider) + '/check?model=' + encodeURIComponent(b.dataset.model), { method:'POST' });
+          modelProbe[key] = res;
+          if(box) box.innerHTML = probeHTML(res);
+        }catch(e){
+          modelProbe[key] = { ok:false, err:(e && e.message) || '测试失败' };
+          if(box) box.innerHTML = probeHTML(modelProbe[key]);
+        }finally{
+          b.disabled = false; b.textContent = '测试';
+        }
       });
     });
 
