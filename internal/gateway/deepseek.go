@@ -124,8 +124,10 @@ type dsTool struct {
 type dsChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content    string `json:"content"`
+			Reasoning  string `json:"reasoning"`         // 思考型模型的推理增量（部分中转）
+			Reasoning2 string `json:"reasoning_content"` // 同上，另一种字段名
+			ToolCalls  []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Type     string `json:"type"`
@@ -308,4 +310,131 @@ func mockReply(req domain.ChatRequest) []rune {
 		// 不加标记，保持对话自然；提示放在启动日志里
 	}
 	return []rune(line)
+}
+
+// Prober 支持体检的渠道：真发一次小请求，量连通、首字、吐字。
+type Prober interface {
+	Probe(ctx context.Context, model string) domain.ChannelProbe
+}
+
+// Probe 渠道体检：发一个 max_tokens=64 的小流式请求。
+// 思考型模型可能把预算花在推理上——思考字段有内容也算连通。
+func (d *DeepSeek) Probe(ctx context.Context, model string) domain.ChannelProbe {
+	if model == "" {
+		model = d.model
+	}
+	var pr domain.ChannelProbe
+	pr.Model = model
+	start := time.Now()
+
+	body, _ := json.Marshal(dsRequest{
+		Model:     model,
+		Messages:  []dsMessage{{Role: "user", Content: "ping，回复一个字：好"}},
+		Stream:    true,
+		MaxTokens: 64,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.base+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		pr.Err = err.Error()
+		pr.TotalMS = time.Since(start).Milliseconds()
+		return pr
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+d.key)
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		pr.Err = err.Error()
+		pr.TotalMS = time.Since(start).Milliseconds()
+		return pr
+	}
+	defer resp.Body.Close()
+	pr.HTTPStatus = resp.StatusCode
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		pr.Err = strings.TrimSpace(string(b))
+		pr.TotalMS = time.Since(start).Milliseconds()
+		return pr
+	}
+
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	first := int64(0)
+	chars := 0
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "[DONE]" {
+			break
+		}
+		var c dsChunk
+		if json.Unmarshal([]byte(payload), &c) != nil {
+			continue
+		}
+		if c.Usage != nil {
+			continue
+		}
+		for _, pick := range c.Choices {
+			text := pick.Delta.Content
+			if text == "" {
+				// 思考型模型可能把预算全花在推理上：思考增量也算「吐字」，
+				// 否则慢思考渠道会被误报成不通。
+				text = pick.Delta.Reasoning + pick.Delta.Reasoning2
+			}
+			if text != "" {
+				if first == 0 {
+					first = time.Since(start).Milliseconds()
+				}
+				chars += len([]rune(text))
+			}
+		}
+	}
+	pr.FirstByteMS = first
+	pr.Chars = chars
+	pr.TotalMS = time.Since(start).Milliseconds()
+	pr.OK = chars > 0
+	if !pr.OK {
+		pr.Err = "连接成功但没有收到任何内容（可能额度耗尽或模型无响应）"
+	}
+	pr.BillingUSD = d.probeBilling(ctx)
+	return pr
+}
+
+// probeBilling 查剩余额度（new-api/one-api 风格），best-effort：
+// 官方 DeepSeek 没有这个端点，返回 nil 即可。
+func (d *DeepSeek) probeBilling(ctx context.Context) *float64 {
+	for _, p := range []string{"/v1/dashboard/billing/subscription", "/dashboard/billing/subscription"} {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.base+p, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+d.key)
+		resp, err := d.client.Do(req)
+		if err != nil {
+			continue
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		var sub struct {
+			HardLimitUSD float64 `json:"hard_limit_usd"`
+		}
+		if json.Unmarshal(b, &sub) == nil && sub.HardLimitUSD > 0 {
+			// one-api 的「无限额度」占位值，显示出来只会误导
+			if sub.HardLimitUSD >= 1000000 {
+				return nil
+			}
+			v := sub.HardLimitUSD
+			return &v
+		}
+	}
+	return nil
+}
+
+// Probe mock 渠道体检：本地永远连通。
+func (m *Mock) Probe(ctx context.Context, model string) domain.ChannelProbe {
+	return domain.ChannelProbe{OK: true, HTTPStatus: 200, Chars: 2, Model: "mock", FirstByteMS: 1, TotalMS: 2}
 }

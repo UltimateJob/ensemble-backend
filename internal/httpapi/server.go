@@ -186,6 +186,7 @@ func (s *Server) Handler() http.Handler {
 	adminMux.HandleFunc("POST /admin/api/users/{id}/status", s.handleAdminUserStatus)
 	adminMux.HandleFunc("POST /admin/api/users/{id}/quota", s.handleAdminUserQuota)
 	adminMux.HandleFunc("POST /admin/api/providers/{name}/reset", s.handleAdminResetProvider)
+	adminMux.HandleFunc("POST /admin/api/providers/{name}/check", s.handleAdminProviderCheck)
 	adminMux.HandleFunc("GET /admin/api/logs", s.handleAdminLogs)
 	adminMux.HandleFunc("GET /admin/api/slow", s.handleAdminSlow)
 	adminMux.HandleFunc("POST /admin/api/users/{id}/reset-usage", s.handleAdminResetUsage)
@@ -206,9 +207,21 @@ func (s *Server) Handler() http.Handler {
 	// ---- 客户端 ----
 	app := http.FileServer(webDir("app"))
 	mux.Handle("GET /app/", http.StripPrefix("/app/", app))
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/app/", http.StatusFound)
-	})
+
+	// ---- 官网（web/site）----
+	// 有官网目录时根路径就是落地页，静态资源挂 /site/；
+	// 目录不存在（比如裁剪过的部署）退回跳转 /app/，不影响已有用户。
+	siteDir := webDir("site")
+	if st, err := os.Stat(string(siteDir) + "/index.html"); err == nil && !st.IsDir() {
+		mux.Handle("GET /site/", http.StripPrefix("/site/", http.FileServer(siteDir)))
+		mux.Handle("GET /{$}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, string(siteDir)+"/index.html")
+		}))
+	} else {
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/app/", http.StatusFound)
+		})
+	}
 
 	h := Chain(mux,
 		Recover,

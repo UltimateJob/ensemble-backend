@@ -211,6 +211,18 @@ type Usage struct {
 	TotalTokens      int `json:"totalTokens"`
 }
 
+// ChannelProbe 渠道体检结果：连通性、首字延迟、吐字量、剩余额度。
+type ChannelProbe struct {
+	OK          bool     `json:"ok"`
+	HTTPStatus  int      `json:"httpStatus"`
+	FirstByteMS int64    `json:"firstByteMs"` // 首个内容块到达耗时
+	TotalMS     int64    `json:"totalMs"`
+	Chars       int      `json:"chars"` // 正文吐字数（不含思考）
+	Model       string   `json:"model"`
+	BillingUSD  *float64 `json:"billingUsd,omitempty"` // 剩余额度（美元，new-api 风格；查不到就没有）
+	Err         string   `json:"err,omitempty"`
+}
+
 // ModelInfo 模型注册信息，管理员可改。
 type ModelInfo struct {
 	Key       string  `json:"key"`      // 唯一标识，如 deepseek-chat

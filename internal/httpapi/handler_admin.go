@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/subtle"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
+	"github.com/UltimateJob/ensemble-backend/internal/gateway"
 )
 
 // adminTokenOK 常数时间比较管理员令牌。
@@ -164,4 +167,25 @@ func (s *Server) handleAdminLogs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminEvents(w http.ResponseWriter, r *http.Request) {
 	ok(w, s.admin.Events(r.URL.Query().Get("kind"), queryInt(r, "limit", 200)))
+}
+
+
+// handleAdminProviderCheck 渠道体检：真发一次小流式请求，
+// 量连通性、首字延迟、吐字量，顺带查剩余额度（best-effort）。
+// 可选 query 参数 model 指定用哪个模型测，默认用渠道的默认模型。
+func (s *Server) handleAdminProviderCheck(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	p, found := s.gw.Registry().Get(name)
+	if !found {
+		notFound(w, "渠道不存在")
+		return
+	}
+	prober, can := p.(gateway.Prober)
+	if !can {
+		ok(w, map[string]interface{}{"ok": true, "note": "该渠道类型不支持详细体检"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	ok(w, prober.Probe(ctx, r.URL.Query().Get("model")))
 }

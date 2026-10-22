@@ -654,13 +654,39 @@ button:disabled{opacity:.55;cursor:default}
     $('#sVer').textContent = d.version;
 
     $('#provAt').textContent = new Date().toLocaleTimeString('zh-CN');
-    $('#provList').innerHTML = (m.providers || []).map(p => {
+        const probeRes = window.__probeRes || (window.__probeRes = {});
+    const probeHTML = res => {
+      if (res.note) return `<div class="pr-line pr-ok">${esc(res.note)}</div>`;
+      const bill = res.billingUsd != null ? ` · 余额 $${res.billingUsd}` : '';
+      if (res.ok) return `<div class="pr-line pr-ok">✓ 连通 · 首字 ${ms(res.firstByteMs)} · 全程 ${(res.totalMs/1000).toFixed(1)}s · 吐字 ${res.chars} · ${esc(res.model || '')}${bill}</div>`;
+      return `<div class="pr-line pr-bad">✗ HTTP ${res.httpStatus || '-'} ${esc(String(res.err || '').slice(0, 140))}</div>`;
+    };
+    const bindProbes = () => document.querySelectorAll('.prov-check').forEach(b => {
+      b.onclick = async () => {
+        const name = b.dataset.p;
+        b.disabled = true; b.textContent = '检测中…';
+        try {
+          const res = await api('/admin/api/providers/' + encodeURIComponent(name) + '/check', { method: 'POST' });
+          probeRes[name] = res;
+          const box = document.querySelector(`.prov-probe[data-p="${CSS.escape(name)}"]`);
+          if (box) box.innerHTML = probeHTML(res);
+        } catch (e) {
+          probeRes[name] = { ok: false, err: (e && e.message) || '体检失败' };
+          const box = document.querySelector(`.prov-probe[data-p="${CSS.escape(name)}"]`);
+          if (box) box.innerHTML = probeHTML(probeRes[name]);
+        } finally {
+          b.disabled = false; b.textContent = '体检';
+        }
+      };
+    });
+$('#provList').innerHTML = (m.providers || []).map(p => {
       const cls = p.state === 'closed' ? 'b-ok' : p.state === 'half-open' ? 'b-warn' : 'b-bad';
       return `<div class="prov">
         <div class="prov-h">
           <span class="prov-n">${esc(p.name)}</span>
           <span class="b ${cls}">${p.state === 'closed' ? '正常' : p.state === 'half-open' ? '试探中' : '熔断'}</span>
           <span class="prov-st"></span>
+          <button class="prov-check" data-p="${esc(p.name)}" title="真发一次小请求：连通、首字延迟、吐字量、剩余额度">体检</button>
         </div>
         <div class="prov-stats">
           <div>成功<b>${nf(p.success)}</b></div>
@@ -668,9 +694,11 @@ button:disabled{opacity:.55;cursor:default}
           <div>平均延迟<b>${ms(p.latencyMs || 0)}</b></div>
           <div title="此刻正在这个渠道上执行的请求数；自动选路优先走最空闲的渠道">在途<b>${nf(p.inFlight || 0)}</b></div>
         </div>
+        <div class="prov-probe" data-p="${esc(p.name)}">${probeRes[p.name] ? probeHTML(probeRes[p.name]) : ''}</div>
         ${p.lastErr ? `<div style="margin-top:10px;font-size:11px;color:#B91C1C;font-family:var(--mono)">${esc(String(p.lastErr).slice(0,120))}</div>` : ''}
       </div>`;
     }).join('') || '<div class="empty">没有注册上游</div>';
+    bindProbes();
 
     const usage = m.modelUsage || {};
     const rows = Object.keys(usage).sort((a,b) => usage[b]-usage[a]);
