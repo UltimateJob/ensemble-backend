@@ -87,6 +87,14 @@ await ev(`location.hash='#/goals'`);
 await sleep(1400);
 await shot('goals');
 
+await ev(`location.hash='#/library'`);
+await sleep(1500);
+await shot('library');
+
+await ev(`location.hash='#/connectors'`);
+await sleep(1400);
+await shot('connectors');
+
 console.log(errors.length ? '错误：\n' + errors.slice(0, 5).join('\n') : '控制台：无错误');
 ws.close(); proc.kill();
 try { rmSync(profile, { recursive: true, force: true }); } catch (e) {}
