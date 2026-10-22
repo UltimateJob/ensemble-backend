@@ -63,8 +63,13 @@ function scColor(conv) {
   return sc?.accent || conv.agents?.[0]?.color || '#367BED';
 }
 
+// 预设场景的群不把角色写进会话：角色来自场景定义。
+// 只看 agents/members 会显示「0 个角色」，和实际不符。
 function agentCount(conv) {
-  return (conv.agents?.length) || (conv.members?.length) || 0;
+  const own = (conv.agents?.length) || (conv.members?.length) || 0;
+  if (own) return own;
+  const sc = state.scenarios.find(x => x.key === conv.studio);
+  return sc?.agents?.length || 0;
 }
 
 function teamRow(conv) {
@@ -95,22 +100,27 @@ function render() {
         <button class="btn btn-primary" id="newTeam">${icon('plus', 16)}新建自定义团队</button>
       </header>
 
+      ${mine.length ? `
+      <section class="sec">
+        <h2 class="sec-h">我的团队</h2>
+        <div class="team-list">${mine.map(teamRow).join('')}</div>
+      </section>` : ''}
+
       <section class="sec">
         <h2 class="sec-h">开箱即用预设团队</h2>
         <div class="team-grid">${presets.map(presetCard).join('')}</div>
       </section>
 
+      ${mine.length ? '' : `
       <section class="sec">
-        <h2 class="sec-h">我的自定义团队</h2>
-        ${mine.length
-          ? `<div class="team-list">${mine.map(teamRow).join('')}</div>`
-          : emptyState({
-              icon: 'users',
-              title: '还没有自定义团队',
-              sub: '从上面的预设开始，或者自己组一个',
-              action: '<button class="btn btn-primary" id="emptyNew">新建团队</button>',
-            })}
-      </section>
+        <h2 class="sec-h">我的团队</h2>
+        ${emptyState({
+          icon: 'users',
+          title: '还没有自定义团队',
+          sub: '从上面的预设开始，或者自己组一个',
+          action: '<button class="btn btn-primary" id="emptyNew">新建团队</button>',
+        })}
+      </section>`}
     </div>`;
 
   hydrateIcons(root);

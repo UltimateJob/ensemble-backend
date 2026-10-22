@@ -41,6 +41,15 @@ export function mountLogin(host) {
     <p class="login-foot">未注册的账号会自动创建 · 演示账号 13800000000 可直接登录</p>
   </div>`;
 
+  // 浏览器可能在刷新后恢复上次的输入与错误提示。
+  // 错误提示必须清掉——用户还没操作就看到「验证码不正确」会以为账号有问题。
+  const errBox = host.querySelector('#loginErr');
+  if (errBox) { errBox.textContent = ''; errBox.classList.add('hidden'); }
+
+  // 把焦点放到第一个输入框：登录页是入口，不该还要用户先点一下
+  const firstInput = host.querySelector('#phone');
+  if (firstInput) setTimeout(() => firstInput.focus(), 60);
+
   let kind = 'phone';
   host.querySelectorAll('#loginSeg button').forEach(b => b.addEventListener('click', () => {
     host.querySelectorAll('#loginSeg button').forEach(x => x.classList.remove('on'));
