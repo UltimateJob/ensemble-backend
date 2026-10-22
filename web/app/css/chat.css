@@ -478,3 +478,36 @@ kbd{
   font-family:var(--mono);font-size:12px;line-height:1.65;white-space:pre;
   padding:12px 14px;overflow-x:auto;max-height:280px;
 }
+
+/* ============================================================
+   窄屏顶栏
+   七个元素（房间名 + 5 头像 + 4 工具）抢一行，头像条只剩半个。
+   改成两行网格：① 房间名 + 工具，② 头像横向滚动。
+   放在 chat.css 里而不是 shell.css：两条规则权重相同，
+   后加载的胜出——这个文件在 index.html 里排在 shell.css 之后。
+   ============================================================ */
+@media (max-width:860px){
+  .room-head{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:auto auto;
+    grid-template-areas:
+      "title tools"
+      "avatars avatars";
+    gap:8px;
+    padding:12px 14px 6px;
+    align-items:start;
+  }
+  .rh-left{grid-area:title}
+  .rh-right{grid-area:tools;align-self:start}
+  .avatar-row{
+    grid-area:avatars;
+    display:flex;align-items:flex-start;gap:8px;
+    min-height:52px;padding:2px 0;
+    overflow-x:auto;overflow-y:hidden;
+  }
+  .av-cell{padding:2px 0}
+  .av-name{font-size:10px;max-width:56px}
+  .rh-title{font-size:15px}
+  .rh-sub{font-size:11px}
+}

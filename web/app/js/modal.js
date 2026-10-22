@@ -59,15 +59,31 @@ export function modalOpen() { return !!current; }
 
 /* ---------------- 审批 ---------------- */
 
+// 内部风险枚举值不该直接给用户看。
+const RISK_LABEL = {
+  read: '只读',
+  write: '会修改文件',
+  network: '会访问网络',
+  delete: '会删除文件',
+  privilege: '会提权',
+  'git-push': '会推送或重置仓库',
+  critical: '不可逆的高危操作',
+};
+
 export function approvalModal({ approval, runId }) {
+  const risk = RISK_LABEL[approval.risk] || approval.risk || '未知';
+  const danger = approval.risk === 'critical';
   return openModal({
     title: '需要你的审批',
-    width: 560,
+    width: 580,
     body: `
       <div class="apv-sum">${esc(approval.summary || approval.tool || '一次操作')}</div>
       ${approval.command ? `<pre class="apv-cmd">${esc(approval.command)}</pre>` : ''}
       ${approval.diff ? `<pre class="apv-diff">${esc(approval.diff)}</pre>` : ''}
-      <div class="apv-risk">${icon('shield-alert', 15)} 风险：${esc(approval.risk || '未知')} · 本地运行时，命令以你的用户权限执行</div>`,
+      <div class="apv-risk${danger ? ' danger' : ''}">
+        ${icon('shield-alert', 15)}
+        <span><b>${esc(risk)}</b> · 本地运行时，命令以你的用户权限执行</span>
+      </div>`,
     actions: [
       { key: 'run', label: '本任务都允许', kind: 'line', onClick: () => decide(runId, approval.id, true, 'run') },
       { key: 'no', label: '拒绝', kind: 'line', danger: true, onClick: () => decide(runId, approval.id, false, 'once') },

@@ -305,9 +305,13 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
   white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;
 }
 .apv-risk{
-  display:flex;align-items:center;gap:8px;font-size:13px;color:var(--warn-tx);
-  background:var(--warn-soft);border-radius:var(--r-sm);padding:10px 13px;
+  display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.6;
+  color:var(--warn-tx);background:var(--warn-soft);
+  border-radius:var(--r-sm);padding:11px 13px;
 }
+.apv-risk .ic{flex:0 0 15px;margin-top:1px}
+.apv-risk b{font-weight:620}
+.apv-risk.danger{background:var(--bad-soft);color:var(--bad-tx)}
 
 /* ============================================================
    引导

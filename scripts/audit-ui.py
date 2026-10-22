@@ -246,7 +246,10 @@ elif '这一轮没说完' not in chatjs:
 
 # 14) 窄屏必须收起导航标签、且主内容不能整页隐藏。
 #     旧壳在 390 宽下写了 .main{display:none}，截图一看整页是空的。
-m = re.search(r'@media\s*\(max-width:860px\)\s*\{(.*?)\n\}', css, re.S)
+# 只查外壳样式：多个文件都有 860px 断点（chat.css 也有），
+# 在拼接后的总串里搜会抓到不相干的那个块。
+shell_css = open('web/app/css/shell.css', encoding='utf-8').read()
+m = re.search(r'@media\s*\(max-width:860px\)\s*\{(.*?)\n\}', shell_css, re.S)
 if not m:
     problems.append('shell.css 没有 860px 窄屏断点——移动端没有适配')
 else:
