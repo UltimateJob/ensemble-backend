@@ -14,7 +14,6 @@
     <div class="login-logo">
       <span class="mark">合</span>
       <b>合奏</b>
-      <span>ENSEMBLE</span>
     </div>
     <h1 class="login-h1">把一件真事，<br>交给一场合奏。</h1>
     <p class="login-sub">五个角色分工协作，每一步都落成一个文件，最后由你按下确认。</p>
@@ -59,7 +58,8 @@
     </button>
 
     <p class="login-foot">
-      未注册的账号会自动创建 · 演示账号 13800000000 可直接登录
+      <span>未注册的账号会自动创建</span>
+      <span>演示账号 13800000000 可直接登录</span>
     </p>
   </div>
 </div>
@@ -131,7 +131,7 @@
         <button class="icon-btn" id="memoryBtn" title="他们记得">
           <i data-ic="brain" data-size="16"></i>
         </button>
-        <button class="icon-btn" id="clearBtn" title="清空对话">
+        <button class="icon-btn" id="clearBtn" title="清空当前显示">
           <i data-ic="trash" data-size="16"></i>
         </button>
       </div>
@@ -196,7 +196,6 @@
 <div id="scenes">
   <div class="scenes-in">
     <div class="scenes-head">
-      <div class="k">Choose a studio</div>
       <h2>从哪个场景开始？</h2>
       <p>每个场景是一组预设角色。创建后可以随时换人、改设定。</p>
     </div>
@@ -320,8 +319,9 @@
 
     <div class="forge-pane" id="paneSearch">
       <div class="field">
-        <input id="fSearch" placeholder="搜名字、作品或性格，比如「毒舌」「雪之下」">
+        <input id="fSearch" placeholder="搜名字、作品或性格">
       </div>
+      <div class="char-count" id="charCount"></div>
       <div class="char-list" id="charList"></div>
     </div>
 
@@ -377,7 +377,7 @@
     <div class="forge-list" id="forgeList"></div>
 
     <div class="forge-foot">
-      <span id="forgeCount">还没有角色</span>
+      <span id="forgeCount"></span>
       <button class="btn btn-line" id="forgeSave" disabled>存入角色库</button>
       <button class="btn btn-grad" id="forgeDone" disabled>用这些角色开群</button>
     </div>

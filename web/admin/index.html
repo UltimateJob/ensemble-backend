@@ -7,11 +7,11 @@
 <style>
 :root{
   --bg:#F3F4F7; --card:rgba(255,255,255,.97); --line:#E3E3E9; --line2:#D6D6DE;
-  --tx:#0D0D10; --tx2:#47474F; --tx3:#77777F; --tx4:#A5A5AE;
+  --tx:#0D0D10; --tx2:#47474F; --tx3:#6E6E77; --tx4:#88888F;
   --pri:#4F46E5; --pri2:#7C3AED; --grad:linear-gradient(135deg,#4F46E5,#7C3AED);
-  --ok:#059669; --okbg:rgba(5,150,105,.09);
-  --warn:#D97706; --warnbg:rgba(217,119,6,.11);
-  --bad:#DC2626; --badbg:rgba(220,38,38,.08);
+  --ok:#047857; --okbg:rgba(4,120,87,.09);
+  --warn:#B45309; --warnbg:rgba(180,83,9,.11);
+  --bad:#CE1F1F; --badbg:rgba(206,31,31,.08);
   --mono:ui-monospace,"SF Mono",Menlo,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -60,6 +60,10 @@ a{color:inherit;text-decoration:none}
 .btn-line{border:1px solid var(--line2);background:#fff;color:var(--tx2)}
 .btn-line:hover{color:var(--tx)}
 .btn-sm{height:30px;padding:0 12px;border-radius:8px;font-size:12px}
+
+/* 焦点环：键盘导航要看得见。浏览器默认的 1px 黑框在浅色卡片上太弱。 */
+:focus-visible{outline:2px solid var(--pri);outline-offset:2px}
+input:focus-visible,textarea:focus-visible,select:focus-visible{outline:none}
 
 /* 布局 */
 .app{display:none}
@@ -154,6 +158,59 @@ input.inline{
   font-size:12px;text-align:right;font-variant-numeric:tabular-nums;
 }
 input.inline:focus{outline:0;border-color:var(--pri)}
+
+/* ---------- 窄屏 ---------- */
+/* 之前后台没有移动适配：390 下顶栏导航和卡片标签被逐字换行，
+   「总览」变成「总」一行「览」一行。后台也可能在手机上开。 */
+@media (max-width:820px){
+  .nav{
+    height:auto;min-height:52px;flex-wrap:wrap;gap:8px 12px;
+    padding:10px 14px;
+  }
+  .nav .logo{margin:0}
+  .tabs{
+    order:3;width:100%;margin:0;gap:2px;
+    overflow-x:auto;-webkit-overflow-scrolling:touch;
+  }
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{white-space:nowrap;flex:0 0 auto;padding:7px 10px}
+  .nav-r{margin-left:auto;gap:8px}
+  .live,.nav .btn{white-space:nowrap}
+  .wrap{padding:16px 14px 48px}
+  .g4{grid-template-columns:repeat(2,1fr)}
+  .g2{grid-template-columns:1fr}
+  .metric .k,.metric .s{white-space:nowrap}
+  .card{padding:14px 14px}
+  table{font-size:12px}
+  th,td{padding:9px 6px}
+}
+
+
+/* 窄屏下表格改成卡片：7 列在 390 宽里塞不下，
+   之前操作列被推出容器，整页出现横向滚动。 */
+@media (max-width:820px){
+  table.tbl-resp thead{display:none}
+  table.tbl-resp,
+  table.tbl-resp tbody,
+  table.tbl-resp tr,
+  table.tbl-resp td{display:block;width:auto}
+  table.tbl-resp tr{
+    border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;margin-bottom:10px;background:#fff;
+  }
+  table.tbl-resp tr:hover td{background:transparent}
+  table.tbl-resp td{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:4px 0;border:0;text-align:left !important;white-space:normal;
+  }
+  table.tbl-resp td::before{
+    content:attr(data-label);flex:0 0 auto;
+    font-size:11px;color:var(--tx4);letter-spacing:0;
+  }
+  table.tbl-resp td[data-label=""]::before{display:none}
+  table.tbl-resp td[data-label=""]{justify-content:flex-end;gap:8px;padding-top:8px}
+}
+
 </style>
 </head>
 <body>
@@ -161,7 +218,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
 <!-- 登录 -->
 <div class="login" id="login">
   <div class="login-card">
-    <div class="logo"><i>合</i><b>合奏运维台</b><span>Admin</span></div>
+    <div class="logo"><i>合</i><b>合奏运维台</b></div>
     <div class="fld">
       <label>管理员令牌</label>
       <input id="token" type="password" placeholder="admin-dev-token" autocomplete="off">
@@ -177,7 +234,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
 <!-- 主体 -->
 <div class="app" id="app">
   <div class="nav">
-    <div class="logo"><i>合</i><b>合奏</b><span style="margin-left:6px;font-size:10px;color:#A5A5AE;letter-spacing:.12em">OPS</span></div>
+    <div class="logo"><i>合</i><b>合奏</b></div>
     <div class="tabs">
       <button class="tab on" data-p="dash">总览</button>
       <button class="tab" data-p="models">模型</button>
@@ -240,7 +297,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
 
       <div class="card" style="margin-top:12px">
         <div class="card-h"><h3>模型用量（Token）</h3><span class="r">按会话累计</span></div>
-        <table><thead><tr><th>模型</th><th style="text-align:right">Token</th></tr></thead>
+        <table class="tbl-resp"><thead><tr><th>模型</th><th style="text-align:right">Token</th></tr></thead>
           <tbody id="usageBody"></tbody></table>
       </div>
     </div>
@@ -253,7 +310,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
           <span class="r">权重决定加权轮询比例</span>
           <button class="btn btn-line btn-sm" id="addModel" style="margin-left:12px">新增</button>
         </div>
-        <table>
+        <table class="tbl-resp">
           <thead><tr>
             <th>Key</th><th>Provider</th><th>上游模型</th>
             <th style="text-align:right">权重</th><th style="text-align:right">单价/1K</th>
@@ -275,7 +332,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
           <h3>会话与锁</h3>
           <span class="r" id="convMeta">—</span>
         </div>
-        <table>
+        <table class="tbl-resp">
           <thead><tr>
             <th>群</th><th>工作区</th><th style="text-align:right">消息</th>
             <th>更新</th><th>状态</th><th style="width:90px"></th>
@@ -297,7 +354,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     <div class="page" id="p-users">
       <div class="card">
         <div class="card-h"><h3>用户</h3><span class="r" id="userCount">—</span></div>
-        <table>
+        <table class="tbl-resp">
           <thead><tr>
             <th>用户</th><th>登录标识</th><th>套餐</th>
             <th style="text-align:right">额度</th><th style="text-align:right">已用</th>
@@ -316,7 +373,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
           <h3>慢请求</h3>
           <span class="r" id="slowMeta">—</span>
         </div>
-        <table>
+        <table class="tbl-resp">
           <thead><tr>
             <th>时间</th><th>群</th><th>角色</th>
             <th style="text-align:right">耗时</th>
@@ -344,14 +401,14 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     <div class="page" id="p-logs">
       <div class="card">
         <div class="card-h"><h3>操作审计</h3><span class="r">最近 200 条</span></div>
-        <table>
+        <table class="tbl-resp">
           <thead><tr><th>时间</th><th>操作</th><th>对象</th><th>来源</th></tr></thead>
           <tbody id="auditBody"></tbody>
         </table>
       </div>
       <div class="card" style="margin-top:12px">
         <div class="card-h"><h3>用户行为</h3><span class="r">登录 / 对话 / 审批</span></div>
-        <table>
+        <table class="tbl-resp">
           <thead><tr><th>时间</th><th>类型</th><th>用户</th><th>目标</th></tr></thead>
           <tbody id="eventBody"></tbody>
         </table>
@@ -501,7 +558,7 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     const usage = m.modelUsage || {};
     const rows = Object.keys(usage).sort((a,b) => usage[b]-usage[a]);
     $('#usageBody').innerHTML = rows.length
-      ? rows.map(k => `<tr><td class="mono">${k}</td><td class="num">${nf(usage[k])}</td></tr>`).join('')
+      ? rows.map(k => `<tr><td class="mono" data-label="模型">${k}</td><td class="num" data-label="Token">${nf(usage[k])}</td></tr>`).join('')
       : '<tr><td colspan="2" class="empty">还没有调用记录</td></tr>';
   }
 
@@ -510,13 +567,13 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     const list = await api('/models');
     $('#modelBody').innerHTML = list.map(m => `
       <tr>
-        <td class="mono">${m.key}</td>
-        <td><span class="b b-pri">${m.provider}</span></td>
-        <td class="mono">${m.upstream || '—'}</td>
-        <td class="num">${m.weight}</td>
-        <td class="num">${m.costPer1K ? m.costPer1K.toFixed(4) : '—'}</td>
-        <td><button class="sw ${m.enabled?'on':''}" data-toggle="${m.key}"></button></td>
-        <td><button class="btn btn-line btn-sm" data-del="${m.key}">删除</button></td>
+        <td class="mono" data-label="模型">${m.key}</td>
+        <td data-label="上游"><span class="b b-pri">${m.provider}</span></td>
+        <td class="mono" data-label="模型名">${m.upstream || '—'}</td>
+        <td class="num" data-label="权重">${m.weight}</td>
+        <td class="num" data-label="单价">${m.costPer1K ? m.costPer1K.toFixed(4) : '—'}</td>
+        <td data-label="启用"><button class="sw ${m.enabled?'on':''}" data-toggle="${m.key}"></button></td>
+        <td data-label=""><button class="btn btn-line btn-sm" data-del="${m.key}">删除</button></td>
       </tr>`).join('');
 
     document.querySelectorAll('[data-toggle]').forEach(b => {
@@ -577,13 +634,13 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#userEmpty').style.display = list.length ? 'none' : 'block';
     $('#userBody').innerHTML = list.map(u => `
       <tr>
-        <td><b style="font-weight:600">${u.name}</b></td>
-        <td class="mono">${u.phone || u.email}</td>
-        <td><span class="b b-gray">${u.plan}</span></td>
-        <td class="num"><input class="inline" value="${u.quota}" data-quota="${u.id}"></td>
-        <td class="num">${u.used}</td>
-        <td><span class="b ${u.status==='active'?'b-ok':'b-bad'}">${u.status==='active'?'正常':'已停用'}</span></td>
-        <td>
+        <td data-label="用户"><b style="font-weight:600">${u.name}</b></td>
+        <td class="mono" data-label="登录标识">${u.phone || u.email}</td>
+        <td data-label="套餐"><span class="b b-gray">${u.plan}</span></td>
+        <td class="num" data-label="额度"><input class="inline" value="${u.quota}" data-quota="${u.id}"></td>
+        <td class="num" data-label="已用">${u.used}</td>
+        <td data-label="状态"><span class="b ${u.status==='active'?'b-ok':'b-bad'}">${u.status==='active'?'正常':'已停用'}</span></td>
+        <td data-label="">
           <button class="btn btn-line btn-sm" data-st="${u.id}" data-cur="${u.status}">
             ${u.status==='active'?'停用':'启用'}
           </button>
@@ -630,18 +687,18 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     ]);
     $('#auditBody').innerHTML = audits.length ? audits.map(a => `
       <tr>
-        <td class="mono">${ago(a.createdAt)}</td>
-        <td><span class="b b-pri">${a.action}</span></td>
-        <td class="mono">${a.target || '—'}</td>
-        <td class="mono">${a.ip || '—'}</td>
+        <td class="mono" data-label="时间">${ago(a.createdAt)}</td>
+        <td data-label="操作"><span class="b b-pri">${a.action}</span></td>
+        <td class="mono" data-label="对象">${a.target || '—'}</td>
+        <td class="mono" data-label="来源IP">${a.ip || '—'}</td>
       </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无操作记录</td></tr>';
 
     $('#eventBody').innerHTML = events.length ? events.map(e => `
       <tr>
-        <td class="mono">${ago(e.createdAt)}</td>
-        <td><span class="b b-gray">${e.kind}</span></td>
-        <td class="mono">${e.userId || '—'}</td>
-        <td class="mono">${e.target || '—'}</td>
+        <td class="mono" data-label="时间">${ago(e.createdAt)}</td>
+        <td data-label="事件"><span class="b b-gray">${e.kind}</span></td>
+        <td class="mono" data-label="用户">${e.userId || '—'}</td>
+        <td class="mono" data-label="对象">${e.target || '—'}</td>
       </tr>`).join('') : '<tr><td colspan="4" class="empty">暂无行为记录</td></tr>';
   }
 
@@ -653,12 +710,12 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#slowEmpty').style.display = items.length ? 'none' : 'block';
     $('#slowBody').innerHTML = items.map(it => `
       <tr>
-        <td class="mono">${it.time ? new Date(it.time).toLocaleString('zh-CN', {hour12:false}) : '—'}</td>
-        <td>${it.convTitle || it.convId || '—'}</td>
-        <td>${it.agent || '—'}</td>
-        <td class="num" style="color:${it.latencyMs > 20000 ? 'var(--bad)' : 'inherit'}">${ms(it.latencyMs || 0)}</td>
-        <td class="num">${nf(it.tokens || 0)}</td>
-        <td>${it.err
+        <td class="mono" data-label="时间">${it.time ? new Date(it.time).toLocaleString('zh-CN', {hour12:false}) : '—'}</td>
+        <td data-label="群">${it.convTitle || it.convId || '—'}</td>
+        <td data-label="角色">${it.agent || '—'}</td>
+        <td class="num" data-label="耗时" style="color:${it.latencyMs > 20000 ? 'var(--bad)' : 'inherit'}">${ms(it.latencyMs || 0)}</td>
+        <td class="num" data-label="token">${nf(it.tokens || 0)}</td>
+        <td data-label="结果">${it.err
           ? `<span class="b b-bad" title="${(it.err||'').replace(/"/g,'')}">失败</span>`
           : '<span class="b b-warn">慢</span>'}</td>
       </tr>`).join('');
@@ -671,14 +728,14 @@ input.inline:focus{outline:0;border-color:var(--pri)}
     $('#convMeta').textContent = `${list.length} 个会话 · ${busyN} 个正在编排`;
     $('#convBody').innerHTML = list.length ? list.map(c => `
       <tr>
-        <td><b style="font-weight:600">${c.title}</b></td>
-        <td>${c.studio || '—'}</td>
-        <td class="num">${c.messages}</td>
-        <td class="mono">${c.updatedAt || '—'}</td>
-        <td>${c.busy
+        <td data-label="群"><b style="font-weight:600">${c.title}</b></td>
+        <td data-label="场景">${c.studio || '—'}</td>
+        <td class="num" data-label="消息数">${c.messages}</td>
+        <td class="mono" data-label="更新时间">${c.updatedAt || '—'}</td>
+        <td data-label="状态">${c.busy
           ? '<span class="b b-warn">编排中</span>'
           : '<span class="b b-ok">空闲</span>'}</td>
-        <td>${c.busy
+        <td data-label="">${c.busy
           ? `<button class="btn btn-line btn-sm" data-unlock="${c.id}">强行解锁</button>`
           : ''}</td>
       </tr>`).join('') : '<tr><td colspan="6" class="empty">还没有会话</td></tr>';

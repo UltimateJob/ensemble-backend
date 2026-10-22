@@ -2,9 +2,11 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +42,13 @@ type FileStore struct {
 	dirtyAudits  bool
 	dirtyEvents  bool
 	dirtyMsgs    map[string]bool // convID → 需要重写
+
+	// 落盘健康状态。写不进去的时候调用方（服务）该知道——
+	// 数据只在内存里，重启就没了。
+	flushMu       sync.Mutex
+	flushFailures int
+	lastFlushErr  string
+	lastFlushOK   time.Time
 
 	dirty chan struct{}
 	stop  chan struct{}
@@ -81,13 +90,40 @@ func NewFileStore(dir string) (*FileStore, error) {
 		lock:      lk,
 	}
 	if err := fs.load(); err != nil {
-		logx.L().Warn("读取历史数据时出错，从空库继续", "err", err.Error())
+		// 数据文件读不出来时，绝不能「从空库继续」——
+		// 内存是空的，下一次 Flush 就会用空数组覆盖掉原文件，
+		// 用户的数据就真没了。而且只有一个 WARN 日志。
+		//
+		// 正确做法是停下来，把损坏的文件留档，让人来处理。
+		// 确实想带着损坏继续跑（比如只是某个边缘文件出问题），
+		// 设 ALLOW_CORRUPT_START=true。
+		quarantine := fmt.Sprintf("%s.corrupt-%d", fs.dir, time.Now().Unix())
+		if allowCorruptStart() {
+			logx.L().Warn("数据文件损坏，按 ALLOW_CORRUPT_START 强制从空库启动",
+				"err", err.Error(), "备份目录", quarantine)
+		} else {
+			return nil, fmt.Errorf(
+				"数据文件损坏，拒绝启动（从空库启动会用空数据覆盖原文件）\n"+
+					"  %v\n"+
+					"  处理方式：\n"+
+					"    1. 先备份整个 %s 目录\n"+
+					"    2. 检查哪个 .json 坏了，从 backups/ 里恢复：make restore FILE=...\n"+
+					"    3. 确实要带着损坏启动（会丢数据）：ALLOW_CORRUPT_START=true",
+				err, fs.dir)
+		}
 	}
 	go fs.loop()
 	return fs, nil
 }
 
 /* ---------------- 加载 ---------------- */
+
+// allowCorruptStart 逃生舱：数据损坏时仍要启动。
+// 默认关闭——从空库启动会用空数据覆盖原文件。
+func allowCorruptStart() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("ALLOW_CORRUPT_START")))
+	return v == "1" || v == "true" || v == "yes"
+}
 
 func (fs *FileStore) load() error {
 	// 兼容旧版单文件格式
@@ -254,7 +290,22 @@ func (fs *FileStore) loop() {
 }
 
 // Flush 把脏的部分写盘。原子替换，避免半截文件。
-func (fs *FileStore) Flush() error {
+func (fs *FileStore) Flush() (err error) {
+	// 不管从哪条路径调进来（后台 loop、Close、启动迁移），
+	// 成功或失败都要记下来——PersistHealth 靠它判断能不能对外服务。
+	defer func() {
+		fs.flushMu.Lock()
+		if err != nil {
+			fs.flushFailures++
+			fs.lastFlushErr = err.Error()
+		} else {
+			fs.flushFailures = 0
+			fs.lastFlushErr = ""
+			fs.lastFlushOK = time.Now()
+		}
+		fs.flushMu.Unlock()
+	}()
+
 	fs.mu.Lock()
 	dUsers, dConvs, dAudits, dEvents := fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents
 	dAgents, dStudios := fs.dirtyAgents, fs.dirtyStudios
@@ -337,7 +388,17 @@ func (fs *FileStore) Flush() error {
 				list = append(list, m)
 			}
 		}
+		_, convExists := fs.Memory.convs[convID]
 		fs.Memory.mu.RUnlock()
+
+		// 会话已经删了就没有消息可写——直接删文件，别留一个空数组。
+		// 之前每次删群都会留下一个 2 字节的 []，跑几十个群之后
+		// messages/ 里全是孤儿文件。
+		if !convExists && len(list) == 0 {
+			_ = os.Remove(filepath.Join(fs.dir, dirMsgs, safeName(convID)+".json"))
+			continue
+		}
+
 		if err := writeJSON(filepath.Join(fs.dir, dirMsgs, safeName(convID)+".json"), list); err != nil {
 			return err
 		}
@@ -430,6 +491,25 @@ func (fs *FileStore) DeleteConv(id string) error {
 	fs.mark("convs")
 	fs.mark(id) // 消息文件也重写（变成空）
 	return err
+}
+
+// PersistHealth 落盘是否健康。连续失败说明磁盘满了或权限有问题——
+// 这时候服务还在跑、接口还返回 200，但数据只在内存里。
+type PersistHealth struct {
+	OK            bool   `json:"ok"`
+	Failures      int    `json:"failures"`
+	LastError     string `json:"lastError,omitempty"`
+	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
+}
+
+func (fs *FileStore) PersistHealth() PersistHealth {
+	fs.flushMu.Lock()
+	defer fs.flushMu.Unlock()
+	h := PersistHealth{OK: fs.flushFailures == 0, Failures: fs.flushFailures, LastError: fs.lastFlushErr}
+	if !fs.lastFlushOK.IsZero() {
+		h.LastSuccessAt = fs.lastFlushOK.Format(time.RFC3339)
+	}
+	return h
 }
 
 func (fs *FileStore) AppendMessage(m *domain.Message) error {

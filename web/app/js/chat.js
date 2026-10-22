@@ -4,24 +4,32 @@
    ============================================================ */
 
 import {
-  $, $$, API, api, state, toast, esc, timeStr, agoStr, makeAv, icon, setDocTitle,
-} from './core.js';
+  $, $$, API, api, state, toast, esc, timeStr, agoStr, makeAv, icon, setDocTitle, humanError } from './core.js';
 import { uiPrompt, uiConfirm } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
 
 /* ---------------- 会话 ---------------- */
 // 同一个会话正在打开时忽略重复调用（并发会导致消息渲染两遍）
 let openingConvId = null;
+let openingAt = 0;
 
 export async function openConv(id) {
   if (state.busy) return toast('上一轮还没结束');
-  // 同一个会话正在打开时忽略重复调用（并发会导致消息渲染两遍）
-  if (openingConvId === id) return;
+  // 同一个会话正在打开时忽略重复调用（并发会导致消息渲染两遍）。
+  // 但要给一个时间窗：同步段里万一抛异常，openingConvId 不会被清掉，
+  // 之后这个会话就再也打不开了——界面毫无反应，很难查。
+  if (openingConvId === id && Date.now() - openingAt < 5000) return;
   const conv = state.convs.find(c => c.id === id);
   if (!conv) return;
 
   openingConvId = id;
+  openingAt = Date.now();
   state.cur = conv;
+
+  // 立刻清屏并铺骨架。下面取协作者、取消息都是网络请求，
+  // 慢的时候要多等一两秒——这期间屏幕上还是【上一个群】的消息，
+  // 用户会以为点错了。清空要放在所有 await 之前。
+  showMsgSkeleton();
 
   const sc = state.scenarios.find(s => s.key === conv.studio) || { agents: [] };
   // 自定义角色优先
@@ -39,6 +47,7 @@ export async function openConv(id) {
   renderConvs();
   if (drawer.classList.contains('on')) closeDrawer();
   $('#chatEmpty').style.display = 'none';
+  document.body.classList.remove('no-conv');
   $('#chatHead').style.display = 'flex';
   $('#msgs').style.display = 'block';
   $('#composer').style.display = 'block';
@@ -82,9 +91,10 @@ export async function openConv(id) {
       // 有产物定义的角色，历史里也补一张文件卡
       if (agent && agent.artifact && m.role === 'assistant') {
         addArtifact(agent.name, agent.artifact, m.content);
-        appendArtifactCard(agent.artifact, m.content.slice(0, 28));
+        appendArtifactCard(agent.artifact, m.content);
       }
     });
+    scheduleDedupeTimes();
     if (!msgs.length) {
       addSysNote('群已建好，说第一句话试试');
     } else if (msgs.length > 1) {
@@ -93,7 +103,8 @@ export async function openConv(id) {
     }
     renderLoadMore();
   } catch (e) {
-    toast(e.message);
+    hideMsgSkeleton();
+    toast(humanError(e));
   } finally {
     if (openingConvId === id) openingConvId = null;
   }
@@ -157,7 +168,7 @@ export async function loadEarlier() {
     // 恢复视觉位置，避免跳
     box.scrollTop = box.scrollHeight - prevHeight + prevTop;
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   } finally {
     state.loadingMore = false;
     if (bar) bar.remove();
@@ -212,6 +223,7 @@ export function buildMsgEl(o) {
   const el = document.createElement('div');
   el.className = 'msg' + (o.me ? ' me' : '');
   if (o.id) el.dataset.mid = o.id;   // 搜索结果跳转时靠它定位
+  if (o.time) el.dataset.t = String(new Date(o.time).getTime() || 0);
   el.innerHTML = `
     ${o.me ? '' : makeAv(o.name, o.color)}
     <div class="msg-body">
@@ -231,7 +243,63 @@ export function addMsg(o) {
   maybeTimeDivider(wrap, o.time);
   const { el } = buildMsgEl(o);
   wrap.appendChild(el);
+  scheduleDedupeTimes();
   return el;
+}
+
+// 同一分钟里连发五条，每条都标一个 23:06 是纯噪音。
+// 只保留「和上一条相差 5 分钟以上」的那条时间戳——
+// 时间信息没丢，但不再是满屏重复数字。
+const TIME_GAP_MS = 5 * 60 * 1000;
+let dedupePending = false;
+
+function scheduleDedupeTimes() {
+  if (dedupePending) return;
+  dedupePending = true;
+  requestAnimationFrame(() => {
+    dedupePending = false;
+    dedupeMsgTimes();
+  });
+}
+
+export function dedupeMsgTimes() {
+  const wrap = $('#msgWrap');
+  if (!wrap) return;
+  let lastShown = 0;
+  wrap.querySelectorAll('.msg').forEach(el => {
+    const t = el.querySelector('.msg-time');
+    if (!t) return;
+    if (!t.textContent.trim()) return;
+    const ms = Number(el.dataset.t || 0);
+    if (ms && lastShown && ms - lastShown < TIME_GAP_MS) {
+      t.textContent = '';
+    } else if (ms) {
+      lastShown = ms;
+    }
+  });
+}
+
+// 加载历史时的骨架屏。
+// 之前这段是纯空白：慢网络下打开一个群，要盯着白屏好几秒，
+// 看起来像页面挂了。骨架屏至少告诉用户「在加载」。
+export function showMsgSkeleton() {
+  const wrap = $('#msgWrap');
+  if (!wrap) return;
+  const rows = [88, 62, 74].map(w => `
+    <div class="sk-msg">
+      <div class="sk-av"></div>
+      <div class="sk-body">
+        <div class="sk-line" style="width:${w}px"></div>
+        <div class="sk-line sk-wide"></div>
+        <div class="sk-line" style="width:60%"></div>
+      </div>
+    </div>`).join('');
+  wrap.innerHTML = `<div class="sk-wrap">${rows}</div>`;
+}
+
+export function hideMsgSkeleton() {
+  const box = $('#msgWrap .sk-wrap');
+  if (box) box.remove();
 }
 
 export function addSysNote(text) {
@@ -326,7 +394,7 @@ export function renderMembers() {
         conv.collaborators = conv.collaborators.filter(x => x !== uid);
         renderMembers();
         toast('已移除');
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
     });
   });
 }
@@ -354,7 +422,7 @@ function buildArtifactCard(title, detail) {
   card.className = 'artifact';
   card.innerHTML = `
     <span class="fi">${icon('file-text', 16)}</span>
-    <div>
+    <div class="art-txt">
       <div class="an">${esc(title)}</div>
       <div class="ad">${esc(detail || '')}</div>
     </div>
@@ -368,13 +436,24 @@ export function appendArtifactCard(title, detail) {
 }
 
 export function addArtifact(name, title, detail) {
-  artifacts.push({ name, title, detail });
+  // 同一个角色 + 同一个产物名，只保留一份（内容更新为最新的）。
+  // 不加这个的话，六轮对话下来右栏会列十几个「合规点对表」——
+  // 那是历史记录，不是产物清单。
+  const key = name + '/' + title;
+  const idx = artifacts.findIndex(a => a.key === key);
+  const item = { key, name, title, detail, at: Date.now() };
+  if (idx >= 0) {
+    artifacts[idx] = item;
+  } else {
+    artifacts.push(item);
+  }
+
   $('#artifactCount').textContent = artifacts.length;
   const box = $('#artifactList');
   box.innerHTML = artifacts.map(a => `
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;color:var(--tx-2)">
-      <span style="color:var(--pri);display:inline-flex">${icon('file-text', 13)}</span>
-      <span style="font-size:12px">${esc(a.title)}</span>
+    <div class="art-item" title="${esc((a.detail || '').slice(0, 80))}">
+      <span class="art-ic">${icon('file-text', 13)}</span>
+      <span class="art-n">${esc(a.title)}</span>
     </div>`).join('');
 }
 
@@ -396,9 +475,19 @@ export async function runRound(path, body, opts = {}) {
 
   let curEl = null;
   let curText = '';
+  // 后端每轮结束都会发一个 done。如果流在 done 之前就断了，
+  // 前端原本完全分不出来——看起来和正常结束一模一样，
+  // 用户只会觉得「怎么没人接着说了」。
+  let sawDone = false;
 
   function handleEvent(ev) {
+    if (ev.type === 'done') { sawDone = true; return; }
     if (ev.type === 'start') {
+      // 上一个角色如果只留下一个空的思考占位（上游失败或前端没收到内容），
+      // 先清掉——不然连着几个 start 会堆出好几个空气泡
+      if (curEl && !curEl.querySelector('.msg-text').textContent.trim()) {
+        curEl.remove();
+      }
       setChatStatus(ev.name);
       setDocTitle(state.cur && state.cur.title, true);
       curText = '';
@@ -488,7 +577,13 @@ export async function runRound(path, body, opts = {}) {
     }
 
     if (ev.type === 'error') {
-      addSysNote(ev.name + ' 出错了：' + ev.content);
+      // 上游挂了：把还没说完的那个空气泡清掉，别让用户对着
+      // 一个只有思考三点、永远不会有内容的占位发呆
+      if (curEl && !curEl.querySelector('.msg-text').textContent.trim()) {
+        curEl.remove();
+        curEl = null;
+      }
+      addSysNote(ev.name === '系统' ? ev.content : ev.name + ' 出错了：' + ev.content);
       return;
     }
   }
@@ -526,11 +621,23 @@ export async function runRound(path, body, opts = {}) {
         handleEvent(ev);
       }
     }
+
+    // 流正常关闭但没收到 done：连接被中途掐断了。
+    // 已经说出来的话都在（服务端逐条落库了），只是这一轮没跑完。
+    if (!sawDone && opts.expectDone !== false) {
+      addSysNote('连接断了，这一轮没说完 — 已经说出来的都保留着');
+    }
   } catch (e) {
     if (/额度/.test(e.message)) {
       addSysNote('本月额度用完了 — 这句话先留着，加完额度再点「继续聊」');
+    } else if (/Failed to fetch|NetworkError|load failed/i.test(e.message)) {
+      // 网络断了：这条消息根本没到服务器。界面上那条「我发出的」是乐观渲染，
+      // 刷新就没了。必须把原文还给用户，否则他要重新打一遍。
+      addSysNote('网络断了，这句话没发出去 — 已经放回输入框，网络好了再发一次');
+      if (opts.onFail) opts.onFail(e, 'network');
     } else {
       addSysNote('出错了：' + e.message);
+      if (opts.onFail) opts.onFail(e, 'other');
     }
   } finally {
     state.busy = false;
@@ -555,19 +662,34 @@ export async function send() {
   const ta = $('#ta');
   const text = ta.value.trim();
   if (!text) return;
+  // 后端上限 4000 字。前端先拦一道，省得用户打完才被拒。
+  if ([...text].length > 4000) {
+    toast('太长了，最多 4000 字。拆成几条发更好');
+    return;
+  }
 
   ta.value = '';
   ta.style.height = 'auto';
   $('#sendBtn').disabled = true;
   state.busy = true;
 
-  addMsg({ name: (state.user && state.user.name) || '你', text, me: true, time: new Date() });
+  const sentEl = addMsg({ name: (state.user && state.user.name) || '你', text, me: true, time: new Date() });
   scrollBottom();
 
   await runRound('/v1/conversations/' + state.cur.id + '/orchestrate', { content: text }, {
     onDone: () => {
       const box = $('#ta');
       $('#sendBtn').disabled = !box || !box.value.trim();
+    },
+    onFail: (err, kind) => {
+      // 消息没到服务器。把它标成「没发出去」，并把原文放回输入框。
+      if (sentEl) sentEl.classList.add('failed');
+      const box = $('#ta');
+      if (box && !box.value.trim()) {
+        box.value = text;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+        if (kind === 'network') box.focus();
+      }
     },
   });
 }

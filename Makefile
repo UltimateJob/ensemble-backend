@@ -32,6 +32,10 @@ quality:
 injection:
 	@node scripts/injection.mjs
 
+# 界面上不该出现 undefined / NaN / null（十个页面各扫一遍）
+junk:
+	@node scripts/junk.mjs
+
 # 真实输出的卫生检查：前缀、出戏、空发言、复读、超长（需要真实 Key）
 sanity:
 	@node scripts/sanity.mjs

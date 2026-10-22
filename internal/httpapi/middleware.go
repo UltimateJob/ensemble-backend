@@ -56,6 +56,21 @@ func Trace(next http.Handler) http.Handler {
 }
 
 // CORS 允许前端跨域调用。
+// LimitBody 限制请求体大小。
+//
+// 之前没有限制：一个 100MB 的请求会被整个读进内存，
+// 并发几个就能把进程撑爆（实测单个请求让内存从 80MB 涨到 331MB）。
+//
+// 2MB 足够宽裕——消息上限 4000 字约 12KB，附件功能将来另说。
+func LimitBody(next http.Handler, maxBytes int64) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")

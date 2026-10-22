@@ -20,10 +20,29 @@ func (s *Server) handleOrchestrate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Content string `json:"content"`
 	}
-	if err := decode(r, &req); err != nil || req.Content == "" {
+	if err := decode(r, &req); err != nil {
+		badRequest(w, "请求格式不正确")
+		return
+	}
+
+	// 只发空格或换行等于没说话。
+	// 之前只判了 == ""，一串空格能进去，编排器还会认真回一句。
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
 		badRequest(w, "消息不能为空")
 		return
 	}
+
+	// 长度上限。群聊里没人粘贴十万字——真粘贴了，
+	// 一条消息就会吃掉几万 token，而且模型也接不住。
+	// 4000 字大约是一篇长文，够用了。
+	const maxRunes = 4000
+	if n := len([]rune(content)); n > maxRunes {
+		fail(w, 400, "too_long",
+			fmt.Sprintf("消息太长了（%d 字），最多 %d 字。拆成几条发更好", n, maxRunes))
+		return
+	}
+	req.Content = content
 
 	conv, err := s.chat.Get(u.ID, r.PathValue("id"))
 	if err != nil {

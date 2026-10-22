@@ -5,8 +5,7 @@
    ============================================================ */
 
 import {
-  $, $$, api, state, toast, esc, makeAv, agoStr, setDocTitle,
-} from './core.js';
+  $, $$, api, state, toast, esc, makeAv, agoStr, setDocTitle, humanError } from './core.js';
 import { uiPrompt, uiConfirm } from './dialog.js';
 
 // 点会话时要打开它——但「打开」的逻辑在 chat.js。
@@ -18,7 +17,13 @@ export async function loadConvs() {
   try {
     state.convs = await api('/v1/conversations');
   } catch (e) {
-    state.convs = [];
+    // 刷新失败不要把列表清空。之前是 state.convs = []，
+    // 网络抖一下整个侧栏就变成「还没有群聊 / 开第一个群」——
+    // 用户会以为自己的群全没了。保留上一次的列表，只是不更新。
+    if (!state.convs || !state.convs.length) state.convs = [];
+    renderConvs();
+    if (window.__refreshOnboard) window.__refreshOnboard();
+    return;
   }
   renderConvs();
   // 会话数变化会影响上手清单
@@ -133,7 +138,7 @@ $$('#ctxMenu button').forEach(btn => {
           $('#crumbName').textContent = name;
         }
         toast('已重命名');
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
       return;
     }
 
@@ -154,7 +159,7 @@ $$('#ctxMenu button').forEach(btn => {
           state.scenarios = await api('/v1/scenarios');
         } catch (e) { /* 忽略 */ }
         if (window.__refreshOnboard) window.__refreshOnboard();
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
       return;
     }
 
@@ -171,7 +176,7 @@ $$('#ctxMenu button').forEach(btn => {
         });
         toast('已邀请 ' + (r.invitee ? r.invitee.name : target));
         await loadConvs();
-      } catch (e) { toast(e.message); }
+      } catch (e) { toast(humanError(e)); }
       return;
     }
 
@@ -194,6 +199,7 @@ async function UI_confirm_delete(conv) {
         $('#composer').style.display = 'none';
         $('#chatHead').style.display = 'none';
         $('#chatEmpty').style.display = 'flex';
+        document.body.classList.add('no-conv');
         $('#crumbName').textContent = '—';
         state.agents = [];
         setDocTitle('', false);
@@ -202,7 +208,7 @@ async function UI_confirm_delete(conv) {
       await loadConvs();
       toast('已删除');
     })
-    .catch(e => toast(e.message));
+    .catch(e => toast(humanError(e)));
 }
 
 

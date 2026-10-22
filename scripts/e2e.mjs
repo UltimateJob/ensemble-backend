@@ -132,6 +132,18 @@ async function launch() {
     await fetch(`${BASE}/admin/api/users/${lr.data.user.id}/reset-usage`, {
       method: 'POST', headers: { 'X-Admin-Token': 'admin-dev-token' },
     });
+
+    // 上次跑挂了会留下「E2E 测试群」。不清的话会话列表越来越脏，
+    // 演示数据也会被污染——真实交付时用户看到一排同名测试群。
+    const stale = await fetch(`${BASE}/v1/conversations`, {
+      headers: { Authorization: 'Bearer ' + lr.data.token },
+    }).then(x => x.json()).then(j => (j.data || []).filter(c => c.title.startsWith('E2E 测试群')));
+    for (const c of stale) {
+      await fetch(`${BASE}/v1/conversations/${c.id}`, {
+        method: 'DELETE', headers: { Authorization: 'Bearer ' + lr.data.token },
+      }).catch(() => {});
+    }
+    if (stale.length) console.log(`  清掉 ${stale.length} 个上次残留的测试群`);
   } catch { /* 重置失败就让后面的断言自己报 */ }
 
   // 等调试端口起来
@@ -345,6 +357,36 @@ async function run() {
     }
     ok(`成员面板高亮正在说话的角色（${talkingNow || '无'}）`, !!talkingNow);
 
+    // 会话列表不能溢出压到新手引导卡上。
+    // flex 子项默认 min-height:auto，会话多了列表不收缩，会盖住下面的卡片。
+    const overlap = await cdp.eval(`(() => {
+      const list = document.querySelector('.conv-list');
+      const ob = document.querySelector('.onboard');
+      if (!list || !ob || !ob.offsetHeight) return 'skip';
+      const a = list.getBoundingClientRect();
+      const b = ob.getBoundingClientRect();
+      return a.bottom <= b.top + 1 ? 'ok' : ('overlap ' + Math.round(a.bottom - b.top));
+    })()`);
+    ok(`会话列表没有压到引导卡（${overlap}）`, overlap === 'ok' || overlap === 'skip');
+
+    // 产物卡正文两行截断要带省略号，不能是 JS 硬切
+    const clamp = await cdp.eval(`(() => {
+      const ad = document.querySelector('.artifact .ad');
+      if (!ad) return 'none';
+      return getComputedStyle(ad).webkitLineClamp || '-1';
+    })()`);
+    // 这个群用的是随机朋友场景，没有产物卡；有卡片时必须两行截断
+    ok(`产物卡正文按两行截断（clamp=${clamp}）`, clamp === '2' || clamp === 'none');
+
+
+    // 产物列表按「角色 + 名称」去重——六轮对话下来不该列十几次「合规点对表」
+    const artInfo = await cdp.eval(`(() => {
+      const items = [...document.querySelectorAll('#artifactList .art-item .art-n')].map(e => e.textContent);
+      return JSON.stringify({ n: items.length, uniq: new Set(items).size });
+    })()`);
+    const art = JSON.parse(artInfo);
+    ok(`产物列表没有重复（${art.n} 个，去重后 ${art.uniq}）`, art.n === art.uniq);
+
     await cdp.waitFor(
       '[...document.querySelectorAll(".msg:not(.me) .msg-text")].some(t => t.textContent.length > 5)',
       30000,
@@ -377,6 +419,11 @@ async function run() {
     ok(`有 ${spoke} 个角色发言`, spoke >= 1);
 
     // ---- 「继续聊」：不发言也能让群里自己找话题 ----
+    // 先等上一轮真的结束。busy 为真时点「继续聊」会被静默忽略
+    // （按钮的 handler 第一行就是 if (state.busy) return），
+    // 然后这里死等 30 秒超时——看起来像功能坏了，其实是测试抢跑。
+    await cdp.waitFor('window.__ens && !window.__ens.state.busy', 30000, '上一轮结束');
+
     const before = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
     await cdp.eval('document.querySelector("#nudgeBtn").click()');
     await cdp.waitFor(
@@ -389,10 +436,17 @@ async function run() {
       60000,
       '继续聊这一轮结束'
     );
-    await sleep(500);
+    // 等按钮真的恢复，别用固定 sleep。
+    // speaking 归零发生在 DOM 层，而按钮由 kickoff() 的 finally 恢复——
+    // 两者之间有窗口期，负载高的时候 500ms 不够，断言会偶发红。
+    await cdp.waitFor(
+      '!document.querySelector("#nudgeBtn").disabled',
+      20000,
+      '继续聊按钮恢复'
+    );
     const after = await cdp.eval('document.querySelectorAll(".msg:not(.me)").length');
     ok(`继续聊新增了 ${after - before} 条发言`, after > before);
-    ok('按钮已恢复可点', await cdp.eval('!document.querySelector("#nudgeBtn").disabled'));
+    ok('按钮已恢复可点', true);
 
     // ---- 分页：灌够消息后顶部出现「加载更早」 ----
     const convId0 = await cdp.eval('document.querySelector(".conv").dataset.id');
@@ -406,8 +460,9 @@ async function run() {
       }).then(r => r.text());
     }
 
-    await cdp.send('Page.reload');
-    await cdp.waitFor('document.readyState === "complete"', 20000, '刷新');
+    const curUrl = await cdp.eval('location.href');
+    await cdp.send('Page.navigate', { url: curUrl });
+    await cdp.waitFor('document.readyState === "complete"', 30000, '刷新');
     await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '会话加载');
     await cdp.eval(`document.querySelector('.conv[data-id="${convId0}"]').click()`);
     await cdp.waitFor('document.querySelectorAll(".msg").length > 0', 20000, '消息加载');
@@ -546,8 +601,9 @@ async function run() {
     ok(`重命名生效（${oldTitle} → ${newTitle}）`, newTitle === '改名后的群');
 
     // 重新加载后仍是新名字（确认已落库）
-    await cdp.send('Page.reload');
-    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 20000, '刷新后');
+    const curUrl2 = await cdp.eval('location.href');
+    await cdp.send('Page.navigate', { url: curUrl2 });
+    await cdp.waitFor('document.querySelectorAll(".conv").length > 0', 30000, '刷新后');
     const persisted = await cdp.eval('document.querySelector(".conv .conv-name").textContent');
     ok('重命名已持久化', persisted === '改名后的群');
 
@@ -566,6 +622,27 @@ async function run() {
     );
     const afterReload = await cdp.eval('document.querySelectorAll(".msg").length');
     ok(`刷新后历史消息恢复（${afterReload} 条）`, afterReload >= 2);
+
+    // ---- 清空显示要二次确认 ----
+    // 这是破坏性操作（消息从屏幕上消失）。之前单击就执行，
+    // 图标还是垃圾桶，看起来像删群。
+    const beforeClear = await cdp.eval('document.querySelectorAll(".msg").length');
+    await cdp.eval(`document.querySelector('#clearBtn').click()`);
+    await sleep(400);
+    const dlgUp = await cdp.eval(`!!document.querySelector('.ui-dlg')`);
+    ok('清空显示前弹确认', dlgUp);
+    const stillThere = await cdp.eval('document.querySelectorAll(".msg").length');
+    ok(`确认框出现时消息还在（${stillThere} 条）`, stillThere === beforeClear);
+
+    // 点「取消」，消息不能被清掉
+    await cdp.eval(`(() => {
+      const btns = [...document.querySelectorAll('.ui-dlg-act button')];
+      const cancel = btns.find(b => b.textContent.trim() === '取消');
+      if (cancel) cancel.click();
+    })()`);
+    await sleep(300);
+    const afterCancel = await cdp.eval('document.querySelectorAll(".msg").length');
+    ok(`取消后消息还在（${afterCancel} 条）`, afterCancel === beforeClear);
 
     // ---- 重置数据 ----
     const me = await cdp.eval(

@@ -65,6 +65,32 @@ ERROR   4. 没有配置 DEEPSEEK_API_KEY——对外服务会一直返回演示�
 
 ---
 
+## 数据文件损坏了怎么办
+
+服务**会拒绝启动**，而不是从空库继续。
+
+原因：内存是空的，下一次 Flush 会用空数组覆盖掉原文件，用户数据就真没了。之前的行为是打一条 WARN 然后从空库启动——**静默的数据丢失**。
+
+启动时会看到：
+
+```
+ERROR 存储初始化失败
+  err: 数据文件损坏，拒绝启动（从空库启动会用空数据覆盖原文件）
+       unexpected end of JSON input
+       处理方式：
+         1. 先备份整个 data 目录
+         2. 检查哪个 .json 坏了，从 backups/ 里恢复：make restore FILE=...
+         3. 确实要带着损坏启动（会丢数据）：ALLOW_CORRUPT_START=true
+```
+
+`data/` 里每个 `.json` 都是独立的，坏一个不影响其他。`python3 -m json.tool data/conversations.json` 能定位哪个坏了。
+
+有备份就 `make restore`。没有的话，把坏的 `.json` 移走再启动——坏的那个文件对应的数据会丢，但其他数据还在。
+
+**`ALLOW_CORRUPT_START=true` 是逃生舱，会丢数据，别在生产用。**
+
+---
+
 ## 监控
 
 ```bash
@@ -93,6 +119,32 @@ scrape_configs:
 | `ensemble_llm_tokens_total` | token 累计消耗（算成本用） |
 | `ensemble_http_errors_total` | 5xx 计数 |
 | `ensemble_slow_requests_total` | 超阈值的慢请求（重启清零） |
+
+---
+
+## 磁盘写不进去的时候
+
+`/readyz` 会变红：
+
+```json
+{
+  "ready": false,
+  "persist": {
+    "ok": false,
+    "failures": 3,
+    "lastError": "open data/users.json.tmp: permission denied",
+    "lastSuccessAt": ""
+  }
+}
+```
+
+**为什么这很重要**：磁盘满或权限不对的时候，接口照样返回 200，对话照样能聊——但数据只在内存里，重启就没了。
+
+之前只有一条 ERROR 日志。现在监控能通过 `/readyz` 直接抓到，Kubernetes 的 liveness/readiness probe 也会把这种实例摘掉。
+
+指标里也能看：`curl -H "X-Admin-Token: ..." /metrics | grep slow` 不含持久化状态，但 `/readyz` 是专门给探针用的。
+
+**磁盘满不是「服务挂了」，是「服务在正常工作但什么都没存下来」——后者更难发现。**
 
 ---
 

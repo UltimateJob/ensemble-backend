@@ -6,20 +6,25 @@
 set -e
 cd "$(dirname "$0")/.."
 
+# 和 backup.sh / restore.sh 保持一致：认 DATA_DIR。
+# 之前写死 data/，测试时想装到临时目录验不了。
+DATA_DIR="${DATA_DIR:-data}"
+BAK="${DATA_DIR}.bak"
+
 if [ ! -d seed/demo ]; then
   echo "seed/demo 不存在"
   exit 1
 fi
 
-if [ -d data ] && [ -n "$(ls -A data 2>/dev/null)" ]; then
-  echo "→ 备份现有数据到 data.bak"
-  rm -rf data.bak
-  mv data data.bak
+if [ -d "$DATA_DIR" ] && [ -n "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
+  echo "→ 备份现有数据到 $BAK"
+  rm -rf "$BAK"
+  mv "$DATA_DIR" "$BAK"
 fi
 
 echo "→ 装演示数据（3 个群，真实对话）"
-mkdir -p data
-cp -r seed/demo/* data/
+mkdir -p "$DATA_DIR"
+cp -r seed/demo/* "$DATA_DIR"/
 
 # 从种子数据里读第一个群的 id，拼一个直达链接
 FIRST_ID=""
@@ -27,7 +32,7 @@ if command -v python3 >/dev/null 2>&1; then
   FIRST_ID=$(python3 -c "
 import json
 try:
-    c = json.load(open('data/conversations.json', encoding='utf-8'))
+    c = json.load(open('${DATA_DIR}/conversations.json', encoding='utf-8'))
     print(c[0]['id'] if c else '')
 except Exception:
     print('')
@@ -36,7 +41,7 @@ fi
 
 echo ""
 echo "  演示账号   13800000000（验证码随便填）"
-echo "  群         华东医院数据中心投标 / 深夜茶话会 / 楼下那几个"
+echo "  群         华东医院数据中心投标（6 轮完整对话）/ 深夜茶话会 / 楼下那几个"
 if [ -n "$FIRST_ID" ]; then
   echo "  直达       http://localhost${ADDR:-:8080}/app/?c=${FIRST_ID}"
 fi

@@ -5,8 +5,7 @@
 
 import {
   $, $$, api, state, toast, esc, icon, makeAv, timeStr, hydrateIcons, shift,
-  isOnline, onNetChange,
-} from './core.js';
+  isOnline, onNetChange, humanError } from './core.js';
 
 import {
   openConv, loadEarlier, buildMsgEl, addMsg,
@@ -14,7 +13,7 @@ import {
   addArtifact, appendArtifactCard, send, kickoff,
 } from './chat.js';
 import { loadConvs, renderConvs, openCtxMenu, closeCtxMenu, setConvOpener } from './convs.js';
-import { uiPrompt } from './dialog.js';
+import { uiConfirm, uiPrompt } from './dialog.js';
 import { initMemory } from './memory.js';
 import { initStudio, openStudio } from './studio.js';
 
@@ -107,14 +106,54 @@ async function boot() {
     state.me = d;      // 含 demo / upstream
     enterApp();
   } catch (e) {
-    localStorage.removeItem('ens_token');
-    state.token = '';
+    // 只有令牌真的失效才清掉。
+    // 之前是不管什么错都清——网络抖一下、后端重启一下，
+    // 用户就被登出了，而且没有任何提示，看起来像「又要重新登录」。
+    const code = (e && e.code) || '';
+    const status = (e && e.status) || 0;
+    const authed = code === 'unauthorized' || status === 401 || /HTTP 401/.test(String(e && e.message));
+    if (authed) {
+      localStorage.removeItem('ens_token');
+      state.token = '';
+    } else {
+      // 连不上：保留令牌，给一个可以重试的提示
+      showBootFail(e);
+    }
   }
+}
+
+// 把 fetch 的原始错误翻成人话。「Failed to fetch」对用户没有任何意义。
+function bootFailReason(err) {
+  const m = String((err && err.message) || '');
+  if (/Failed to fetch|NetworkError|load failed/i.test(m)) return '网络不通，或者服务正在重启。检查一下网络再试。';
+  if (/timeout|timed out/i.test(m)) return '服务器响应超时。稍等一下再试。';
+  if (/HTTP 5\d\d/.test(m)) return '服务端出错了。稍后再试，或者看看服务日志。';
+  return m || '网络可能不通';
+}
+
+// 启动连不上服务器时的状态：不伪装成「未登录」，给一句实话和一个重试。
+function showBootFail(err) {
+  const box = document.createElement('div');
+  box.className = 'boot-fail';
+  box.innerHTML = `
+    <div class="bf-card">
+      <b>连不上服务器</b>
+      <p>${esc(bootFailReason(err))}</p>
+      <button class="btn btn-grad" id="bootRetry">重试</button>
+    </div>`;
+  document.body.appendChild(box);
+  box.querySelector('#bootRetry').addEventListener('click', () => {
+    box.remove();
+    boot();
+  });
 }
 
 async function enterApp() {
   $('#login').style.display = 'none';
   $('#app').classList.add('on');
+  // 还没有选群：右栏整块收起（三个空壳面板比空着更难看）。
+  // 打开会话时 chat.js 会把它去掉。
+  if (!state.cur) document.body.classList.add('no-conv');
   try {
     state.scenarios = await api('/v1/scenarios');
   } catch (e) {
@@ -129,6 +168,9 @@ async function enterApp() {
   if (qs2.get('forge')) {
     $('#forge').classList.add('on');
     renderForge();
+    // 默认停在「从角色库找」，先把角色铺出来——
+    // 否则用户看到的是一个空框，不知道里面有多少人。
+    if (!$('#charList').dataset.loaded) searchChars('');
     if (qs2.get('name')) {
       $('#fName').value = qs2.get('name');
       $('#fKeys').value = qs2.get('keys') || '';
@@ -173,8 +215,17 @@ $('#nudgeBtn').addEventListener('click', async () => {
   }
 });
 
-$('#clearBtn').addEventListener('click', () => {
+// 清空当前显示：这是破坏性的（消息从屏幕上消失），
+// 之前单击就执行、没有确认，图标还是垃圾桶——看起来像删群。
+// 加确认，并把文案说清楚：只影响这一屏，服务端记录还在。
+$('#clearBtn').addEventListener('click', async () => {
   if (!state.cur) return;
+  const yes = await uiConfirm(
+    '清空当前显示？',
+    '只是把这一屏清干净，服务端的记录还在——重新打开这个群就能看到。',
+    { okText: '清空显示', danger: true }
+  );
+  if (!yes) return;
   $('#msgWrap').innerHTML = '';
   addSysNote('显示已清空（服务端记录保留）');
 });
@@ -466,7 +517,7 @@ $('#sceneCreate').addEventListener('click', async () => {
     // 建完就让角色自己聊起来，用户进来时群里是活的
     setTimeout(() => kickoff(conv.id), 400);
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   }
 });
 
@@ -477,7 +528,13 @@ let polishIndex = -1;
 function renderForge() {
   const box = $('#forgeList');
   if (!forged.length) {
-    box.innerHTML = `<div style="padding:16px;text-align:center;font-size:12px;color:var(--tx-4)">
+    // 这个列表是「已经选进来、准备入群的」。空的时候说什么，
+    // 要看用户在哪一页——在角色库里说「填个名字自己造」是答非所问。
+    const onSearch = document.querySelector('.ft.on')?.dataset.ft === 'search';
+    // 搜索页：不显示。这行字在角色列表正下方，写了会被读成「列表是空的」，
+    // 而实际说的是「已选列表是空的」。底部两个按钮是禁用的，已经说明了状态。
+    // 造人页：这里放引导，因为表单就在上方，读起来是连贯的。
+    box.innerHTML = onSearch ? '' : `<div style="padding:16px;text-align:center;font-size:12px;color:var(--tx-4)">
       还没有角色。填个名字，让它自己长出来。
     </div>`;
   } else {
@@ -517,7 +574,9 @@ function renderForge() {
       });
     });
   }
-  $('#forgeCount').textContent = forged.length ? forged.length + ' 个角色' : '还没有角色';
+  // 一个都没有时计数栏留空——空状态区已经写了「还没有角色。填个名字，
+  // 让它自己长出来」，底部再说一遍是重复。
+  $('#forgeCount').textContent = forged.length ? forged.length + ' 个角色' : '';
   $('#forgeDone').disabled = forged.length < 1;
   const sv = $('#forgeSave');
   if (sv) sv.disabled = forged.length < 1;
@@ -542,7 +601,16 @@ function switchForgeTab(key) {
 }
 
 $$('.forge-tabs .ft').forEach(b => {
-  b.addEventListener('click', () => switchForgeTab(b.dataset.ft));
+  b.addEventListener('click', () => {
+    $$('.forge-tabs .ft').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    const isSearch = b.dataset.ft === 'search';
+    $('#paneSearch').style.display = isSearch ? '' : 'none';
+    $('#paneMake').style.display = isSearch ? 'none' : '';
+    $('#panePolish').style.display = isSearch ? 'none' : '';
+    renderForge();  // 空文案跟着 tab 变
+    if (isSearch && !$('#charList').dataset.loaded) searchChars('');
+  });
 });
 
 let charTimer = null;
@@ -559,6 +627,8 @@ async function searchChars(q) {
   try {
     const list = await api('/v1/characters?q=' + encodeURIComponent(q));
     box.dataset.loaded = '1';
+    const cnt = document.querySelector('#charCount');
+    if (cnt) cnt.textContent = q ? `找到 ${list.length} 个` : `共 ${list.length} 个`;
     if (!list.length) {
       box.innerHTML = '<div class="char-empty">没找到。换个名字或性格试试，比如「毒舌」「傲娇」。</div>';
       return;
@@ -585,7 +655,7 @@ async function searchChars(q) {
           renderForge();
           toast(name + ' 已加入，可以继续找下一个');
         } catch (e) {
-          toast(e.message);
+          toast(humanError(e));
           b.disabled = false;
         }
       });
@@ -621,7 +691,7 @@ $('#fMake').addEventListener('click', async () => {
     $('#fKeys').value = '';
     toast(a.name + ' 已生成');
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   } finally {
     making = false;
     btn.disabled = false;
@@ -776,7 +846,7 @@ $('#forgeDone').addEventListener('click', async () => {
     toast('群聊已创建');
     setTimeout(() => kickoff(conv.id), 400);
   } catch (e) {
-    toast(e.message);
+    toast(humanError(e));
   }
 });
 
