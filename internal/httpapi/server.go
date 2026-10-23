@@ -36,6 +36,8 @@ type Server struct {
 
 	mem    *service.MemoryService
 	agents *agent.Manager
+	// remote 线上后端 provider。nil 表示本地直连上游。
+	remote *gateway.Remote
 
 	// 手机端相关。devices 为 nil 时远程路由不注册（单机模式不受影响）。
 	devices  *service.Devices
@@ -126,6 +128,14 @@ func (s *Server) Handler() http.Handler {
 			"ready": ready, "providers": len(m.Providers), "providersReady": available, "persist": persist,
 		})
 	})
+
+	// ---- 桌面端：线上令牌注入 ----
+	// 这两个端点必须在鉴权之外：它们处理的就是「还没登录」的状态。
+	// handleRemoteToken 自己校验来源必须是本机。
+	if s.remote != nil {
+		mux.HandleFunc("POST /v1/remote/token", s.handleRemoteToken)
+		mux.HandleFunc("GET /v1/remote/status", s.handleRemoteStatus)
+	}
 
 	// ---- 鉴权 ----
 	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCode)

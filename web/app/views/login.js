@@ -2,6 +2,20 @@
 
 import { $, api, state, toast } from '../js/core.js';
 
+/**
+ * 把登录令牌同步给本地后端。
+ *
+ * 浏览器模式（纯本地开发）没有这个端点，404 就静默跳过；
+ * 桌面端则由本地后端转发模型调用到线上。
+ */
+async function syncRemoteToken(token) {
+  try {
+    await api('/v1/remote/token', { method: 'POST', body: { token } });
+  } catch (e) {
+    // 没配线上后端时端点不存在，属正常情况
+  }
+}
+
 export function mountLogin(host) {
   host.innerHTML = `
   <div class="login-card">
@@ -103,6 +117,9 @@ export function mountLogin(host) {
     try {
       const d = await api('/v1/auth/login', { method: 'POST', body: { kind, target, code } });
       state.token = d.token;
+      // 桌面端：把令牌交给本地后端，让它替我们调线上模型。
+      // Key 在服务器上，客户端不持有——这是「不自带 Key」的关键一步。
+      syncRemoteToken(d.token);
       state.user = d.user;
       localStorage.setItem('ens_token', d.token);
       host.classList.add('hidden');

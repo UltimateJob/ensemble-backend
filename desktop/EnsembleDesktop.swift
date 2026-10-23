@@ -80,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         cfg.userContentController.addUserScript(hook)
         cfg.userContentController.add(self, name: "notify")
         cfg.userContentController.add(self, name: "console")
+        // 前端点「选择目录…」时发消息过来，壳再弹 NSOpenPanel。
+        // 浏览器里没有这个能力，只能由原生层做。
+        cfg.userContentController.add(self, name: "pickDirectory")
 
         webView = WKWebView(frame: .zero, configuration: cfg)
         webView.navigationDelegate = self
@@ -165,7 +168,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
     // MARK: - 启动流程
 
     private func startFlow() {
-        // 已经有一个后端在跑（比如用户先跑了 scripts/dev.sh）就直接用。
+        // 桌面端是自带后端的 App：页面、工作区、执行都跑在本机。
+        // 模型调用由这个本地后端转发给线上（REMOTE_BASE），
+        // 所以客户端不需要也不应该持有 API Key。
         for _ in 0..<3 {
             if ping(baseURL) {
                 loadApp()
@@ -239,6 +244,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         env["ADDR"] = ":\(port)"
         if env["DATA_DIR"] == nil {
             env["DATA_DIR"] = supportDir.appendingPathComponent("data").path
+        }
+        // 模型调用转给线上。Key 在服务器上，客户端不持有。
+        // 可以用环境变量覆盖（比如指向自建测试环境）。
+        if env["REMOTE_BASE"] == nil {
+            env["REMOTE_BASE"] = "https://teamwise.cn"
+        }
+        // 内置后端是本地执行器，不该对局域网暴露。
+        if env["BIND_LOCAL_ONLY"] == nil {
+            env["BIND_LOCAL_ONLY"] = "1"
         }
 
         let p = Process()
@@ -459,6 +473,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
                   let text = body["text"] as? String else { return }
             // 直接写 stderr：终端里直接看得到，不需要开开发者工具。
             FileHandle.standardError.write("[web:\(level)] \(text)\n".data(using: .utf8) ?? Data())
+            return
+        }
+        if message.name == "pickDirectory" {
+            DispatchQueue.main.async { self.pickWorkspace() }
             return
         }
         guard message.name == "notify",

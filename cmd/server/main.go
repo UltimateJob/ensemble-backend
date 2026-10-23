@@ -115,12 +115,25 @@ func main() {
 		log.Info("生产模式：自检通过")
 	}
 
+	// 桌面端：模型调用转给线上后端。
+	// Key 只存在服务器上，客户端不持有——这是「客户端不自带 Key」的前提。
+	var remote *gateway.Remote
+	if base := strings.TrimSpace(cfg.RemoteBase); base != "" {
+		remote = gateway.NewRemote(base, "", cfg.DeepSeekModel, cfg.UpstreamTimeout)
+		reg.Add(remote)
+		models = []domain.ModelInfo{
+			{Key: "teamwise-chat", Provider: remote.Name(), Upstream: cfg.DeepSeekModel, Enabled: true, Weight: 10, Note: "线上"},
+		}
+		log.Info("模型调用指向线上后端", "base", base,
+			"说明", "登录后由前端注入令牌；未登录时聊天不可用")
+	}
+
 	if !cfg.UpstreamConfigured() {
 		if !cfg.AllowMock {
-			log.Error("未配置 DEEPSEEK_API_KEY，且 ALLOW_MOCK=false，无法启动")
+			log.Error("未配置任何上游（DEEPSEEK_API_KEY / REMOTE_BASE / EXTRA_PROVIDERS），且 ALLOW_MOCK=false，无法启动")
 			os.Exit(1)
 		}
-		log.Warn("未配置 DEEPSEEK_API_KEY，启用 mock 上游（输出为固定演示文本）")
+		log.Warn("未配置上游，启用 mock 上游（输出为固定演示文本）")
 		reg.Add(&gateway.Mock{})
 		models = append(models, domain.ModelInfo{
 			Key: "mock-chat", Provider: "mock", Upstream: "mock", Enabled: true, Weight: 5, Note: "本地演示上游",
@@ -225,6 +238,10 @@ func main() {
 	}
 	agentMgr.SetPersistence(stateFile)
 	srv.SetAgentManager(agentMgr)
+	// 线上 provider 交给 HTTP 层，用于接收前端注入的登录令牌。
+	if remote != nil {
+		srv.SetRemote(remote)
+	}
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Handler(),

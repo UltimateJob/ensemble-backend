@@ -590,3 +590,60 @@
   padding:5px 12px;border-radius:var(--r-pill);
   background:var(--paper-2);
 }
+
+/* ============================================================
+   工作区选择
+   ============================================================ */
+
+/* 工作室侧栏的工作区卡片 */
+.ws-card{
+  display:flex;align-items:center;gap:12px;width:100%;
+  padding:13px 14px;border-radius:var(--r-md);text-align:left;
+  background:var(--sheet);
+  box-shadow:inset 0 0 0 1px var(--hair),var(--sh-1);
+  transition:transform var(--t-fast),box-shadow var(--t-fast);
+}
+.ws-card:hover{transform:translateY(-1px);box-shadow:inset 0 0 0 1px rgba(74,62,44,.16),var(--sh-2)}
+.ws-card:active{transform:scale(.99)}
+.ws-card-ic{
+  width:36px;height:36px;border-radius:10px;display:grid;place-items:center;
+  background:var(--pri-soft);color:var(--pri-deep);flex:0 0 36px;
+}
+.ws-card-body{flex:1;min-width:0}
+.ws-card-path{
+  display:block;font-size:13.5px;font-weight:560;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.ws-card-hint{display:block;font-size:12px;color:var(--ink-3);margin-top:2px}
+.ws-card-act{color:var(--ink-4);display:grid;place-items:center;flex:0 0 16px}
+
+/* 选择面板 */
+.ws-lead{font-size:13.5px;color:var(--ink-3);line-height:1.65;margin-bottom:18px}
+.ws-recent{margin-bottom:20px}
+.ws-recent-h{
+  font-size:11.5px;font-weight:620;color:var(--ink-4);
+  letter-spacing:.04em;margin:0 2px 9px;
+}
+.ws-opt{
+  display:flex;align-items:center;gap:11px;width:100%;
+  padding:11px 13px;border-radius:var(--r-sm);text-align:left;
+  transition:background var(--t-fast);
+}
+.ws-opt:hover{background:rgba(74,62,44,.05)}
+.ws-opt.on{background:var(--pri-soft)}
+.ws-opt-ic{color:var(--ink-3);display:grid;place-items:center;flex:0 0 16px}
+.ws-opt.on .ws-opt-ic{color:var(--pri-deep)}
+.ws-opt-body{flex:1;min-width:0}
+.ws-opt-path{
+  display:block;font-size:13px;color:var(--ink);font-family:var(--mono);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;
+}
+.ws-opt-label{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.ws-opt-tag{
+  font-size:10.5px;font-weight:600;color:var(--pri-deep);
+  background:var(--sheet);border-radius:5px;padding:2px 7px;flex:0 0 auto;
+}
+.ws-pick-row{
+  display:flex;flex-direction:column;gap:10px;
+  padding-top:16px;border-top:.5px solid var(--hair);
+}

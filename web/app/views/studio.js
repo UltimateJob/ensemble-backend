@@ -28,13 +28,17 @@ export async function mountStudio(host, id) {
       </header>
       <div class="sv-body">
         <aside class="sv-side">
-          <label class="field"><span>工作区（本机绝对路径）</span>
-            <div class="field-row">
-              <input id="wsRoot" placeholder="/Users/you/project" spellcheck="false">
-              <button class="btn btn-line" id="wsPick">选择…</button>
-            </div>
-            <div class="hint">桌面端可用 ⌘O 调原生目录选择器；浏览器里请直接填路径。</div>
-          </label>
+          <div class="field">
+            <span>工作区</span>
+            <button class="ws-card" id="wsPick">
+              <span class="ws-card-ic">${icon('folder', 18)}</span>
+              <span class="ws-card-body">
+                <span class="ws-card-path" id="wsPath">还没有选目录</span>
+                <span class="ws-card-hint" id="wsHint">点这里选择 Agent 能读写的目录</span>
+              </span>
+              <span class="ws-card-act">${icon('chevron-right', 16)}</span>
+            </button>
+          </div>
           <div class="studio-warn hidden" id="wsWarn"></div>
 
           <label class="field"><span>权限</span>
@@ -85,21 +89,26 @@ export async function mountStudio(host, id) {
     </div>`;
   hydrateIcons(root);
 
-  // 桌面壳 ⌘O 注入的目录选择回调
-  window.__ensemblePickDirectory = path => {
-    const inp = $('#wsRoot');
-    if (inp) { inp.value = path; toast('已选择：' + path, { type: 'ok' }); }
-  };
-
   $('#svBack').addEventListener('click', () => { location.hash = '#/room/' + encodeURIComponent(convId); });
-  $('#wsPick').addEventListener('click', () => {
-    if (window.__ensemblePickDirectory) toast('用菜单「文件 → 选择工作区目录」（⌘O）');
-    else toast('浏览器里请直接填写本机绝对路径');
-  });
+
+  // 点工作区卡片 → 弹选择面板（首次进入时也会自动弹）
+  $('#wsPick').addEventListener('click', () => pickWorkspace());
+
+  // 桌面壳 ⌘O 选完目录后回调这里
+  window.__ensemblePickDirectory = async path => {
+    const w = await bindPath(path);
+    if (w) applyWorkspace(w);
+  };
   $('#runStart').addEventListener('click', startRun);
 
   offRun = onRunEvent((rid, ev) => { if (rid === runId) onRunEventUI(ev); });
   await refreshWorkspaces();
+
+  // 首次进入且这个会话还没绑目录：直接把选择面板弹出来。
+  // 藏在输入框里没人找得到，而选错目录的后果是 Agent 在别处乱写文件。
+  if (!wsId) {
+    setTimeout(() => pickWorkspace(), 260);
+  }
 }
 
 export function unmountStudio() {
@@ -108,13 +117,75 @@ export function unmountStudio() {
   runId = null;
 }
 
+/* ---------------- 工作区 ---------------- */
+
+/** 把工作区对象反映到界面（卡片 + 侧栏列表）。 */
+function applyWorkspace(w) {
+  wsId = w.id;
+  const pathEl = $('#wsPath');
+  const hintEl = $('#wsHint');
+  if (pathEl) {
+    // 路径太长时保留尾部：用户认的是目录名，不是 /Users/xxx 前缀
+    const parts = String(w.root).split('/').filter(Boolean);
+    pathEl.textContent = parts.length > 2 ? '…/' + parts.slice(-2).join('/') : w.root;
+    pathEl.title = w.root;
+  }
+  if (hintEl) hintEl.textContent = '点这里更换';
+  refreshWorkspaces();
+  warnIfEmpty(w.id);
+}
+
+/** 绑定一个路径（已存在就直接复用）。 */
+async function bindPath(rootPath) {
+  const root = String(rootPath || '').trim();
+  if (!root) { toast('先选一个目录', { type: 'err' }); return null; }
+  try {
+    const list = (await api('/v1/workspaces')) || [];
+    const hit = list.find(w => w.root === root && (!convId || w.conversationId === convId));
+    if (hit) return hit;
+    return await api('/v1/workspaces', { method: 'POST', body: { root, conversationId: convId } });
+  } catch (e) {
+    toast(e.message || '绑定失败', { type: 'err' });
+    return null;
+  }
+}
+
+/** 弹工作区选择面板。 */
+async function pickWorkspace() {
+  const { openWorkspacePicker } = await import('../js/workspace.js');
+  const cur = wsId ? { id: wsId } : null;
+  openWorkspacePicker({
+    convId,
+    current: cur,
+    onPick: w => applyWorkspace(w),
+  });
+}
+
+/** 空目录会让 agent 停工待确认，提前提醒。 */
+async function warnIfEmpty(id) {
+  const box = $('#wsWarn');
+  if (!box) return;
+  try {
+    const t = await api(`/v1/workspaces/${id}/tree`);
+    const n = (t.entries || []).length;
+    if (n === 0) {
+      box.textContent = '这个目录是空的。选错了就换一个；如果确实从零开始，任务里要写清创建哪些文件。';
+      box.style.display = '';
+    } else {
+      box.style.display = 'none';
+    }
+  } catch (e) {
+    box.style.display = 'none';
+  }
+}
+
 async function refreshWorkspaces() {
   let list = [];
-  try { list = await api('/v1/workspaces'); } catch (e) { list = []; }
+  try { list = (await api('/v1/workspaces')) || []; } catch (e) { list = []; }
   const box = $('#wsList');
   if (!box) return;
   if (!list.length) {
-    box.innerHTML = '<div class="panel-empty">还没有工作区，填目录后点「开始执行」会先绑定</div>';
+    box.innerHTML = '<div class="panel-empty">还没有绑定的目录</div>';
     return;
   }
   box.innerHTML = list.map(w => `
@@ -123,27 +194,23 @@ async function refreshWorkspaces() {
     </button>`).join('');
   box.querySelectorAll('.ws-item').forEach(b => b.addEventListener('click', () => {
     wsId = b.dataset.id;
-    $('#wsRoot').value = b.dataset.root;
     box.querySelectorAll('.ws-item').forEach(x => x.classList.toggle('on', x === b));
+    const pathEl = $('#wsPath');
+    if (pathEl) { pathEl.textContent = b.dataset.root; pathEl.title = b.dataset.root; }
   }));
+
+  // 这个会话已经绑过目录：直接用它，不用再问
   const mine = list.find(w => w.conversationId === convId);
-  if (mine) {
-    wsId = mine.id;
-    $('#wsRoot').value = mine.root;
-    box.querySelectorAll('.ws-item').forEach(x => x.classList.toggle('on', x.dataset.id === mine.id));
-  }
+  if (mine && !wsId) applyWorkspace(mine);
 }
 
+/** 跑任务前确保有工作区；没有就先弹选择。 */
 async function bindIfNeeded() {
-  const rootPath = $('#wsRoot').value.trim();
-  if (!rootPath) throw new Error('先选择或填写一个本机目录');
-  const list = await api('/v1/workspaces');
-  const hit = (list || []).find(w => w.root === rootPath && (!convId || w.conversationId === convId));
-  if (hit) { wsId = hit.id; return wsId; }
-  const w = await api('/v1/workspaces', { method: 'POST', body: { root: rootPath, conversationId: convId } });
-  wsId = w.id;
-  await refreshWorkspaces();
-  return wsId;
+  if (wsId) return wsId;
+  const list = (await api('/v1/workspaces')) || [];
+  const mine = list.find(w => w.conversationId === convId);
+  if (mine) { applyWorkspace(mine); return mine.id; }
+  throw new Error('先选一个工作区');
 }
 
 async function startRun() {

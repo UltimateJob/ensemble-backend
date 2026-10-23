@@ -26,10 +26,28 @@ fi
 echo "==> 桌面壳"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/web"
+
+# 必须显式指定 -target。
+#
+# swiftc 默认用 SDK 的版本作为最低系统版本（这台机器上是 macosx28.0），
+# 而系统只有 27.0。产出的二进制声明「需要 macOS 28 以上」，
+# LaunchServices 判定不兼容，open 直接返回 -10825，
+# 但直接执行二进制却完全正常——这个不对称极难查。
+#
+# 13.0 与 Info.plist 的 LSMinimumSystemVersion 保持一致。
+DEPLOY_TARGET="${DEPLOY_TARGET:-13.0}"
 swiftc -O -swift-version 5 \
+  -target "$(uname -m)-apple-macos${DEPLOY_TARGET}" \
   -framework Cocoa -framework WebKit -framework UserNotifications \
   -o "$APP/Contents/MacOS/纸团" \
   desktop/EnsembleDesktop.swift
+
+# 编译完立刻校验：最低系统版本不能高于本机，否则装上去也打不开。
+BIN_MINOS=$(otool -l "$APP/Contents/MacOS/纸团" 2>/dev/null \
+  | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+if [ -n "$BIN_MINOS" ]; then
+  echo "    二进制最低系统版本：macOS $BIN_MINOS"
+fi
 
 echo "==> 打包资源"
 cp bin/ensemble "$APP/Contents/MacOS/ensemble"
