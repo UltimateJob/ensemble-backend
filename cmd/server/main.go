@@ -39,7 +39,14 @@ func main() {
 	log := logx.L()
 
 	// ---- 存储 ----
+	// 连接器凭据的加密密钥必须在打开存储**之前**注入：
+	// NewFileStore 加载 connectors.json 时要解密，晚一步就会用兜底
+	// 密钥去解，结果是所有连接器都变成「解密失败」。
 	dataDir := cfg.DataDir
+	if err := store.SetSecretKey(cfg.JWTSecret); err != nil {
+		log.Error("连接器凭据加密初始化失败", "err", err.Error())
+		os.Exit(1)
+	}
 	fs, err := store.NewFileStore(dataDir)
 	if err != nil {
 		log.Error("存储初始化失败", "err", err.Error())
@@ -165,6 +172,18 @@ func main() {
 		}
 	})
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc, shared.Limiter)
+
+	// ---- 手机端 ----
+	// 加密密钥已在上方存储初始化前注入（加载时要解密）。
+	devices := service.NewDevices(st, cfg.JWTSecret)
+	goals := service.NewGoals(st)
+	conns := service.NewConnectors(st)
+	library := service.NewLibrary(st)
+	activity := service.NewActivity(agentMgr)
+	srv.SetRemoteServices(devices, goals, conns, library, activity)
+	orch.SetActivity(activity)
+	orch.SetLibrary(library)
+
 	agentMgr.SetModel(gw)
 	// 工作区与最近 100 个 Run 落盘：重启后不用重新绑目录
 	stateFile := filepath.Join(dataDir, "agent-state.json")

@@ -183,6 +183,14 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 远程设备策略：设备开着「需要审批」时，即使是 full 权限，
+	// 写文件与跑命令也先问一句。关掉是用户自己的选择，不阻拦。
+	forceApproval, origin := false, ""
+	if dev := DeviceFrom(r.Context()); dev != nil {
+		forceApproval = dev.RequireApproval
+		origin = "device:" + dev.ID
+	}
+
 	run, err := s.agents.Start(r.Context(), s.gw, agent.StartRequest{
 		WorkspaceID:    bw.ID,
 		ConversationID: bw.ConversationID,
@@ -197,6 +205,8 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		AutoReview:     req.AutoReview,
 		AutoFix:        req.AutoFix,
 		SystemPrompt:   req.SystemPrompt,
+		ForceApproval:  forceApproval,
+		Origin:         origin,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "already has a running run") {
@@ -334,7 +344,12 @@ func (s *Server) handleGetRun(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "任务不存在")
 		return
 	}
-	ok(w, run)
+	// 带上审批记录：手机端不在电脑前，看不到终端的审批提示，
+	// 必须能主动查「有没有卡在等我」。
+	ok(w, struct {
+		*agent.Run
+		Approvals []*agent.Approval `json:"approvals,omitempty"`
+	}{run, s.agents.ApprovalsOf(run.ID)})
 }
 
 // handleRunEvents 推送运行事件（含历史重放）。

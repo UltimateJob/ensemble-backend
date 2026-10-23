@@ -62,6 +62,36 @@ type Store interface {
 	// 记录（互动/事件）
 	AppendEvent(e *domain.Event) error
 	ListEvents(kind string, limit int) []*domain.Event
+
+	// 远程设备（手机配对）
+	CreateDevice(d *domain.Device) error
+	GetDevice(id string) (*domain.Device, bool)
+	// GetDeviceByTokenHash 按令牌哈希查设备。鉴权走这条路，
+	// 不遍历全部设备——设备数会随用户增长。
+	GetDeviceByTokenHash(hash string) (*domain.Device, bool)
+	ListDevices(userID string) []*domain.Device
+	UpdateDevice(d *domain.Device) error
+
+	// 目标看板
+	CreateGoal(g *domain.Goal) error
+	GetGoal(id string) (*domain.Goal, bool)
+	ListGoals(userID string) []*domain.Goal
+	UpdateGoal(g *domain.Goal) error
+	DeleteGoal(userID, id string) error
+
+	// 连接器
+	CreateConnector(c *domain.Connector) error
+	GetConnector(id string) (*domain.Connector, bool)
+	ListConnectors(userID string) []*domain.Connector
+	UpdateConnector(c *domain.Connector) error
+	DeleteConnector(userID, id string) error
+
+	// 产物（资料库）
+	CreateArtifact(a *domain.Artifact) error
+	GetArtifact(id string) (*domain.Artifact, bool)
+	// ListArtifacts 列出某用户的产物；convID 为空表示全部会话。
+	ListArtifacts(userID, convID string, limit int) []*domain.Artifact
+	DeleteArtifact(userID, id string) error
 }
 
 // Memory 进程内实现，带读写锁。重启即清空，用于首版与本地演示。
@@ -75,15 +105,26 @@ type Memory struct {
 	msgCount map[string]int // convID → 该会话消息条数。msgs 的派生索引，load/append/delete 时同步维护，让计数是 O(1)
 	audits   []*domain.AuditLog
 	events   []*domain.Event
+
+	devices    map[string]*domain.Device
+	deviceByTK map[string]string // tokenHash → deviceID
+	goals      map[string]*domain.Goal
+	conns      map[string]*domain.Connector
+	artifacts  map[string]*domain.Artifact
 }
 
 func NewMemory() *Memory {
 	return &Memory{
-		users:    make(map[string]*domain.User),
-		convs:    make(map[string]*domain.Conversation),
-		agents:   make(map[string]*domain.SavedAgent),
-		studios:  make(map[string]*domain.SavedStudio),
-		msgCount: make(map[string]int),
+		users:      make(map[string]*domain.User),
+		convs:      make(map[string]*domain.Conversation),
+		agents:     make(map[string]*domain.SavedAgent),
+		studios:    make(map[string]*domain.SavedStudio),
+		msgCount:   make(map[string]int),
+		devices:    make(map[string]*domain.Device),
+		deviceByTK: make(map[string]string),
+		goals:      make(map[string]*domain.Goal),
+		conns:      make(map[string]*domain.Connector),
+		artifacts:  make(map[string]*domain.Artifact),
 	}
 }
 

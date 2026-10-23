@@ -41,6 +41,10 @@ type FileStore struct {
 	dirtyConvs   bool
 	dirtyAudits  bool
 	dirtyEvents  bool
+	dirtyDevices bool
+	dirtyGoals   bool
+	dirtyConns   bool
+	dirtyArts    bool
 	dirtyMsgs    map[string]bool // convID → 需要重写
 
 	// 落盘健康状态。写不进去的时候调用方（服务）该知道——
@@ -58,13 +62,17 @@ type FileStore struct {
 }
 
 const (
-	fileUsers   = "users.json"
-	fileAgents  = "agents.json"
-	fileStudios = "studios.json"
-	fileConvs   = "conversations.json"
-	fileAudits  = "audits.json"
-	fileEvents  = "events.json"
-	dirMsgs     = "messages"
+	fileUsers     = "users.json"
+	fileAgents    = "agents.json"
+	fileStudios   = "studios.json"
+	fileConvs     = "conversations.json"
+	fileAudits    = "audits.json"
+	fileEvents    = "events.json"
+	fileDevices   = "devices.json"
+	fileGoals     = "goals.json"
+	fileConns     = "connectors.json"
+	fileArtifacts = "artifacts.json"
+	dirMsgs       = "messages"
 )
 
 // legacyFile 早期版本把全部状态放在一个文件里。
@@ -173,8 +181,40 @@ func (fs *FileStore) load() error {
 	if err := readJSON(filepath.Join(fs.dir, fileEvents), &events); err != nil {
 		return err
 	}
+	var devices []*domain.Device
+	if err := readJSON(filepath.Join(fs.dir, fileDevices), &devices); err != nil {
+		return err
+	}
+	var goals []*domain.Goal
+	if err := readJSON(filepath.Join(fs.dir, fileGoals), &goals); err != nil {
+		return err
+	}
+	var connRecs []connectorRecord
+	if err := readJSON(filepath.Join(fs.dir, fileConns), &connRecs); err != nil {
+		return err
+	}
+	var arts []*domain.Artifact
+	if err := readJSON(filepath.Join(fs.dir, fileArtifacts), &arts); err != nil {
+		return err
+	}
 
 	fs.Memory.mu.Lock()
+	for _, d := range devices {
+		fs.Memory.devices[d.ID] = d
+		if d.TokenHash != "" {
+			fs.Memory.deviceByTK[d.TokenHash] = d.ID
+		}
+	}
+	for _, g := range goals {
+		fs.Memory.goals[g.ID] = g
+	}
+	for _, rec := range connRecs {
+		c := connectorFromRecord(rec)
+		fs.Memory.conns[c.ID] = c
+	}
+	for _, a := range arts {
+		fs.Memory.artifacts[a.ID] = a
+	}
 	for _, u := range users {
 		fs.Memory.users[u.ID] = u
 	}
@@ -279,6 +319,14 @@ func (fs *FileStore) mark(what string) {
 		fs.dirtyAudits = true
 	case "events":
 		fs.dirtyEvents = true
+	case "devices":
+		fs.dirtyDevices = true
+	case "goals":
+		fs.dirtyGoals = true
+	case "conns":
+		fs.dirtyConns = true
+	case "arts":
+		fs.dirtyArts = true
 	default: // 视为 convID
 		fs.dirtyMsgs[what] = true
 	}
@@ -329,12 +377,16 @@ func (fs *FileStore) Flush() (err error) {
 	fs.mu.Lock()
 	dUsers, dConvs, dAudits, dEvents := fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents
 	dAgents, dStudios := fs.dirtyAgents, fs.dirtyStudios
+	dDevices, dGoals := fs.dirtyDevices, fs.dirtyGoals
+	dConns, dArts := fs.dirtyConns, fs.dirtyArts
 	msgs := make([]string, 0, len(fs.dirtyMsgs))
 	for id := range fs.dirtyMsgs {
 		msgs = append(msgs, id)
 	}
 	fs.dirtyUsers, fs.dirtyConvs, fs.dirtyAudits, fs.dirtyEvents = false, false, false, false
 	fs.dirtyAgents, fs.dirtyStudios = false, false
+	fs.dirtyDevices, fs.dirtyGoals = false, false
+	fs.dirtyConns, fs.dirtyArts = false, false
 	fs.dirtyMsgs = make(map[string]bool)
 	fs.mu.Unlock()
 
@@ -367,6 +419,18 @@ func (fs *FileStore) Flush() (err error) {
 		}
 		if dEvents {
 			fs.dirtyEvents = true
+		}
+		if dDevices {
+			fs.dirtyDevices = true
+		}
+		if dGoals {
+			fs.dirtyGoals = true
+		}
+		if dConns {
+			fs.dirtyConns = true
+		}
+		if dArts {
+			fs.dirtyArts = true
 		}
 		for _, id := range pendingMsgs {
 			fs.dirtyMsgs[id] = true
@@ -439,6 +503,61 @@ func (fs *FileStore) Flush() (err error) {
 			return err
 		}
 		dEvents = false // 已安全落盘，失败补标记时不再计入
+	}
+	if dDevices {
+		fs.Memory.mu.RLock()
+		list := make([]*domain.Device, 0, len(fs.Memory.devices))
+		for _, d := range fs.Memory.devices {
+			list = append(list, d)
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileDevices), list); err != nil {
+			return err
+		}
+		dDevices = false
+	}
+	if dGoals {
+		fs.Memory.mu.RLock()
+		list := make([]*domain.Goal, 0, len(fs.Memory.goals))
+		for _, g := range fs.Memory.goals {
+			list = append(list, g)
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileGoals), list); err != nil {
+			return err
+		}
+		dGoals = false
+	}
+	if dConns {
+		fs.Memory.mu.RLock()
+		recs := make([]connectorRecord, 0, len(fs.Memory.conns))
+		for _, c := range fs.Memory.conns {
+			rec, err := connectorToRecord(c)
+			if err != nil {
+				fs.Memory.mu.RUnlock()
+				return err
+			}
+			recs = append(recs, rec)
+		}
+		fs.Memory.mu.RUnlock()
+		path := filepath.Join(fs.dir, fileConns)
+		if err := writeJSON(path, recs); err != nil {
+			return err
+		}
+		fileSecure(path)
+		dConns = false
+	}
+	if dArts {
+		fs.Memory.mu.RLock()
+		list := make([]*domain.Artifact, 0, len(fs.Memory.artifacts))
+		for _, a := range fs.Memory.artifacts {
+			list = append(list, a)
+		}
+		fs.Memory.mu.RUnlock()
+		if err := writeJSON(filepath.Join(fs.dir, fileArtifacts), list); err != nil {
+			return err
+		}
+		dArts = false
 	}
 	for i, convID := range msgs {
 		fs.Memory.mu.RLock()
@@ -641,6 +760,71 @@ func (fs *FileStore) AppendAudit(a *domain.AuditLog) error {
 func (fs *FileStore) AppendEvent(e *domain.Event) error {
 	err := fs.Memory.AppendEvent(e)
 	fs.mark("events")
+	return err
+}
+
+/* ---------------- 新增分片的落盘覆盖 ---------------- */
+//
+// 每个写方法都是「内存改完打脏标记」。读方法直接用 Memory 的实现，
+// 不用覆盖——嵌入的 *Memory 已经满足接口。
+
+func (fs *FileStore) CreateDevice(d *domain.Device) error {
+	err := fs.Memory.CreateDevice(d)
+	fs.mark("devices")
+	return err
+}
+
+func (fs *FileStore) UpdateDevice(d *domain.Device) error {
+	err := fs.Memory.UpdateDevice(d)
+	fs.mark("devices")
+	return err
+}
+
+func (fs *FileStore) CreateGoal(g *domain.Goal) error {
+	err := fs.Memory.CreateGoal(g)
+	fs.mark("goals")
+	return err
+}
+
+func (fs *FileStore) UpdateGoal(g *domain.Goal) error {
+	err := fs.Memory.UpdateGoal(g)
+	fs.mark("goals")
+	return err
+}
+
+func (fs *FileStore) DeleteGoal(userID, id string) error {
+	err := fs.Memory.DeleteGoal(userID, id)
+	fs.mark("goals")
+	return err
+}
+
+func (fs *FileStore) CreateConnector(c *domain.Connector) error {
+	err := fs.Memory.CreateConnector(c)
+	fs.mark("conns")
+	return err
+}
+
+func (fs *FileStore) UpdateConnector(c *domain.Connector) error {
+	err := fs.Memory.UpdateConnector(c)
+	fs.mark("conns")
+	return err
+}
+
+func (fs *FileStore) DeleteConnector(userID, id string) error {
+	err := fs.Memory.DeleteConnector(userID, id)
+	fs.mark("conns")
+	return err
+}
+
+func (fs *FileStore) CreateArtifact(a *domain.Artifact) error {
+	err := fs.Memory.CreateArtifact(a)
+	fs.mark("arts")
+	return err
+}
+
+func (fs *FileStore) DeleteArtifact(userID, id string) error {
+	err := fs.Memory.DeleteArtifact(userID, id)
+	fs.mark("arts")
 	return err
 }
 

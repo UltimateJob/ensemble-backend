@@ -157,6 +157,12 @@ type Run struct {
 	Diffs      []workspace.FileDiff `json:"diffs,omitempty"`
 	DiffTotal  int                  `json:"diffTotal"`
 	ToolCalls  []*ToolCall          `json:"toolCalls,omitempty"`
+	// ForceApproval 来自远程设备的策略：为真时即使权限是 full，
+	// 写文件与跑命令也要审批。设备可以关掉（用户的决定）。
+	ForceApproval bool `json:"forceApproval,omitempty"`
+	// Origin 这条指令从哪来：""（本机）或 "device:<id>"。
+	// 手机发起的任务在电脑端时间线里能看出处。
+	Origin string `json:"origin,omitempty"`
 	// approved 本次 Run 内已批准的同类命令（scope=run），避免每条命令都打扰用户
 	approved map[string]bool
 	Summary  string  `json:"summary,omitempty"`
@@ -353,6 +359,26 @@ func (m *Manager) ListRuns(workspaceID string, limit int) []*Run {
 	return out
 }
 
+// RunsInConversation 列出某会话关联的全部运行。
+//
+// 与 ListRuns 的区别：工作区跟会话是 1:1 绑定的，但手机端要按
+// 「群里某个角色的头像该亮什么色」查状态，从会话维度找更直接，
+// 也省得先反查 workspaceID。
+func (m *Manager) RunsInConversation(convID string) []*Run {
+	if convID == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []*Run
+	for _, r := range m.runs {
+		if r.ConversationID == convID {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // Subscribe 订阅事件流。返回取消函数。
 func (m *Manager) Subscribe(runID string) (<-chan Event, func()) {
 	ch := make(chan Event, 64)
@@ -395,6 +421,39 @@ func (m *Manager) emit(r *Run, typ string, data any) {
 		default: // 订阅者慢就丢，事件仍在 r.Events 里可重放
 		}
 	}
+}
+
+// ApprovalsOf 列出某个 Run 的审批记录（最新在前）。
+//
+// 手机端不在电脑前，看不到终端的审批提示，所以需要主动查。
+// 只返回属于该用户的 Run——调用方负责校验归属。
+func (m *Manager) ApprovalsOf(runID string) []*Approval {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*Approval, 0)
+	for _, a := range m.approvals {
+		if a.RunID != runID {
+			continue
+		}
+		// 逐字段拷贝：Approval 里带 sync.Once（不可拷贝），
+		// 直接 *a 会触发 copylocks 且在并发下不安全。
+		out = append(out, &Approval{
+			ID: a.ID, RunID: a.RunID, ToolCallID: a.ToolCallID,
+			AgentKey: a.AgentKey, Tool: a.Tool, Risk: a.Risk,
+			Summary: a.Summary, Command: a.Command, Diff: a.Diff,
+			Status: a.Status, Scope: a.Scope,
+			DecidedBy: a.DecidedBy, DecidedAt: a.DecidedAt, CreatedAt: a.CreatedAt,
+		})
+	}
+	// 最新在前
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].CreatedAt.After(out[i].CreatedAt) {
+				out[i], out[j] = out[j], out[i]
+			}
+		}
+	}
+	return out
 }
 
 // Decide 批准或拒绝一次调用。
@@ -458,7 +517,19 @@ func (m *Manager) Abort(runID, userID string) error {
 //
 // 这是唯一的权限判定入口：HTTP 层、runner、审批回调都必须走这里，
 // 避免出现「某条路径忘了检查」。
-func permissionFor(p Permission, tool string, risk string) (allowed bool, needApproval bool, reason string) {
+//
+// forceApproval 用于「远程设备要求审批」：即使角色配了 full，
+// 只要这台设备没关掉审批开关，写文件和跑命令都要先问一句。
+// 这是设备的策略，不是角色的策略，所以单独一个参数而不是改 Permission。
+func permissionFor(p Permission, tool string, risk string, forceApproval bool) (allowed bool, needApproval bool, reason string) {
+	allowed, need, why := permissionForBase(p, tool, risk)
+	if forceApproval && allowed && !need && (isWriteTool(tool) || tool == "run") {
+		return true, true, "远程设备要求审批"
+	}
+	return allowed, need, why
+}
+
+func permissionForBase(p Permission, tool string, risk string) (allowed bool, needApproval bool, reason string) {
 	readOnlyTool := tool == "read" || tool == "list" || tool == "glob" || tool == "grep"
 	switch p {
 	case PermissionReadonly:

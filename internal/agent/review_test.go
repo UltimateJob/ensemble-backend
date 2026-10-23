@@ -28,7 +28,7 @@ func TestAuditPermission(t *testing.T) {
 		{"run", "critical", false},
 	}
 	for _, c := range cases {
-		got, need, _ := permissionFor(PermissionAudit, c.tool, c.risk)
+		got, need, _ := permissionFor(PermissionAudit, c.tool, c.risk, false)
 		if got != c.allowed {
 			t.Errorf("audit %s(%s) allowed=%v want %v", c.tool, c.risk, got, c.allowed)
 		}
