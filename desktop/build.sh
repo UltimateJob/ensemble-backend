@@ -58,8 +58,29 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# 本地自签名，避免 Gatekeeper 直接拦。
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "（签名跳过，本机运行不受影响）"
+# 签名。这里有两个坑，都是实测踩出来的：
+#
+# 1. --deep 已废弃，对嵌套的二进制处理不当，会用错标识。
+#    正确做法是自内向外逐个签：先内置后端，再壳本身。
+# 2. 不加 entitlements 时，`open` 启动会被 LaunchServices 拒绝
+#    （-10825），日志里是 "process not properly entitled"；
+#    但直接跑 Contents/MacOS/<exe> 却能起来。这个不对称极难查。
+#
+# ad-hoc 签名（-）够本机使用；分发给别人需要开发者证书 + 公证。
+# 不要加 --options runtime（硬化运行时）：它要求签名带可信时间戳，
+# ad-hoc 签名下会让 App 启动即被 kill。
+SIGN_ARGS=(--force --sign - --identifier "com.ultimatejob.zhituan.desktop")
+
+if [ -f "$APP/Contents/MacOS/ensemble" ]; then
+  codesign "${SIGN_ARGS[@]}" "$APP/Contents/MacOS/ensemble" 2>/dev/null || true
+fi
+codesign "${SIGN_ARGS[@]}" --entitlements desktop/entitlements.plist "$APP" 2>&1 | grep -v "replacing existing signature" || true
+
+if codesign --verify --deep --strict "$APP" 2>/dev/null; then
+  echo "==> 签名校验通过"
+else
+  echo "==> ⚠ 签名校验未通过（本机运行通常仍可用，分发会失败）"
+fi
 
 echo "==> 完成：$ROOT/$APP"
 echo "    启动：open \"$ROOT/$APP\""

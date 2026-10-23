@@ -49,7 +49,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         let cfg = WKWebViewConfiguration()
         cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
         cfg.websiteDataStore = .default()
+
+        // 把页面的 console 与未捕获异常转发到 stderr。
+        // WKWebView 默认吞掉这些，出问题时只剩一片白屏，无从下手。
+        let hook = WKUserScript(source: """
+        (function(){
+          const send = (level, args) => {
+            try {
+              window.webkit.messageHandlers.console.postMessage({
+                level: level,
+                text: Array.from(args).map(a => {
+                  try { return typeof a === 'string' ? a : JSON.stringify(a); }
+                  catch (e) { return String(a); }
+                }).join(' ')
+              });
+            } catch (e) {}
+          };
+          ['log','warn','error'].forEach(k => {
+            const orig = console[k];
+            console[k] = function(){ send(k, arguments); orig.apply(console, arguments); };
+          });
+          window.addEventListener('error', e => {
+            send('error', ['未捕获：' + (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || 0)]);
+          });
+          window.addEventListener('unhandledrejection', e => {
+            send('error', ['Promise 未处理：' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)]);
+          });
+        })();
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        cfg.userContentController.addUserScript(hook)
         cfg.userContentController.add(self, name: "notify")
+        cfg.userContentController.add(self, name: "console")
 
         webView = WKWebView(frame: .zero, configuration: cfg)
         webView.navigationDelegate = self
@@ -423,6 +453,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
 
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage) {
+        if message.name == "console" {
+            guard let body = message.body as? [String: Any],
+                  let level = body["level"] as? String,
+                  let text = body["text"] as? String else { return }
+            // 直接写 stderr：终端里直接看得到，不需要开开发者工具。
+            FileHandle.standardError.write("[web:\(level)] \(text)\n".data(using: .utf8) ?? Data())
+            return
+        }
         guard message.name == "notify",
               let body = message.body as? [String: Any] else { return }
         let content = UNMutableNotificationContent()
