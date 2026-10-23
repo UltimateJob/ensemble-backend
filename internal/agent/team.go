@@ -439,12 +439,15 @@ func (t *TeamManager) run(ctx context.Context, tr *teamRun, agents *Manager, mod
 	// 「测试没覆盖到但用户会遇到的问题」，不是把 go test 再想一遍。
 	reviewer := pickReviewer(req.Agents, plan.ReviewerKey, reviewers, executors)
 	if reviewer != nil && reviewByChecksOnly(checks) {
-		tr.view.Review = &domain.TeamReview{
+		review := &domain.TeamReview{
 			AgentKey: "system",
 			Verdict:  "pass",
 			Summary:  "服务端确定性验证全部通过（" + strings.Join(checkNames(checks), "、") + "），未调用模型验收。",
 		}
-		t.emit(tr, TeamEventReview, map[string]any{"review": tr.view.Review})
+		t.mu.Lock()
+		tr.view.Review = review
+		t.mu.Unlock()
+		t.emit(tr, TeamEventReview, map[string]any{"review": review})
 		reviewer = nil
 	}
 	repairRound := 0
@@ -495,7 +498,10 @@ func (t *TeamManager) run(ctx context.Context, tr *teamRun, agents *Manager, mod
 			t.addIssue(tr, p)
 		}
 		failedChecks := failedCheckNames(codeFailures)
-		reviewBlockers := blockersOf(tr.view.Review)
+		t.mu.Lock()
+		review := tr.view.Review
+		t.mu.Unlock()
+		reviewBlockers := blockersOf(review)
 		if len(failedChecks) == 0 && len(reviewBlockers) == 0 {
 			break
 		}
@@ -510,7 +516,7 @@ func (t *TeamManager) run(ctx context.Context, tr *teamRun, agents *Manager, mod
 		t.mu.Unlock()
 		t.emit(tr, TeamEventPhase, map[string]any{"phase": TeamPhaseRepairing, "round": repairRound})
 
-		targets := routeRepair(plan.Assignments, failedChecks, tr.view.Review, executors)
+		targets := routeRepair(plan.Assignments, failedChecks, review, executors)
 		if len(targets) == 0 {
 			break
 		}

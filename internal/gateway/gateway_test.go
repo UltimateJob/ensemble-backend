@@ -437,67 +437,66 @@ func (g *gatingProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-ch
 	return ch, nil
 }
 
-// 自动选路应避开在途占满的渠道：slow 渠道忙时，第二个请求走 fast 渠道。
+// 自动选路应避开在途占满的渠道：一个渠道被占住时，第二个请求走空闲的那个。
+//
+// 两个渠道都必须阻塞（gating），否则先完成的那条流会立刻归还计数，
+// 测试就变成在赌选路顺序。之前成功路径不归还计数，这个测试靠泄漏
+// 才「稳定」通过；修好计数后必须让两边都真实占用。
 func TestLeastBusyRouting(t *testing.T) {
 	reg := NewRegistry()
-	slow := &gatingProvider{name: "slow", gate: make(chan struct{})}
-	fast := &echoProvider{name: "fast"}
-	reg.Add(slow)
-	reg.Add(fast)
+	a := &gatingProvider{name: "a", gate: make(chan struct{})}
+	b := &gatingProvider{name: "b", gate: make(chan struct{})}
+	reg.Add(a)
+	reg.Add(b)
 	mt := NewModelTable([]domain.ModelInfo{
-		{Key: "m-slow", Provider: "slow", Upstream: "up-slow", Enabled: true, Weight: 5},
-		{Key: "m-fast", Provider: "fast", Upstream: "up-fast", Enabled: true, Weight: 5},
+		{Key: "m-a", Provider: "a", Upstream: "up-a", Enabled: true, Weight: 5},
+		{Key: "m-b", Provider: "b", Upstream: "up-b", Enabled: true, Weight: 5},
 	})
 	gw := New(reg, mt, 0, 100, time.Minute)
 
-	// 第一个请求：两边都空闲，按权重轮询落在其中一个；
-	// 用在途计数确认它真的占住了渠道。
+	// 第一个请求占住其中一个渠道。
 	s1, err := gw.Stream(context.Background(), domain.ChatRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 等选路落地（goroutine 启动后 BusyAdd 生效需要一点时间）
-	deadline := time.Now().Add(2 * time.Second)
-	var busySlow, busyFast int64
-	for time.Now().Before(deadline) {
-		busySlow, busyFast = reg.Busy("slow"), reg.Busy("fast")
-		if busySlow+busyFast == 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if busySlow+busyFast != 1 {
-		t.Fatalf("第一个请求应占用恰好一个渠道，slow=%d fast=%d", busySlow, busyFast)
-	}
-	busyName := "slow"
-	idleName := "fast"
-	if busyFast == 1 {
-		busyName, idleName = "fast", "slow"
+	waitBusy(t, reg, func(slow, fast int64) bool { return slow+fast == 1 })
+	first, second := "a", "b"
+	if reg.Busy("b") == 1 {
+		first, second = "b", "a"
 	}
 
-	// 第二个请求：必须落在空闲的那个渠道上。
+	// 第二个请求必须落在空闲的那个上。
 	s2, err := gw.Stream(context.Background(), domain.ChatRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = s2
-	deadline = time.Now().Add(2 * time.Second)
-	var busyIdle int64
-	for time.Now().Before(deadline) {
-		if busyIdle = reg.Busy(idleName); busyIdle == 1 {
-			break
+	waitBusy(t, reg, func(slow, fast int64) bool {
+		if first == "a" {
+			return slow == 1 && fast == 1
 		}
-		time.Sleep(10 * time.Millisecond)
+		return slow == 1 && fast == 1
+	})
+	if reg.Busy(second) != 1 {
+		t.Fatalf("第二个请求应路由到空闲渠道 %s（在途=%d）", second, reg.Busy(second))
 	}
-	if busyIdle != 1 {
-		t.Fatalf("第二个请求应路由到空闲渠道 %s（在途=%d）", idleName, busyIdle)
-	}
-	if b := reg.Busy(busyName); b != 1 {
-		t.Fatalf("忙渠道 %s 在途应为 1，得到 %d", busyName, b)
-	}
-	close(slow.gate)
+
+	close(a.gate)
+	close(b.gate)
 	<-s1
 	<-s2
+}
+
+// waitBusy 等待两个渠道的在途数满足条件。
+func waitBusy(t *testing.T, reg *Registry, ok func(a, b int64) bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ok(reg.Busy("a"), reg.Busy("b")) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("在途数未达到预期：a=%d b=%d", reg.Busy("a"), reg.Busy("b"))
 }
 
 // 熔断打开的渠道不接新流量；全部打开时退回全量候选（由 Allow 报错）。
@@ -752,5 +751,35 @@ func TestPickUsesConfiguredConcurrency(t *testing.T) {
 	reg.BusyAdd("a", 1)
 	if m, _, _ := gw.pickModel(domain.ChatRequest{}); m.Key != "relay" {
 		t.Fatalf("达到并发上限应溢出，得到 %s", m.Key)
+	}
+}
+
+// 回归：成功路径必须归还并发计数。
+// 之前 chunk.Done 直接 return，计数只加不减；跑满默认上限后
+// 所有渠道都被当成饱和，网关开始返回 no provider。
+func TestStreamReleasesBusyOnSuccess(t *testing.T) {
+	p := &namedProvider{name: "a"}
+	reg := NewRegistry()
+	reg.Add(p)
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "m", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+	})
+	gw := New(reg, table, 1, 100, time.Second)
+
+	for i := 0; i < defaultChannelConcurrency*3; i++ {
+		out, err := gw.Stream(t.Context(), domain.ChatRequest{
+			Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+		})
+		if err != nil {
+			t.Fatalf("第 %d 次请求就失败：%v", i+1, err)
+		}
+		for c := range out {
+			if c.Err != nil {
+				t.Fatalf("第 %d 次请求出错：%v", i+1, c.Err)
+			}
+		}
+		if b := reg.Busy("a"); b != 0 {
+			t.Fatalf("第 %d 次请求后 in-flight=%d，应为 0", i+1, b)
+		}
 	}
 }

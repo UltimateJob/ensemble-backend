@@ -287,12 +287,22 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 			}
 			model = curModel
 			// 在途计数：每次尝试进入 +1，结束 -1（选路依据）。
+			// 用闭包保证「每条退出路径都只减一次」——之前成功分支
+			// 直接 return，计数只加不减，跑满并发上限后所有渠道都被
+			// 判定为饱和，整个网关会开始返回 no provider。
 			g.registry.BusyAdd(curProvider, 1)
+			busyReleased := false
+			release := func() {
+				if !busyReleased {
+					busyReleased = true
+					g.registry.BusyAdd(curProvider, -1)
+				}
+			}
 
 			start := time.Now()
 			stream, err := g.callProvider(ctx, curProvider, req)
 			if err != nil {
-				g.registry.BusyAdd(curProvider, -1)
+				release()
 				g.registry.Report(curProvider, false, time.Since(start), err.Error(), g.threshold, g.openFor)
 				lastErr = err
 				logx.Req(ctx).Warn("provider call failed", "provider", curProvider, "attempt", attempt, "err", err.Error())
@@ -333,10 +343,11 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 						forwarded = true
 					}
 				case <-ctx.Done():
-					g.registry.BusyAdd(curProvider, -1)
+					release()
 					return
 				}
 				if chunk.Done {
+					release()
 					ms := time.Since(start).Milliseconds()
 					g.latSum.Add(ms)
 					g.latCount.Add(1)
@@ -345,7 +356,7 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 				}
 			}
 
-			g.registry.BusyAdd(curProvider, -1)
+			release()
 			if !broken {
 				ms := time.Since(start).Milliseconds()
 				g.latSum.Add(ms)
