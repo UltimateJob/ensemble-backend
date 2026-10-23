@@ -5,6 +5,8 @@
 
 import { $, api, state, esc, icon, hydrateIcons, toast } from '../js/core.js';
 import { trackRun, onRunEvent } from '../js/runs.js';
+import { loadActivity, permissionLabel } from '../js/activity.js';
+import { bindWorkspace, workspacePath, bindNativePicker } from '../js/workspace.js';
 
 let root = null;
 let wsId = null;
@@ -12,7 +14,7 @@ let runId = null;
 let offRun = null;
 let convId = '';
 
-export async function mountStudio(host, id) {
+export async function mountStudio(host, id, query) {
   root = host;
   convId = id;
   root.innerHTML = `
@@ -39,9 +41,10 @@ export async function mountStudio(host, id) {
 
           <label class="field"><span>权限</span>
             <select id="runPerm">
-              <option value="readonly">只读（不能改文件、不能跑命令）</option>
-              <option value="approval" selected>命令需批准</option>
+              <option value="ask">逐项批准（每次写文件和命令都要确认）</option>
+              <option value="approval">自动接受编辑（命令仍需批准）</option>
               <option value="full">完全访问（等同当前系统用户）</option>
+              <option value="readonly">只读（不能改文件、不能跑命令）</option>
             </select>
             <div class="hint">本地运行时不是沙箱。full 下命令能做的事和你本人一样多。</div>
           </label>
@@ -93,13 +96,44 @@ export async function mountStudio(host, id) {
 
   $('#svBack').addEventListener('click', () => { location.hash = '#/room/' + encodeURIComponent(convId); });
   $('#wsPick').addEventListener('click', () => {
-    if (window.__ensemblePickDirectory) toast('用菜单「文件 → 选择工作区目录」（⌘O）');
-    else toast('浏览器里请直接填写本机绝对路径');
+    const inp = $('#wsRoot');
+    if (bindNativePicker(inp)) return;
+    toast('浏览器里请直接填写本机绝对路径；桌面端用菜单「文件 → 选择工作区目录」（⌘O）');
   });
   $('#runStart').addEventListener('click', startRun);
 
   offRun = onRunEvent((rid, ev) => { if (rid === runId) onRunEventUI(ev); });
+  const conv = (state.convs || []).find(c => c.id === convId);
+  const acts = await loadActivity(convId);
+  if (conv) {
+    $('#wsRoot').value = workspacePath(conv) || acts.workspace?.root || '';
+    $('#runPerm').value = conv.defaultPermission || acts.defaultPermission || 'ask';
+    wsId = conv.workspace?.id || acts.workspace?.id || null;
+  }
   await refreshWorkspaces();
+
+  // 从执行气泡点进来：直接展示那一次任务的步骤和改动。
+  const focus = query?.get?.('run');
+  if (focus) await showRun(focus);
+}
+
+async function showRun(id) {
+  try {
+    const run = await api('/v1/runs/' + encodeURIComponent(id));
+    runId = (run.status === 'running' || run.status === 'waiting' || run.status === 'waiting_approval') ? id : null;
+    const tl = $('#runTimeline');
+    if (!tl) return;
+    tl.innerHTML = '';
+    add(tl, '任务', esc(run.task || ''), 'info');
+    add(tl, '状态', `${esc(run.status)} · 第 ${run.step}/${run.maxSteps} 步 · ${esc(permissionLabel(run.permission))}`, run.status === 'done' ? 'ok' : '');
+    (run.toolCalls || []).forEach(t => {
+      add(tl, toolName(t.tool) + ` <span class="tl-badge ${esc(t.risk || '')}">${esc(t.risk || '')}</span>`,
+        `<code class="tl-args">${esc(t.args || '')}</code>`, t.status === 'ok' ? 'tool' : 'err');
+    });
+    if (run.summary) add(tl, '结果', esc(run.summary), 'say');
+    if (runId) trackRun(runId);
+    loadDiff(id);
+  } catch (e) { /* 任务不存在就保持空态 */ }
 }
 
 export function unmountStudio() {
@@ -137,6 +171,25 @@ async function refreshWorkspaces() {
 async function bindIfNeeded() {
   const rootPath = $('#wsRoot').value.trim();
   if (!rootPath) throw new Error('先选择或填写一个本机目录');
+  const conv = (state.convs || []).find(c => c.id === convId) || state.cur;
+  const perm = $('#runPerm').value || 'ask';
+  if (conv && workspacePath(conv) === rootPath && wsId) {
+    // 路径没变：只同步权限，不必重复绑定。
+    if (conv.defaultPermission !== perm) {
+      await api('/v1/conversations/' + encodeURIComponent(convId), {
+        method: 'PATCH', body: { defaultPermission: perm },
+      });
+      conv.defaultPermission = perm;
+    }
+    return wsId;
+  }
+  if (conv) {
+    await bindWorkspace(conv, rootPath, perm);
+    wsId = conv.workspace?.id || wsId;
+    await refreshWorkspaces();
+    return wsId;
+  }
+  // 兜底：会话不在本地缓存里时走旧接口。
   const list = await api('/v1/workspaces');
   const hit = (list || []).find(w => w.root === rootPath && (!convId || w.conversationId === convId));
   if (hit) { wsId = hit.id; return wsId; }

@@ -60,9 +60,22 @@ export async function pairWith(
 }
 
 /** 账号登录（手机号 + 验证码）。作为配对之外的备用入口。 */
+function kindOf(target: string): 'phone' | 'email' {
+  return target.includes('@') ? 'email' : 'phone';
+}
+
 export async function loginWithCode(base: string, target: string, code: string): Promise<void> {
   await setBaseURL(base);
-  const res = await post<{ token: string }>('/v1/auth/login', { target, code });
+  const res = await post<{ token: string }>('/v1/auth/login', { kind: kindOf(target), target, code });
+  await saveAccountToken(res.token);
+  await boot();
+}
+
+export async function loginWithPassword(base: string, target: string, password: string): Promise<void> {
+  await setBaseURL(base);
+  const res = await post<{ token: string }>('/v1/auth/login', {
+    kind: kindOf(target), target, mode: 'password', password,
+  });
   await saveAccountToken(res.token);
   await boot();
 }

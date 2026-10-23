@@ -561,3 +561,196 @@ func TestTaskModelRoutingPools(t *testing.T) {
 		t.Fatalf("池空回退失败：%v %v", m.Key, ok)
 	}
 }
+
+// namedProvider 用固定名字注册，测试多渠道选路时用。
+type namedProvider struct {
+	name    string
+	streams [][]domain.Chunk
+	calls   atomic.Int32
+}
+
+func (p *namedProvider) Name() string { return p.name }
+func (p *namedProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	p.calls.Add(1)
+	ch := make(chan domain.Chunk, 4)
+	ch <- domain.Chunk{Content: "ok"}
+	ch <- domain.Chunk{Done: true}
+	close(ch)
+	return ch, nil
+}
+
+// failingProvider 总是返回错误，用来验证「换渠道」而不是「同渠道重试」。
+type failingProvider struct{ calls atomic.Int32 }
+
+func (p *failingProvider) Name() string { return "failing" }
+func (p *failingProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	p.calls.Add(1)
+	return nil, errors.New("503 no available channel")
+}
+
+func TestStreamFailsOverToBackupProvider(t *testing.T) {
+	// 中转挂了（503）时必须切到保底渠道，而不是在同一个上游重试。
+	bad := &failingProvider{}
+	good := &scriptedProvider{streams: [][]domain.Chunk{
+		{{Content: "保底渠道的回答"}, {Done: true, Usage: &domain.Usage{TotalTokens: 3}}},
+	}}
+	reg := NewRegistry()
+	reg.Add(bad)
+	reg.Add(good)
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "primary", Provider: "failing", Enabled: true, Weight: 1},
+		{Key: "backup", Provider: "scripted", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, table, 2, 100, time.Second)
+
+	out, err := gw.Stream(t.Context(), domain.ChatRequest{
+		Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for c := range out {
+		if c.Err != nil {
+			t.Fatalf("应切到保底渠道成功，却收到错误：%v", c.Err)
+		}
+		text += c.Content
+	}
+	if text != "保底渠道的回答" {
+		t.Fatalf("text=%q", text)
+	}
+	if bad.calls.Load() > 1 {
+		t.Fatalf("同一个失败渠道不应被反复重试：%d 次", bad.calls.Load())
+	}
+}
+
+func TestStreamFailoverWhenNamedModelFails(t *testing.T) {
+	// 用户点名了一个渠道；它挂了仍然要走保底，而不是直接失败。
+	bad := &failingProvider{}
+	good := &scriptedProvider{streams: [][]domain.Chunk{
+		{{Content: "backup"}, {Done: true}},
+	}}
+	reg := NewRegistry()
+	reg.Add(bad)
+	reg.Add(good)
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "named", Provider: "failing", Enabled: true, Weight: 1},
+		{Key: "spare", Provider: "scripted", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, table, 2, 100, time.Second)
+
+	out, err := gw.Stream(t.Context(), domain.ChatRequest{
+		Model:    "named",
+		Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for c := range out {
+		if c.Err != nil {
+			t.Fatalf("点名的渠道失败后应走保底，得到 %v", c.Err)
+		}
+		text += c.Content
+	}
+	if text != "backup" {
+		t.Fatalf("text=%q", text)
+	}
+}
+
+func TestPickPrefersLowerRank(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "relay", Provider: "a", Enabled: true, Weight: 10, Rank: 2},
+		{Key: "official", Provider: "b", Enabled: true, Weight: 1, Rank: 1},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+	for i := 0; i < 50; i++ {
+		m, _, ok := gw.pickModel(domain.ChatRequest{})
+		if !ok || m.Key != "official" {
+			t.Fatalf("应优先排名第 1 的官方渠道，得到 %s", m.Key)
+		}
+	}
+}
+
+func TestPickSpillsToNextRankWhenSaturated(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "official", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+		{Key: "relay", Provider: "b", Enabled: true, Weight: 5, Rank: 2},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+
+	// 官方渠道占满默认并发上限后，应自动溢出到中转。
+	reg.BusyAdd("a", defaultChannelConcurrency)
+	for i := 0; i < 20; i++ {
+		m, _, ok := gw.pickModel(domain.ChatRequest{})
+		if !ok || m.Key != "relay" {
+			t.Fatalf("官方饱和后应溢出到中转，得到 %s", m.Key)
+		}
+	}
+}
+
+func TestPickRoundRobinWithinTier(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "a", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+		{Key: "b", Provider: "b", Enabled: true, Weight: 1, Rank: 1},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+	count := map[string]int{}
+	for i := 0; i < 40; i++ {
+		m, _, _ := gw.pickModel(domain.ChatRequest{})
+		count[m.Key]++
+	}
+	if count["a"] == 0 || count["b"] == 0 {
+		t.Fatalf("同排名应轮询，得到 %v", count)
+	}
+}
+
+func TestPickSkipsOpenCircuit(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "official", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+		{Key: "relay", Provider: "b", Enabled: true, Weight: 1, Rank: 2},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 1, time.Minute)
+	reg.Report("a", false, time.Millisecond, "503", 1, time.Minute)
+	if reg.State("a") != "open" {
+		t.Fatal("阈值 1 时应熔断")
+	}
+	m, _, ok := gw.pickModel(domain.ChatRequest{})
+	if !ok || m.Key != "relay" {
+		t.Fatalf("熔断渠道不应被选，得到 %s", m.Key)
+	}
+}
+
+func TestPickUsesConfiguredConcurrency(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "official", Provider: "a", Enabled: true, Weight: 1, Rank: 1, Concurrency: 2},
+		{Key: "relay", Provider: "b", Enabled: true, Weight: 5, Rank: 2},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+
+	// 未到配置的并发上限（2）：仍优先官方。
+	reg.BusyAdd("a", 1)
+	if m, _, _ := gw.pickModel(domain.ChatRequest{}); m.Key != "official" {
+		t.Fatalf("未饱和时应走官方，得到 %s", m.Key)
+	}
+	// 到达上限：溢出到中转。
+	reg.BusyAdd("a", 1)
+	if m, _, _ := gw.pickModel(domain.ChatRequest{}); m.Key != "relay" {
+		t.Fatalf("达到并发上限应溢出，得到 %s", m.Key)
+	}
+}

@@ -8,6 +8,7 @@ import {
 import { uiConfirm, uiEditText, uiEditAgent } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
 import { avatarHTML } from './avatars.js';
+import { permissionLabel, ringOf, toolLabel } from './activity.js';
 
 /* ---------------- 复制 ---------------- */
 // 演示环境可能跑在 http 非 localhost 下，navigator.clipboard 那时不可用，
@@ -162,6 +163,7 @@ export async function openConv(id) {
   openingConvId = id;
   openingAt = Date.now();
   state.cur = conv;
+  state.activity = null;   // 上一位群的状态环不能带到新群
   unreadNew = 0;
   updateJump();
   lastMsgTime = 0;   // 时间分割线的基准跟着换群，否则跨群会「继承」上一个群的时间
@@ -173,9 +175,14 @@ export async function openConv(id) {
 
   const sc = state.scenarios.find(s => s.key === conv.studio) || { agents: [] };
   // 自定义角色优先
-  state.agents = (conv.agents && conv.agents.length)
-    ? conv.agents
-    : (sc.agents || []);
+  let agents = (conv.agents && conv.agents.length) ? conv.agents : (sc.agents || []);
+  // 单聊 / 选定成员的群：Members 是创建时挑的角色，内置场景不能把全套角色都摆出来。
+  if (!conv.agents?.length && conv.members?.length) {
+    const want = new Set(conv.members);
+    const picked = agents.filter(a => want.has(a.key) || want.has(a.name));
+    if (picked.length) agents = picked;
+  }
+  state.agents = agents;
 
   // 协作者的真实姓名和在线状态（renderMembers 要用）
   try {
@@ -227,19 +234,23 @@ export async function openConv(id) {
       const agent = state.agents.find(a => a.name === m.agent);
       const el = addMsg({
         name: m.role === 'user' ? (state.user && state.user.name) || '你' : (m.agent || 'Agent'),
-        title: agent ? agent.title : '',
+        title: agent ? agent.title : m.kind?.startsWith('team') ? '团队任务'
+          : m.kind?.startsWith('run') ? '执行结果' : '',
         color: agent ? agent.color : null,
         text: m.content,
         me: m.role === 'user',
         time: m.createdAt,
         id: m.id,
+        attachments: m.attachments || [],
+        kind: m.kind || '',
       });
       // 历史里若在 @用户，恢复「在问你」标记
       if (m.role === 'assistant' && /@用户|@你/.test(m.content || '')) {
         el.classList.add('asking');
       }
-      // 有产物定义的角色，历史里也补一张文件卡
-      if (agent && agent.artifact && m.role === 'assistant') {
+      // 有产物定义的角色，历史里也补一张文件卡（执行/团队消息自带附件，不重复造）
+      if (agent && agent.artifact && m.role === 'assistant' &&
+          !m.attachments?.length && !m.kind) {
         addArtifact(agent.name, agent.artifact, m.content);
         appendArtifactCard(agent.name, agent.artifact, m.content);
       }
@@ -320,6 +331,8 @@ export async function loadEarlier() {
         me: m.role === 'user',
         time: m.createdAt,
         id: m.id,
+        attachments: m.attachments || [],
+        kind: m.kind || '',
       });
       frag.appendChild(el.el);
     });
@@ -375,6 +388,7 @@ export function markRoundEnd(wrap) {
 export function buildMsgEl(o) {
   const el = document.createElement('div');
   el.className = 'msg' + (o.me ? ' me' : '');
+  if (o.kind) el.classList.add('kind-' + String(o.kind).replace(/\./g, '-'));
   if (o.id) el.dataset.mid = o.id;   // 搜索结果跳转时靠它定位
   if (o.time) el.dataset.t = String(new Date(o.time).getTime() || 0);
   // 原文挂在元素上：复制按钮和「点击重发」都用它，渲染后的 HTML 不能反推原文
@@ -389,15 +403,35 @@ export function buildMsgEl(o) {
         <button class="msg-copy" title="复制这条消息">${icon('copy', 13)}</button>
       </div>
       <div class="msg-text md"></div>
+      <div class="msg-atts"></div>
     </div>`;
   const tx = el.querySelector('.msg-text');
   tx.innerHTML = mdRender(o.text || '');
+  if (o.attachments?.length) renderAttachments(el.querySelector('.msg-atts'), o.attachments);
   el.querySelector('.msg-copy').addEventListener('click', async ev => {
     ev.stopPropagation();
     const ok = await copyText(el._raw);
     toast(ok ? '已复制' : '复制失败，浏览器没给权限');
   });
   return { el, textEl: tx };
+}
+
+/** 消息里的产物 chip：点开预览 / 下载；文件型产物指向工作区。 */
+function renderAttachments(box, arts) {
+  if (!box) return;
+  box.innerHTML = '';
+  arts.forEach(a => {
+    const b = document.createElement('button');
+    b.className = 'att-chip';
+    b.innerHTML = `${icon('file-text', 13)}<span>${esc(a.name || a.path || '产物')}</span>` +
+      `${a.agentName ? `<em>来自 ${esc(a.agentName)}</em>` : ''}`;
+    b.title = a.path || a.name || '';
+    b.addEventListener('click', async () => {
+      const { openArtifact } = await import('./exec.js');
+      openArtifact(state.cur, a);
+    });
+    box.appendChild(b);
+  });
 }
 
 // 本地乐观消息的临时 id：后端落库后 id 不同，但至少让「刚发的这条」
@@ -519,19 +553,29 @@ export function renderMembers() {
   const iAmOwner = !!(conv && state.user && conv.userId === state.user.id);
 
   // 场景页说「创建后可以随时换人、改设定」——这里就是兑现的地方（群主可见）
-  const agentRows = state.agents.map((a, i) => `
+  const liveAgents = state.activity?.agents || [];
+  const agentRows = state.agents.map((a, i) => {
+    const act = liveAgents.find(x => x.key === a.key);
+    const perm = act?.permission || state.cur?.defaultPermission || a.permission || '';
+    const st = act?.state || 'idle';
+    const stText = st === 'running' ? (act?.currentTool ? toolLabel(act.currentTool.tool) : '执行中')
+      : (st === 'waiting' || st === 'waiting_approval') ? '等你审批'
+      : (act && act.lastRun ? '刚完成' : '');
+    return `
     <div class="member" data-agent="${esc(a.name)}">
-      ${avatarHTML(a.name, a.color, { size: 26 })}
+      ${avatarHTML(a.name, a.color, { size: 26, ring: ringOf(st) })}
       <div class="mm">
         <div class="mn">${esc(a.name)}${a.upgraded ? '<span class="up-badge" title="发言走更强的任务模型">⚡升级</span>' : ''}</div>
-        <div class="mt">${esc(a.title)}</div>
+        <div class="mt">${stText ? esc(stText) : esc(a.title)}</div>
       </div>
+      ${perm ? `<span class="perm-badge p-${esc(perm)}" title="执行权限">${esc(permissionLabel(perm))}</span>` : ''}
       ${iAmOwner ? `
       <span class="m-acts">
         <button class="m-edit" data-i="${i}" title="改设定">${icon('pencil', 12)}</button>
         <button class="m-del" data-i="${i}" title="移除角色">${icon('x', 12)}</button>
       </span>` : ''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   // 协作者：用 /collaborators 返回的真实姓名和在线状态。
   // 之前显示 uid 末六位（谁也不知道那是谁），绿点也是写死的。

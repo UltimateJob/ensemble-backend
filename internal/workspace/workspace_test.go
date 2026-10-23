@@ -183,6 +183,25 @@ func TestRunCommand(t *testing.T) {
 	}
 }
 
+func TestRunBackgroundChildDoesNotBlock(t *testing.T) {
+	ws := newTestWS(t)
+	start := time.Now()
+	res, err := ws.Run(context.Background(), Command{
+		Argv:    []string{"sh", "-c", "sleep 20 & echo started"},
+		Timeout: 15 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 后台子进程继承了 stdout 管道；没有 WaitDelay 时这里会卡到 20 秒。
+	if time.Since(start) > 8*time.Second {
+		t.Fatalf("background child blocked the tool for %s", time.Since(start))
+	}
+	if res.TimedOut || !strings.Contains(res.Stdout, "started") {
+		t.Fatalf("result=%+v", res)
+	}
+}
+
 func TestRunTimeoutKillsProcess(t *testing.T) {
 	ws := newTestWS(t)
 	start := time.Now()

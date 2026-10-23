@@ -34,12 +34,17 @@ func NewDeepSeek(base, key, model string, timeout time.Duration) *DeepSeek {
 		key:   key,
 		model: model,
 		client: &http.Client{
-			Timeout: timeout,
+			// 不能用 http.Client.Timeout：它覆盖整个响应体读取时间。
+			// 流式生成本来就可能超过两分钟，一到点就被掐断（基准里验收
+			// Agent 在 2 分 13 秒处报 context deadline exceeded）。
+			// 用 ResponseHeaderTimeout 只限制「等响应头」，正文由 Run /
+			// 规划 / 验收各自的 context 截止时间控制。
 			Transport: &http.Transport{
-				MaxIdleConns:        200,
-				MaxIdleConnsPerHost: 50,
-				IdleConnTimeout:     90 * time.Second,
-				ForceAttemptHTTP2:   true,
+				MaxIdleConns:          200,
+				MaxIdleConnsPerHost:   50,
+				IdleConnTimeout:       90 * time.Second,
+				ResponseHeaderTimeout: timeout,
+				ForceAttemptHTTP2:     true,
 			},
 		},
 	}
@@ -63,7 +68,7 @@ type dsRequest struct {
 	Temperature float64     `json:"temperature,omitempty"`
 	MaxTokens   int         `json:"max_tokens,omitempty"`
 	Tools       []dsTool    `json:"tools,omitempty"`
-	ToolChoice  string      `json:"tool_choice,omitempty"`
+	ToolChoice  any         `json:"tool_choice,omitempty"`
 	// 流式必须显式要 usage，否则部分兼容上游不吐用量、计费统计全为 0
 	StreamOptions *dsStreamOptions `json:"stream_options,omitempty"`
 }
@@ -161,6 +166,13 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 		dt.Function.Parameters = t.Parameters
 		tools = append(tools, dt)
 	}
+	var toolChoice any = req.ToolChoice
+	if req.ToolChoiceName != "" {
+		toolChoice = map[string]any{
+			"type":     "function",
+			"function": map[string]string{"name": req.ToolChoiceName},
+		}
+	}
 	body, err := json.Marshal(dsRequest{
 		Model:       model,
 		Messages:    toDSMessages(req.Messages),
@@ -168,7 +180,7 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,
 		Tools:       tools,
-		ToolChoice:  req.ToolChoice,
+		ToolChoice:  toolChoice,
 		// 流式必须显式要 usage，否则上游不吐、计费统计全为 0
 		StreamOptions: &dsStreamOptions{IncludeUsage: true},
 	})

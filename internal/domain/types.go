@@ -82,8 +82,25 @@ type Conversation struct {
 	// 创建者（UserID）永远有权限，这里存的是被邀请的人。
 	Collaborators []string `json:"collaborators,omitempty"`
 
+	// Workspace 绑定的本地工作区。nil 表示还没绑（代码工作室会提示绑定）。
+	Workspace *ConvWorkspace `json:"workspace,omitempty"`
+	// DefaultPermission 群默认执行权限：ask | approval | full。
+	DefaultPermission string `json:"defaultPermission,omitempty"`
+	// AgentPermissions 按角色覆盖的权限，key 是 agent key。
+	AgentPermissions map[string]string `json:"agentPermissions,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// ConvWorkspace 会话绑定的工作区。当前只支持 local；
+// cloud 是预留值，服务端会明确拒绝，而不是静默忽略。
+type ConvWorkspace struct {
+	ID      string    `json:"id,omitempty"`
+	Kind    string    `json:"kind"` // local | cloud
+	Root    string    `json:"root"`
+	Label   string    `json:"label,omitempty"`
+	BoundAt time.Time `json:"boundAt,omitempty"`
 }
 
 // SavedAgent 用户角色库里的角色。可以反复拉进不同的群。
@@ -151,6 +168,24 @@ type Message struct {
 	Model          string    `json:"model,omitempty"`
 	LatencyMS      int       `json:"latencyMs"`
 	CreatedAt      time.Time `json:"createdAt"`
+	// 以下是执行器落群消息用的可选字段。旧数据没有，解码为零值。
+	Attachments []ArtifactRef `json:"attachments,omitempty"`
+	Kind        string        `json:"kind,omitempty"`     // text | run | run.failed | team | system
+	Ref         string        `json:"ref,omitempty"`      // run id / team id
+	Mentions    []string      `json:"mentions,omitempty"` // 被 @ 的 agent key
+}
+
+// ArtifactRef 一条产物引用：谁、在哪个工作区、哪个文件、多大。
+type ArtifactRef struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"` // file | doc | sheet | note
+	Name      string    `json:"name"`
+	Path      string    `json:"path,omitempty"` // 工作区相对路径
+	Size      int64     `json:"size,omitempty"`
+	AgentKey  string    `json:"agentKey,omitempty"`
+	AgentName string    `json:"agentName,omitempty"`
+	RunID     string    `json:"runId,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ChatMessage 送往模型的消息。
@@ -201,6 +236,12 @@ type ChatRequest struct {
 	// Tools 非空时开启 tool calling；ToolChoice: auto | none | required
 	Tools      []Tool `json:"tools,omitempty"`
 	ToolChoice string `json:"toolChoice,omitempty"`
+	// ToolChoiceName 指定必须调用的工具名。比 required 更严格：
+	// 部分上游会把 required 当成 auto，模型于是写一长段正文而不调工具
+	// （基准里规划阶段因此被 5000 token 截断）。
+	ToolChoiceName string `json:"toolChoiceName,omitempty"`
+	// UserID 发起请求的用户，用于配额归因（团队规划阶段等非 Run 调用）。
+	UserID string `json:"-"`
 }
 
 // Chunk 流式返回的一段。
@@ -243,12 +284,18 @@ type ModelInfo struct {
 	Provider string `json:"provider"` // deepseek | mock
 	// TaskOnly 任务专用模型：给执行器（代码开发这类真实任务）用，
 	// 不出现在用户的选择器里，聊天的自动选路也会跳过它。
-	TaskOnly  bool    `json:"taskOnly,omitempty"`
-	Upstream  string  `json:"upstream"` // 上游模型名
-	Enabled   bool    `json:"enabled"`
-	Weight    int     `json:"weight"`    // 加权轮询权重
-	CostPer1K float64 `json:"costPer1k"` // 参考单价，用于用量统计
-	Note      string  `json:"note,omitempty"`
+	TaskOnly bool   `json:"taskOnly,omitempty"`
+	Upstream string `json:"upstream"` // 上游模型名
+	Enabled  bool   `json:"enabled"`
+	// Rank 路由排名，越小越优先。同 rank 按 Weight 加权轮询。
+	// 0 表示未设置（排在有明确排名的渠道之后，但仍在池内）。
+	Rank int `json:"rank,omitempty"`
+	// Concurrency 该渠道允许的同时在途请求数。0 用默认值（8）。
+	// 达到上限后新请求会溢出到同档其他渠道或下一档，而不是排队。
+	Concurrency int     `json:"concurrency,omitempty"`
+	Weight      int     `json:"weight"`    // 同排名内的加权轮询权重
+	CostPer1K   float64 `json:"costPer1k"` // 参考单价，用于用量统计
+	Note        string  `json:"note,omitempty"`
 }
 
 // AuditLog 管理员操作审计。

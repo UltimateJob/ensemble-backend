@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/UltimateJob/ensemble-backend/internal/config"
-	"strconv"
-
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
+	"github.com/UltimateJob/ensemble-backend/internal/service"
 )
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -19,6 +23,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		"user":        u,
 		"remaining":   u.Remaining(),
 		"preferences": u.Preferences,
+		"hasPassword": s.auth.HasPassword(u.ID),
 		// 让前端知道现在是真模型还是演示台词
 		"demo":     !s.cfg.UpstreamConfigured(),
 		"upstream": upstreamName(s.cfg),
@@ -36,8 +41,8 @@ func upstreamName(cfg config.Config) string {
 func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
 	var req struct {
-		Name        string            `json:"name"`
-		Avatar      string            `json:"avatar"`
+		Name        *string           `json:"name"`
+		Avatar      *string           `json:"avatar"`
 		Preferences map[string]string `json:"preferences"`
 	}
 	if err := decode(r, &req); err != nil {
@@ -50,11 +55,25 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "账号不存在")
 		return
 	}
-	if req.Name != "" {
-		cur.Name = req.Name
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			badRequest(w, "昵称不能为空")
+			return
+		}
+		if utf8.RuneCountInString(name) > 24 {
+			badRequest(w, "昵称最多 24 个字")
+			return
+		}
+		cur.Name = name
 	}
-	if req.Avatar != "" {
-		cur.Avatar = req.Avatar
+	if req.Avatar != nil {
+		avatar := strings.TrimSpace(*req.Avatar)
+		if !validAvatar(avatar) {
+			badRequest(w, "头像格式不正确")
+			return
+		}
+		cur.Avatar = avatar
 	}
 	// 偏好按键合并：只覆盖请求里出现的键，空字符串表示删除该键。
 	if len(req.Preferences) > 0 {
@@ -71,6 +90,63 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.store.UpdateUser(cur)
 	ok(w, cur)
+}
+
+// validAvatar 头像只接受：空（清除）、#RRGGBB 颜色，或 emoji/短文本。
+func validAvatar(avatar string) bool {
+	if avatar == "" {
+		return true
+	}
+	if utf8.RuneCountInString(avatar) > 64 {
+		return false
+	}
+	if strings.HasPrefix(avatar, "#") {
+		if len(avatar) != 7 {
+			return false
+		}
+		for _, c := range avatar[1:] {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				return false
+			}
+		}
+		return true
+	}
+	// 非颜色值按 emoji / 短文本处理，只拒绝控制字符与空白。
+	for _, r := range avatar {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// handleSetPassword 已登录用户设置或修改密码。
+func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	var req struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if err := decode(r, &req); err != nil {
+		badRequest(w, "请求格式不正确")
+		return
+	}
+	if err := s.auth.SetPassword(u.ID, req.OldPassword, req.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, service.ErrWeakPassword):
+			fail(w, 400, "weak_password", err.Error())
+		case errors.Is(err, service.ErrOldPassword):
+			fail(w, 400, "old_password_incorrect", err.Error())
+		default:
+			serverErr(w, err.Error())
+		}
+		return
+	}
+	ok(w, map[string]bool{"changed": true})
 }
 
 // 互动/行为记录：登录、审批、分享、错误上报。
