@@ -45,6 +45,7 @@ type Server struct {
 	conns    *service.Connectors
 	library  *service.Library
 	activity *service.Activity
+	official *service.Official
 
 	// upstreams 可编辑的上游渠道表。为 nil 时渠道接口不注册。
 	upstreams *store.Upstreams
@@ -106,12 +107,14 @@ func (s *Server) SetRemoteServices(
 	conns *service.Connectors,
 	library *service.Library,
 	activity *service.Activity,
+	official *service.Official,
 ) {
 	s.devices = devices
 	s.goals = goals
 	s.conns = conns
 	s.library = library
 	s.activity = activity
+	s.official = official
 }
 
 // Handler 构建完整路由。
@@ -254,6 +257,9 @@ func (s *Server) Handler() http.Handler {
 		userMux.HandleFunc("GET /v1/library/{id}", s.handleGetArtifact)
 		userMux.HandleFunc("DELETE /v1/library/{id}", s.handleDeleteArtifact)
 	}
+	if s.official != nil {
+		userMux.HandleFunc("GET /v1/official", s.handleOfficial)
+	}
 	if s.devices != nil {
 		userMux.HandleFunc("POST /v1/devices/pair-code", s.handleIssuePairCode)
 		userMux.HandleFunc("GET /v1/devices", s.handleListDevices)
@@ -276,7 +282,7 @@ func (s *Server) Handler() http.Handler {
 		"/v1/conversations", "/v1/conversations/", "/v1/memories",
 		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/", "/v1/teams", "/v1/teams/",
 		"/v1/goals", "/v1/goals/", "/v1/connectors", "/v1/connectors/",
-		"/v1/library", "/v1/library/", "/v1/devices", "/v1/devices/",
+		"/v1/library", "/v1/library/", "/v1/devices", "/v1/devices/", "/v1/official",
 		"/v1/wallet", "/v1/redeem",
 	} {
 		mux.Handle(p, authMW(userMux))

@@ -19,6 +19,9 @@ type Goal struct {
 	Assignees []string `json:"assignees,omitempty"`
 	// RunIDs 关联的执行任务，进度与产出从这里取。
 	RunIDs []string `json:"runIds,omitempty"`
+	// Steps 步骤清单。设计图里目标卡要显示「完成=墨黑勾、等待=琥珀点、
+	// 未开始=灰圈」三态，所以步骤必须是一等结构而不是纯文本。
+	Steps []GoalStep `json:"steps,omitempty"`
 	// ManualProgress 用户手动设定的进度（0-100）。为 -1 表示不手动覆盖，
 	// 用派生进度。用 -1 而不是 0，是因为 0 是合法的手动值。
 	ManualProgress int       `json:"manualProgress"`
@@ -105,4 +108,32 @@ type Artifact struct {
 	// Summary 列表页用的摘要，不返回全文。
 	Summary   string    `json:"summary,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+// GoalStep 目标下的一个步骤。
+//
+// 三态对应设计规范：
+//
+//	done    → 墨黑勾圆
+//	waiting → 琥珀点描边圆（等人处理，比如待审批）
+//	todo    → 灰圈
+type GoalStep struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Status done | waiting | todo
+	Status string `json:"status"`
+	// Owner 负责人角色 key，可空
+	Owner string `json:"owner,omitempty"`
+}
+
+// GoalStep 状态常量。
+const (
+	StepDone    = "done"
+	StepWaiting = "waiting"
+	StepTodo    = "todo"
+)
+
+// ValidStepStatus 校验步骤状态。
+func ValidStepStatus(s string) bool {
+	return s == StepDone || s == StepWaiting || s == StepTodo
 }

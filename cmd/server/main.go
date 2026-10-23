@@ -353,7 +353,8 @@ func main() {
 	conns := service.NewConnectors(st)
 	library := service.NewLibrary(st)
 	activity := service.NewActivity(agentMgr)
-	srv.SetRemoteServices(devices, goals, conns, library, activity)
+	official := service.NewOfficial(st)
+	srv.SetRemoteServices(devices, goals, conns, library, activity, official)
 	orch.SetActivity(activity)
 	orch.SetLibrary(library)
 

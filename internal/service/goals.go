@@ -139,6 +139,16 @@ func (g *Goals) Update(userID, id string, patch GoalPatch) (*GoalView, error) {
 	if patch.RunIDs != nil {
 		cur.RunIDs = *patch.RunIDs
 	}
+	if patch.Steps != nil {
+		for _, st := range *patch.Steps {
+			if !domain.ValidStepStatus(st.Status) {
+				return nil, errors.New("步骤状态只能是 done / waiting / todo")
+			}
+		}
+		cur.Steps = *patch.Steps
+		// 步骤全完成 → 目标自动完成；有 waiting → 目标是 doing
+		cur.Status = deriveStatusFromSteps(cur.Steps, cur.Status)
+	}
 	if patch.ManualProgress != nil {
 		p := *patch.ManualProgress
 		if p < -1 || p > 100 {
@@ -172,4 +182,35 @@ type GoalPatch struct {
 	Assignees      *[]string
 	RunIDs         *[]string
 	ManualProgress *int
+	Steps          *[]domain.GoalStep
+}
+
+/**
+ * deriveStatusFromSteps 从步骤推导目标状态。
+ *
+ * 规则：全 done → 目标 done；有 waiting → doing；否则保持原状。
+ * 这样用户只需要勾步骤，不用再手动改目标状态——两处状态不会打架。
+ */
+func deriveStatusFromSteps(steps []domain.GoalStep, cur string) string {
+	if len(steps) == 0 {
+		return cur
+	}
+	allDone := true
+	hasWaiting := false
+	for _, s := range steps {
+		if s.Status != domain.StepDone {
+			allDone = false
+		}
+		if s.Status == domain.StepWaiting {
+			hasWaiting = true
+		}
+	}
+	switch {
+	case allDone:
+		return domain.GoalDone
+	case hasWaiting:
+		return domain.GoalDoing
+	default:
+		return cur
+	}
 }

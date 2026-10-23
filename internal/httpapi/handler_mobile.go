@@ -34,13 +34,14 @@ func (s *Server) handleCreateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Title          string   `json:"title"`
-		Description    string   `json:"description"`
-		Status         string   `json:"status"`
-		Assignees      []string `json:"assignees"`
-		RunIDs         []string `json:"runIds"`
-		ConversationID string   `json:"conversationId"`
-		ManualProgress *int     `json:"manualProgress"`
+		Title          string            `json:"title"`
+		Description    string            `json:"description"`
+		Status         string            `json:"status"`
+		Assignees      []string          `json:"assignees"`
+		RunIDs         []string          `json:"runIds"`
+		Steps          []domain.GoalStep `json:"steps"`
+		ConversationID string            `json:"conversationId"`
+		ManualProgress *int              `json:"manualProgress"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
@@ -48,7 +49,7 @@ func (s *Server) handleCreateGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	g := domain.Goal{
 		Title: req.Title, Description: req.Description, Status: req.Status,
-		Assignees: req.Assignees, RunIDs: req.RunIDs,
+		Assignees: req.Assignees, RunIDs: req.RunIDs, Steps: req.Steps,
 		ConversationID: req.ConversationID, ManualProgress: -1,
 	}
 	if req.ManualProgress != nil {
@@ -80,12 +81,13 @@ func (s *Server) handleUpdateGoal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Title          *string   `json:"title"`
-		Description    *string   `json:"description"`
-		Status         *string   `json:"status"`
-		Assignees      *[]string `json:"assignees"`
-		RunIDs         *[]string `json:"runIds"`
-		ManualProgress *int      `json:"manualProgress"`
+		Title          *string            `json:"title"`
+		Description    *string            `json:"description"`
+		Status         *string            `json:"status"`
+		Assignees      *[]string          `json:"assignees"`
+		RunIDs         *[]string          `json:"runIds"`
+		Steps          *[]domain.GoalStep `json:"steps"`
+		ManualProgress *int               `json:"manualProgress"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
@@ -93,7 +95,8 @@ func (s *Server) handleUpdateGoal(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.goals.Update(u.ID, r.PathValue("id"), service.GoalPatch{
 		Title: req.Title, Description: req.Description, Status: req.Status,
-		Assignees: req.Assignees, RunIDs: req.RunIDs, ManualProgress: req.ManualProgress,
+		Assignees: req.Assignees, RunIDs: req.RunIDs, Steps: req.Steps,
+		ManualProgress: req.ManualProgress,
 	})
 	if err != nil {
 		if err == service.ErrGoalNotFound {
@@ -322,4 +325,31 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, s.activity.ForConversation(conv.ID, service.ConversationAgents(conv)))
+}
+
+/* ---------------- 官方群 ---------------- */
+
+// handleOfficial 返回（必要时创建）官方群「纸团新手村」。
+//
+// 设计规范附录 B1：新用户完成配对/登录后默认落在这里。
+// 幂等——客户端每次启动都可以调，不会重复建群。
+func (s *Server) handleOfficial(w http.ResponseWriter, r *http.Request) {
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	if s.official == nil {
+		notFound(w, "未启用官方群")
+		return
+	}
+	conv, err := s.official.Ensure(u.ID)
+	if err != nil {
+		serverErr(w, err.Error())
+		return
+	}
+	ok(w, map[string]any{
+		"conversation": conv,
+		"hints":        service.OfficialHint(),
+	})
 }
