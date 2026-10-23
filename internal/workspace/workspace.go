@@ -224,6 +224,26 @@ func (w *Workspace) List(p string) ([]FileInfo, error) {
 	return out, nil
 }
 
+// OpenFile 打开工作区内的一个文件用于整文件读取（下载/预览）。
+func (w *Workspace) OpenFile(p string) (*os.File, os.FileInfo, error) {
+	full, err := w.resolve(p, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return nil, nil, err
+	}
+	if info.IsDir() {
+		return nil, nil, fmt.Errorf("%w: %s", ErrIsDir, p)
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, info, nil
+}
+
 // FileChunk 一段文件内容（按行分页）。
 type FileChunk struct {
 	Path       string `json:"path"`

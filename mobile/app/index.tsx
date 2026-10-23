@@ -14,7 +14,7 @@ import { Canvas } from '../src/components/Canvas';
 import { FadeInUp } from '../src/components/motion';
 import { Button, Icon, Input, Row, T, grad } from '../src/components/ui';
 import { humanError } from '../src/lib/api';
-import { loginWithCode, pairWith, sendCode } from '../src/lib/session';
+import { loginWithCode, loginWithPassword, pairWith, sendCode } from '../src/lib/session';
 import { useApp } from '../src/lib/store';
 import { useTheme } from '../src/theme/theme';
 import { gap, leading, radius, type } from '../src/theme/tokens';
@@ -34,6 +34,8 @@ export default function Entry() {
   const [code, setCode] = useState('');
   const [target, setTarget] = useState('');
   const [smsCode, setSmsCode] = useState('');
+  const [pwMode, setPwMode] = useState(false);
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [hint, setHint] = useState('');
@@ -75,10 +77,15 @@ export default function Entry() {
 
   async function doLogin() {
     setErr('');
-    if (!/^\d{6}$/.test(smsCode.trim())) return setErr('验证码是 6 位数字');
+    if (pwMode) {
+      if (!password) return setErr('先填密码');
+    } else if (!/^\d{6}$/.test(smsCode.trim())) {
+      return setErr('验证码是 6 位数字');
+    }
     setBusy(true);
     try {
-      await loginWithCode(host, target.trim(), smsCode.trim());
+      if (pwMode) await loginWithPassword(host, target.trim(), password);
+      else await loginWithCode(host, target.trim(), smsCode.trim());
       router.replace('/(main)');
     } catch (e) {
       setErr(humanError(e));
@@ -149,15 +156,28 @@ export default function Entry() {
                   <Field label="手机号 / 邮箱" icon="person-outline">
                     <Input value={target} onChangeText={setTarget} placeholder="13800000000" />
                   </Field>
-                  <Field label="验证码" icon="shield-checkmark-outline">
-                    <Row gap={gap.xs}>
-                      <View style={{ flex: 1 }}>
-                        <Input value={smsCode} onChangeText={setSmsCode} placeholder="6 位数字" keyboardType="numeric" />
-                      </View>
-                      <Button label="获取" variant="secondary" onPress={doSendCode} disabled={busy} style={{ width: 78 }} />
-                    </Row>
-                  </Field>
-                  {hint ? <T size={type.sub} color={t.ink3}>{hint}</T> : null}
+                  {pwMode ? (
+                    <Field label="密码" icon="lock-closed-outline">
+                      <Input value={password} onChangeText={setPassword} placeholder="至少 8 位" secure />
+                    </Field>
+                  ) : (
+                    <>
+                      <Field label="验证码" icon="shield-checkmark-outline">
+                        <Row gap={gap.xs}>
+                          <View style={{ flex: 1 }}>
+                            <Input value={smsCode} onChangeText={setSmsCode} placeholder="6 位数字" keyboardType="numeric" />
+                          </View>
+                          <Button label="获取" variant="secondary" onPress={doSendCode} disabled={busy} style={{ width: 78 }} />
+                        </Row>
+                      </Field>
+                      {hint ? <T size={type.sub} color={t.ink3}>{hint}</T> : null}
+                    </>
+                  )}
+                  <Pressable onPress={() => { setPwMode((v) => !v); setErr(''); }} hitSlop={6}>
+                    <T size={type.caption} color={t.accent} weight="600">
+                      {pwMode ? '改用验证码登录' : '用密码登录'}
+                    </T>
+                  </Pressable>
                   {err ? <ErrorLine msg={err} /> : null}
                   <Button label="登录" onPress={doLogin} loading={busy} full />
                 </>

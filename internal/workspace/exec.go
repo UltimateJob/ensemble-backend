@@ -30,6 +30,8 @@ type Command struct {
 	Cwd     string            `json:"cwd,omitempty"` // 相对工作区路径，默认 root
 	Timeout time.Duration     `json:"timeout,omitempty"`
 	Env     map[string]string `json:"env,omitempty"` // 追加在最小环境之上
+	// RunToken 用于结束后清扫脱离进程组的残留进程（见 SweepMarked）。
+	RunToken string `json:"-"`
 }
 
 // CommandResult 执行结果。
@@ -190,6 +192,11 @@ func (w *Workspace) Run(ctx context.Context, c Command) (*CommandResult, error) 
 	cmd.Stderr = errOut
 	cmd.Stdin = nil
 	cmd.SysProcAttr = procAttr() // 独立进程组，便于整组清理
+	// 后台进程（nohup go run ... &）会继承 stdout/stderr 管道。如果不设
+	// WaitDelay，cmd.Wait 会一直等管道 EOF，明明 shell 已经退出，工具调用
+	// 却要卡满 120 秒（基准里单聊为此浪费了两分钟）。
+	// 3 秒后强制关闭管道；后台进程本身继续运行。
+	cmd.WaitDelay = 3 * time.Second
 
 	start := time.Now()
 	if err := cmd.Start(); err != nil {
@@ -206,7 +213,7 @@ func (w *Workspace) Run(ctx context.Context, c Command) (*CommandResult, error) 
 		killGroup(cmd)
 		<-done
 	case err := <-done:
-		if err != nil {
+		if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 			var exitErr *exec.ExitError
 			if !errors.As(err, &exitErr) {
 				return nil, err

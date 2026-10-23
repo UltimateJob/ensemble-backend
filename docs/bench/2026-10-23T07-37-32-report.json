@@ -1,0 +1,651 @@
+{
+  "stamp": "2026-10-23T07-37-32",
+  "base": "http://127.0.0.1:8098",
+  "results": [
+    {
+      "case": "todo-fullstack",
+      "title": "待办 Web 系统（Go API + 静态前端）",
+      "kind": "complex",
+      "mode": "solo",
+      "convId": "c_c1d5929bb4cb3aa1",
+      "outcome": {
+        "mode": "solo",
+        "wallMs": 118626,
+        "phases": [
+          {
+            "name": "实现",
+            "wallMs": 118626
+          }
+        ],
+        "runs": [
+          {
+            "id": "run_4222848394473e46",
+            "agentKey": "solo",
+            "agentName": "单聊工程师",
+            "status": "done",
+            "steps": 20,
+            "tokensIn": 181059,
+            "tokensOut": 12749,
+            "toolCalls": 27,
+            "changedFiles": 9,
+            "summary": "完成。\n\n**做了什么**\n- `backend/`：Go 标准库实现，`store.go`（`sync.RWMutex` 保护的内存存储）、`api.go`（`GET/POST /api/todos`、`PATCH/DELETE /api/todos/{id}`，用 Go 1.22 的 `ServeMux` 方法+路径模式路由，`/` 同源托管 `web/`，未定义的 `/api/*` 也返回 JSON 404）、`main.go`（`-addr` / `-web` 参数）、`api_test.go`（9 个测试用例）。\n- `web/`：`index.html` + `style.css` + `app.js`，纯原生 JS，无外部依赖；添加、勾选（乐观更新+失败回滚）、删除、统计行，文本用 `textContent` 渲染防 XSS。\n- `README.md`：目录结构、启动/编译/测试命令、四个接口的契约与 curl 示例、错误格式。\n\n**验证结果**\n- `cd backend && go test ./...` → `ok todo`；`go test -race -count=1 ./...` 也通过，`go vet` 与 `gofmt -l` 均无输出。\n- `go run . -addr :18080 -web ../web` 启动后用 curl 实测：`POST` → **201** 并返回 `{\"id\":1,\"text\":\"买牛奶\",\"done\":false}`；`PATCH` → 200 `done:true`；`GET` → 200 数组；`DELETE` → **204** 空响应体；重复 `DELETE` → **404** `{\"error\":\"待办不存在\"}`；`GET /` 与 `style.css`/`app.js` 均 200。验证完已停止服务。\n- 附带修复：`go.mod` 的 `go` 指令改为 `1.22`（实际用到了 1.22 的路由模式，原先误写 1.24）。\n\n**剩余**：无功能缺口；数据存在内存中，进程重启即清空（需求如此）。",
+            "error": "",
+            "elapsedMs": 115232
+          }
+        ],
+        "status": "done",
+        "error": ""
+      },
+      "verification": {
+        "workspace": "/tmp/ensemble-bench/2026-10-23T07-37-32/todo-fullstack/solo",
+        "files": [
+          {
+            "path": "README.md",
+            "size": 3805
+          },
+          {
+            "path": "backend/api.go",
+            "size": 3120
+          },
+          {
+            "path": "backend/api_test.go",
+            "size": 7395
+          },
+          {
+            "path": "backend/go.mod",
+            "size": 21
+          },
+          {
+            "path": "backend/main.go",
+            "size": 601
+          },
+          {
+            "path": "backend/store.go",
+            "size": 1416
+          },
+          {
+            "path": "web/app.js",
+            "size": 4967
+          },
+          {
+            "path": "web/index.html",
+            "size": 1348
+          },
+          {
+            "path": "web/style.css",
+            "size": 3116
+          }
+        ],
+        "verify": {
+          "code": 0,
+          "out": "ok  \ttodo\t0.169s\n",
+          "err": ""
+        },
+        "smoke": {
+          "requests": [
+            {
+              "method": "GET",
+              "path": "/api/todos",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "[]\n"
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"id\":1,\"text\":\"基准测试\",\"done\":false}\n",
+              "expect": [
+                200,
+                201
+              ],
+              "status": 201,
+              "ok": true
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/todos/1",
+              "body": "{\"id\":1,\"text\":\"基准测试\",\"done\":true}\n",
+              "expect": [
+                200,
+                204
+              ],
+              "status": 200,
+              "ok": true
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/todos/1",
+              "expect": [
+                200,
+                204
+              ],
+              "status": 204,
+              "ok": true,
+              "body": ""
+            },
+            {
+              "method": "GET",
+              "path": "/",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n  <title>待办事项</title>\n  <link rel=\"stylesheet\" href=\"style.css\" />\n</head>\n<body>\n  <main class=\"app\">\n    <header class=\"app__header\">\n      <h1>待办事项</h1>"
+            }
+          ],
+          "log": "2026/10/23 15:39:34 待办服务已启动: http://localhost127.0.0.1:18080 (静态目录: ../web)\n"
+        },
+        "checks": [
+          {
+            "name": "后端测试通过",
+            "ok": true
+          },
+          {
+            "name": "前端页面存在",
+            "ok": true
+          },
+          {
+            "name": "前端脚本存在",
+            "ok": true
+          },
+          {
+            "name": "后端入口存在",
+            "ok": true
+          },
+          {
+            "name": "README 存在",
+            "ok": true
+          },
+          {
+            "name": "API 覆盖四种操作",
+            "ok": true
+          },
+          {
+            "name": "前后端接口一致",
+            "ok": true
+          },
+          {
+            "name": "新增字段遵循契约(text)",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET /api/todos → 200",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 201",
+            "ok": true
+          },
+          {
+            "name": "冒烟 PATCH /api/todos/1 → 200",
+            "ok": true
+          },
+          {
+            "name": "冒烟 DELETE /api/todos/1 → 204",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET / → 200",
+            "ok": true
+          }
+        ],
+        "score": 100
+      }
+    },
+    {
+      "case": "todo-fullstack",
+      "title": "待办 Web 系统（Go API + 静态前端）",
+      "kind": "complex",
+      "mode": "team",
+      "convId": "c_5948700ecb1b9792",
+      "outcome": {
+        "mode": "team",
+        "teamId": "team_c50d75ab1c6a5eac",
+        "wallMs": 310719,
+        "phases": [
+          {
+            "name": "规划",
+            "wallMs": 150649
+          },
+          {
+            "name": "并行开发",
+            "wallMs": 116046
+          },
+          {
+            "name": "验收",
+            "wallMs": 44021
+          }
+        ],
+        "runs": [
+          {
+            "id": "run_b9a0f862b38348b5",
+            "agentKey": "backend",
+            "agentName": "后端",
+            "status": "done",
+            "steps": 16,
+            "tokensIn": 144992,
+            "tokensOut": 13423,
+            "toolCalls": 21,
+            "changedFiles": 6,
+            "summary": "没有遗留构建产物或临时文件。所有工作已完成：\n\n**改动文件**\n- `backend/go.mod` — module `todo/backend`，无第三方依赖\n- `backend/store.go` — `Todo` 模型 + `Store`（`map[string]Todo` + `sync.Mutex` + `order []string` 保证列表顺序，自增 id 转字符串，`List` 返回 `make([]Todo,0,...)` 确保空列表序列化为 `[]`）\n- `backend/api.go` — 路由与 handler：`/api/todos`（GET/POST）、`/api/todos/{id}`（PATCH/DELETE）、`/api/` 兜底 404；统一 `Content-Type: application/json; charset=utf-8`，错误体 `{\"error\":\"...\"}`\n- `backend/main.go` — `-addr` / `-web` 参数、`http.ServeMux` 把 `/api/` 与 `/` 分别挂载（同源）、静态目录请求默认落 `index.html`、访问日志、`ReadHeaderTimeout`\n- `backend/api_test.go` — 单测覆盖 GET(200 空 `[]` / 200 有数据)、POST(201 / 400 四种)、PATCH(200 双向 / 400 三种 / 404)、DELETE(204 无 body / 404 含重复删除)、未匹配 `/api/*` 404、Store 并发\n- `README.md` — 启动、测试、四个接口契约与 curl 示例、实现要点\n\n**验证结果**\n- `cd backend && go vet ./...` → 通过（`gofmt -l .` 无输出）\n- `cd backend && go test ./...` → `ok todo/backend`\n- `cd backend && go test -race -v ./...` → 13 个用例全部 PASS，无数据竞争\n- 真实启动 `go run . -addr :18080 -web ../web` 后 curl 实测：`GET /api/todos` → 200 `[]`；`POST {\"text\":\"买牛奶\"}` → 201 `{\"id\":\"1\",\"text\":\"买牛奶\",\"done\":false}`；空 text → 400；`PATCH /api/todos/1 {\"done\":true}` → 200 `done:true`；`PATCH /api/todos/999` → 404 `{\"error\":\"todo not fou",
+            "error": "",
+            "elapsedMs": 116776
+          },
+          {
+            "id": "run_3f53dbc212e19af5",
+            "agentKey": "frontend",
+            "agentName": "前端",
+            "status": "done",
+            "steps": 13,
+            "tokensIn": 112167,
+            "tokensOut": 12318,
+            "toolCalls": 18,
+            "changedFiles": 3,
+            "summary": "完成 13 步，改动 3 个文件",
+            "error": "",
+            "elapsedMs": 106240
+          }
+        ],
+        "status": "done",
+        "score": 100,
+        "repairs": 0,
+        "checks": [
+          {
+            "name": "backend-vet",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "backend-unit-tests",
+            "passed": true,
+            "exitCode": 0,
+            "output": "ok  \ttodo/backend\t(cached)"
+          },
+          {
+            "name": "backend-build",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "backend-gofmt-clean",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "web-entry-exists",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "web-calls-api",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "web-no-external-resources",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "readme-exists",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          }
+        ],
+        "review": {
+          "agentKey": "qa",
+          "verdict": "pass",
+          "summary": "交付齐全（backend 四个 Go 文件 + 单测、web 三件套、README），路由/存储/状态码与固定契约一致，确定性验证全通过，未发现阻塞性功能缺陷；剩余为可改进项与需人工确认的边界点。",
+          "issues": [
+            "backend/backend 疑似编译产物被一并交付：复现 `ls backend/backend`（工作区文件清单中存在该文件）。不影响 go vet/go test，但建议删除并加 .gitignore，避免二进制入库与误用旧产物启动。",
+            "index.html 的元素 id 必须与 app.js 的 getElementById 一一对应（composer/new-todo/submit/notice/summary/error-detail/retry/state-loading/state-error/state-empty/todo-list/panel）。边界条件：任一 id 缺失或拼写不一致时，setView 访问 null 属性会在首屏抛 JS 异常导致白屏（列表、添加、勾选、删除全部不可用）。自动化 check 只覆盖「调用了 API」，建议人工打开 GET / 确认：先渲染空态 → 添加一条 → 勾选 → 删除，全程 console 无报错。",
+            "方法不匹配的状态码：`curl -i -X PUT http://127.0.0.1:18080/api/todos` 返回 404 + Allow（api.go handleTodos default 分支），`PUT /api/todos/1` 同理。与契约状态码全集(200/201/204/400/404)不冲突，但建议 README 注明，避免调用方按 405 处理。",
+            "`curl -i http://127.0.0.1:18080/api`（无尾斜杠）会先被 ServeMux 301 到 `/api/`，只在跟随重定向后才是 JSON 404 体；建议在 README 的 404 说明里点明，或确认该情况无需覆盖。",
+            "`curl -i -X POST http://127.0.0.1:18080/` 返回 405 + text/plain 体（main.go staticHandler），与 /api/* 统一 JSON 错误风格不一致。非 /api/* 不受契约约束，属风格问题。",
+            "app.js 中 `var noticeTimer` 上方注释写的是「首次加载是否已完成过」，与实际用途不符（陈旧注释），后续维护容易误读。"
+          ],
+          "nits": [
+            "backend/backend 疑似编译产物被一并交付：复现 `ls backend/backend`（工作区文件清单中存在该文件）。不影响 go vet/go test，但建议删除并加 .gitignore，避免二进制入库与误用旧产物启动。",
+            "index.html 的元素 id 必须与 app.js 的 getElementById 一一对应（composer/new-todo/submit/notice/summary/error-detail/retry/state-loading/state-error/state-empty/todo-list/panel）。边界条件：任一 id 缺失或拼写不一致时，setView 访问 null 属性会在首屏抛 JS 异常导致白屏（列表、添加、勾选、删除全部不可用）。自动化 check 只覆盖「调用了 API」，建议人工打开 GET / 确认：先渲染空态 → 添加一条 → 勾选 → 删除，全程 console 无报错。",
+            "方法不匹配的状态码：`curl -i -X PUT http://127.0.0.1:18080/api/todos` 返回 404 + Allow（api.go handleTodos default 分支），`PUT /api/todos/1` 同理。与契约状态码全集(200/201/204/400/404)不冲突，但建议 README 注明，避免调用方按 405 处理。",
+            "`curl -i http://127.0.0.1:18080/api`（无尾斜杠）会先被 ServeMux 301 到 `/api/`，只在跟随重定向后才是 JSON 404 体；建议在 README 的 404 说明里点明，或确认该情况无需覆盖。",
+            "`curl -i -X POST http://127.0.0.1:18080/` 返回 405 + text/plain 体（main.go staticHandler），与 /api/* 统一 JSON 错误风格不一致。非 /api/* 不受契约约束，属风格问题。",
+            "app.js 中 `var noticeTimer` 上方注释写的是「首次加载是否已完成过」，与实际用途不符（陈旧注释），后续维护容易误读。"
+          ]
+        },
+        "assignments": [
+          {
+            "agentKey": "backend",
+            "agentName": "后端",
+            "task": "在 backend/ 用 Go 标准库实现 API（main.go + 内存存储 map/sync.Mutex + handler），固定契约：GET /api/todos→200 JSON 数组 [{\"id\":\"<字符串>\",\"text\":\"...\",\"done\":false}]；POST /api/todos 请求 {\"text\":\"买牛奶\"}→201 返回新建对象；PATCH /api/todos/{id} 请求 {\"done\":true}→200 返回更新后对象；DELETE /api/todos/{id}→204 无体；id 不存在一律 404 + JSON 错误体。启动入口支持 go run . -addr :18080 -web ../web，-web 目录同源托管（GET / 返回 index.html）。附单元测试覆盖各状态码与 404。自验命令：cd backend && go test ./...；并补齐「README.md」。",
+            "scope": [
+              "backend/",
+              "server/",
+              "api/",
+              "cmd/",
+              "internal/",
+              "pkg/",
+              "go.mod",
+              "go.sum",
+              "*.go",
+              "README.md"
+            ]
+          },
+          {
+            "agentKey": "frontend",
+            "agentName": "前端",
+            "task": "在 web/ 写 index.html（可拆 style.css/app.js，无框架无 CDN，纯静态由后端托管）：加载时 GET /api/todos 渲染列表；输入框添加调 POST /api/todos 并把 201 返回的对象加入列表；勾选调 PATCH /api/todos/{id} {\"done\":true|false}；删除调 DELETE /api/todos/{id} 成功后移除；统一 JSON 请求/响应，处理非 2xx（如 404）。只改 web/。",
+            "scope": [
+              "web/",
+              "frontend/",
+              "client/",
+              "ui/",
+              "public/",
+              "*.html",
+              "*.css",
+              "*.js",
+              "*.ts",
+              "*.tsx",
+              "*.jsx",
+              "*.vue"
+            ]
+          }
+        ],
+        "issues": [],
+        "plan": {
+          "objective": "交付待办事项 Web 系统：backend/ 内 Go 标准库 REST API（内存存储、同源托管静态页），四个接口按固定契约工作，测试与 curl 验证全部通过",
+          "acceptance": [
+            "cd backend && go vet ./... 与 go test ./... 全部通过；单测覆盖 GET(200)、POST(201/400)、PATCH(200/400/404)、DELETE(204/404) 分支",
+            "go run . -addr :18080 -web ../web 可启动；GET / 返回 web/index.html（text/html），同源托管",
+            "四个接口按契约工作：GET 返回 JSON 数组（空为 []）；POST {\"text\":\"买牛奶\"}→201 且 done=false、id 为字符串；PATCH {\"done\":true}→200 且 done=true；DELETE→204；不存在 id 的 PATCH/DELETE→404",
+            "web/ 纯静态、无框架、无 CDN/外链资源；页面加载渲染列表，添加/勾选/删除分别调用 GET/POST、PATCH、DELETE /api/todos",
+            "README.md 覆盖启动命令（go run . -addr :18080 -web ../web）、测试命令（cd backend && go test ./...）、四个接口契约与 curl 示例",
+            "交付前实际启动服务并 curl 验证四个接口（由 qa 按分工执行，属交付流程，不入自动化验证）",
+            "文件归属：backend 只写 backend/，frontend 只写 web/，arch 只写 README.md"
+          ],
+          "contracts": "统一约定：所有 /api/* 响应 Content-Type: application/json; charset=utf-8；静态文件由后端经 -web 指定目录同源托管（GET / 返回 web/index.html）。\n资源模型 Todo：{\"id\":\"<string>\",\"text\":\"<string>\",\"done\":<bool>}；id 由服务端生成、全局唯一、以字符串出现在路径与响应中；done 默认 false。\n1) GET /api/todos → 200，body 为 JSON 数组（空列表返回 []，禁止 null）。\n2) POST /api/todos，请求体 {\"text\":\"买牛奶\"}；text 缺失/非字符串/去空白后为空 → 400；成功 → 201 + 新建的 Todo 对象。\n3) PATCH /api/todos/{id}，请求体 {\"done\":true}；成功 → 200 + 更新后的完整 Todo；id 不存在 → 404；done 缺失/非布尔 → 400。\n4) DELETE /api/todos/{id} → 204 无 body；id 不存在 → 404。\n5) 未匹配的 /api/* → 404；错误响应统一 JSON，字段名固定为 {\"error\":\"...\"}。\n状态码全集：200/201/204/400/404。前端仅依赖上述字段，不依赖其它响应头；id 一律按字符串处理。",
+          "assignments": [
+            {
+              "agentKey": "backend",
+              "agentName": "后端",
+              "task": "在 backend/ 用 Go 标准库实现 API（main.go + 内存存储 map/sync.Mutex + handler），固定契约：GET /api/todos→200 JSON 数组 [{\"id\":\"<字符串>\",\"text\":\"...\",\"done\":false}]；POST /api/todos 请求 {\"text\":\"买牛奶\"}→201 返回新建对象；PATCH /api/todos/{id} 请求 {\"done\":true}→200 返回更新后对象；DELETE /api/todos/{id}→204 无体；id 不存在一律 404 + JSON 错误体。启动入口支持 go run . -addr :18080 -web ../web，-web 目录同源托管（GET / 返回 index.html）。附单元测试覆盖各状态码与 404。自验命令：cd backend && go test ./...；并补齐「README.md」。",
+              "scope": [
+                "backend/",
+                "server/",
+                "api/",
+                "cmd/",
+                "internal/",
+                "pkg/",
+                "go.mod",
+                "go.sum",
+                "*.go",
+                "README.md"
+              ]
+            },
+            {
+              "agentKey": "frontend",
+              "agentName": "前端",
+              "task": "在 web/ 写 index.html（可拆 style.css/app.js，无框架无 CDN，纯静态由后端托管）：加载时 GET /api/todos 渲染列表；输入框添加调 POST /api/todos 并把 201 返回的对象加入列表；勾选调 PATCH /api/todos/{id} {\"done\":true|false}；删除调 DELETE /api/todos/{id} 成功后移除；统一 JSON 请求/响应，处理非 2xx（如 404）。只改 web/。",
+              "scope": [
+                "web/",
+                "frontend/",
+                "client/",
+                "ui/",
+                "public/",
+                "*.html",
+                "*.css",
+                "*.js",
+                "*.ts",
+                "*.tsx",
+                "*.jsx",
+                "*.vue"
+              ]
+            }
+          ],
+          "verification": [
+            {
+              "name": "backend-vet",
+              "argv": [
+                "go",
+                "vet",
+                "./..."
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "backend-unit-tests",
+              "argv": [
+                "go",
+                "test",
+                "./..."
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "backend-build",
+              "argv": [
+                "go",
+                "build",
+                "./..."
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "backend-gofmt-clean",
+              "argv": [
+                "sh",
+                "-c",
+                "test -z \"$(gofmt -l .)\""
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "web-entry-exists",
+              "argv": [
+                "test",
+                "-f",
+                "index.html"
+              ],
+              "cwd": "web"
+            },
+            {
+              "name": "web-calls-api",
+              "argv": [
+                "grep",
+                "-rq",
+                "/api/todos",
+                "web/"
+              ]
+            },
+            {
+              "name": "web-no-external-resources",
+              "argv": [
+                "sh",
+                "-c",
+                "if grep -rqiE '<(script|link)[^>]+(src|href)=.https?://' web/; then echo external-resource-found; exit 1; fi"
+              ]
+            },
+            {
+              "name": "readme-exists",
+              "argv": [
+                "test",
+                "-f",
+                "README.md"
+              ],
+              "cwd": "."
+            }
+          ],
+          "reviewerKey": "qa",
+          "notes": "本清单只含离线只读/构建/测试命令；qa 的真实启动 + curl 验证属交付步骤，按既有分工执行。id 生成方式（自增或随机串）由 backend 自定，前端不得假设为数字。PATCH 仅接受 done 字段做部分更新。静态托管需支持 index.html 默认页与同源相对路径调用 /api/todos。"
+        },
+        "error": ""
+      },
+      "verification": {
+        "workspace": "/tmp/ensemble-bench/2026-10-23T07-37-32/todo-fullstack/team",
+        "files": [
+          {
+            "path": "README.md",
+            "size": 3807
+          },
+          {
+            "path": "backend/api.go",
+            "size": 3599
+          },
+          {
+            "path": "backend/api_test.go",
+            "size": 8829
+          },
+          {
+            "path": "backend/backend",
+            "size": 8343826
+          },
+          {
+            "path": "backend/go.mod",
+            "size": 29
+          },
+          {
+            "path": "backend/main.go",
+            "size": 1828
+          },
+          {
+            "path": "backend/store.go",
+            "size": 1775
+          },
+          {
+            "path": "web/app.js",
+            "size": 11451
+          },
+          {
+            "path": "web/index.html",
+            "size": 1822
+          },
+          {
+            "path": "web/style.css",
+            "size": 6188
+          }
+        ],
+        "verify": {
+          "code": 0,
+          "out": "ok  \ttodo/backend\t0.502s\n",
+          "err": ""
+        },
+        "smoke": {
+          "requests": [
+            {
+              "method": "GET",
+              "path": "/api/todos",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "[]\n"
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"id\":\"1\",\"text\":\"基准测试\",\"done\":false}\n",
+              "expect": [
+                200,
+                201
+              ],
+              "status": 201,
+              "ok": true
+            },
+            {
+              "method": "PATCH",
+              "path": "/api/todos/1",
+              "body": "{\"id\":\"1\",\"text\":\"基准测试\",\"done\":true}\n",
+              "expect": [
+                200,
+                204
+              ],
+              "status": 200,
+              "ok": true
+            },
+            {
+              "method": "DELETE",
+              "path": "/api/todos/1",
+              "expect": [
+                200,
+                204
+              ],
+              "status": 204,
+              "ok": true,
+              "body": ""
+            },
+            {
+              "method": "GET",
+              "path": "/",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>待办事项</title>\n<link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n<main class=\"app\">\n  <header class=\"app__header\">\n    <h1 class=\"app__title\">待办事项</h1>\n  "
+            }
+          ],
+          "log": "2026/10/23 15:44:48 todo server listening on 127.0.0.1:18080 (static dir: ../web)\n2026/10/23 15:44:48 GET /api/todos 89.625µs\n2026/10/23 15:44:48 POST /api/todos 121.459µs\n2026/10/23 15:44:48 PATCH /api/todos/1 20.208µs\n2026/10/23 15:44:48 DELETE /api/todos/1 2.375µs\n2026/10/23 15:44:48 GET / 1.012167ms\n"
+        },
+        "checks": [
+          {
+            "name": "后端测试通过",
+            "ok": true
+          },
+          {
+            "name": "前端页面存在",
+            "ok": true
+          },
+          {
+            "name": "前端脚本存在",
+            "ok": true
+          },
+          {
+            "name": "后端入口存在",
+            "ok": true
+          },
+          {
+            "name": "README 存在",
+            "ok": true
+          },
+          {
+            "name": "API 覆盖四种操作",
+            "ok": true
+          },
+          {
+            "name": "前后端接口一致",
+            "ok": true
+          },
+          {
+            "name": "新增字段遵循契约(text)",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET /api/todos → 200",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 201",
+            "ok": true
+          },
+          {
+            "name": "冒烟 PATCH /api/todos/1 → 200",
+            "ok": true
+          },
+          {
+            "name": "冒烟 DELETE /api/todos/1 → 204",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET / → 200",
+            "ok": true
+          }
+        ],
+        "score": 100
+      }
+    }
+  ]
+}

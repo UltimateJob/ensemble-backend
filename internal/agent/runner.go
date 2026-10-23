@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,9 +45,20 @@ type StartRequest struct {
 	SystemPrompt string
 	// ForceApproval 远程设备要求审批（设备策略，见 domain.Device.RequireApproval）。
 	ForceApproval bool
+	// Timeout 本次 Run 的最长执行时间。零值用 DefaultRunTimeout。
+	// 团队任务里的执行/验收阶段需要单独放宽。
+	Timeout time.Duration
 	// Origin 指令来源，如 "device:d_abc"。
 	Origin string
+	// VerifyOnly 团队流水线的执行者：允许构建/测试，但不允许联网、
+	// 起常驻服务或做端到端冒烟——那些由服务端在统一阶段执行。
+	// 这样 worker 不会把步数花在重复验证上（基准里两个 worker 都跑满了 20 步）。
+	VerifyOnly bool
 }
+
+// idleStepsBeforeStop 团队执行者连续多少步没有新写入就自动收尾。
+// 3 步足够覆盖「改完 → 跑测试 → 修一处小问题 → 复跑」，再多就是重复验证。
+const idleStepsBeforeStop = 3
 
 // 工具名常量，避免字符串散落。
 const (
@@ -175,6 +188,7 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		ConversationID: req.ConversationID,
 		UserID:         req.UserID,
 		OperatorKey:    req.OperatorKey,
+		OperatorName:   req.OperatorName,
 		Permission:     req.Permission,
 		Scope:          Scope(req.Scope),
 		AutoReview:     req.AutoReview,
@@ -187,6 +201,7 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		MaxSteps:       maxSteps,
 		ForceApproval:  req.ForceApproval,
 		Origin:         req.Origin,
+		VerifyOnly:     req.VerifyOnly,
 		StartedAt:      time.Now(),
 		cancel:         cancel,
 	}
@@ -228,18 +243,32 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		}
 		m.mu.Lock()
 		rec := m.usage
+		obs := m.onRunEnd
 		in, out := r.TokensIn, r.TokensOut
+		view := cloneRunLocked(r)
 		m.mu.Unlock()
 		if rec != nil && (in+out) > 0 {
 			rec(r.UserID, in, out)
 		}
+		// 先把结果沉淀成群消息，再发 run.end：前端收到结束事件时，
+		// messageId 已经可用，可以立刻把实时气泡标成「已落库」。
+		if obs != nil {
+			if msgID := obs(view); msgID != "" {
+				m.mu.Lock()
+				r.MessageID = msgID
+				m.mu.Unlock()
+			}
+		}
 		m.emit(r, EventRunEnd, map[string]any{
-			"status":  status,
-			"error":   errMsg,
-			"step":    r.Step,
-			"tokens":  map[string]int{"in": r.TokensIn, "out": r.TokensOut},
-			"diff":    len(r.Diffs),
-			"endedAt": r.EndedAt,
+			"status":    status,
+			"error":     errMsg,
+			"step":      r.Step,
+			"summary":   r.Summary,
+			"messageId": r.MessageID,
+			"artifacts": r.Artifacts,
+			"tokens":    map[string]int{"in": r.TokensIn, "out": r.TokensOut},
+			"diff":      len(r.Diffs),
+			"endedAt":   r.EndedAt,
 		})
 		m.finishRun(r)
 	}
@@ -250,13 +279,14 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 	}()
 
 	m.emit(r, EventRunStart, map[string]any{
-		"runId":       r.ID,
-		"workspaceId": r.WorkspaceID,
-		"operator":    r.OperatorKey,
-		"permission":  r.Permission,
-		"root":        w.Root,
-		"maxSteps":    r.MaxSteps,
-		"note":        "本地运行时：命令以当前用户权限执行，文件工具受工作区约束",
+		"runId":        r.ID,
+		"workspaceId":  r.WorkspaceID,
+		"operator":     r.OperatorKey,
+		"operatorName": r.OperatorName,
+		"permission":   r.Permission,
+		"root":         w.Root,
+		"maxSteps":     r.MaxSteps,
+		"note":         "本地运行时：命令以当前用户权限执行，文件工具受工作区约束",
 	})
 
 	// 快照在第一步之前做，保证 revert 能回到「动手前」。
@@ -307,7 +337,7 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 			return
 		}
 
-		content, calls, usage, streamErr := collect(ch)
+		content, calls, usage, _, streamErr := collect(ch)
 		if usage != nil {
 			m.mu.Lock()
 			r.TokensIn += usage.PromptTokens
@@ -319,6 +349,9 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 			return
 		}
 		if content != "" {
+			m.mu.Lock()
+			r.Notes = append(r.Notes, content)
+			m.mu.Unlock()
 			m.emit(r, EventAssistant, map[string]any{"step": step, "text": content})
 		}
 		if len(calls) == 0 {
@@ -330,11 +363,15 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 
 		// 回填 assistant 的工具调用，再逐条执行。
 		msgs = append(msgs, domain.ChatMessage{Role: "assistant", Content: content, ToolCalls: calls})
+		wroteThisStep := false
 		for i := range calls {
 			call := calls[i]
 			if call.ID == "" {
 				call.ID = newID("call")
 				calls[i].ID = call.ID
+			}
+			if isWriteTool(call.Name) {
+				wroteThisStep = true
 			}
 			out := m.execute(ctx, r, w, call)
 			msgs = append(msgs, domain.ChatMessage{
@@ -342,6 +379,23 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 				ToolCallID: call.ID,
 				Content:    out,
 			})
+		}
+		// 团队执行者的确定性收尾：已经落过文件，且连续几步只在跑
+		// 构建/测试/读文件，说明交付已完成，后面的重复验证没有信息增量。
+		// 这比让模型自己「意识到该停」可靠——基准里两个 worker 都跑满 20 步。
+		if r.VerifyOnly {
+			if wroteThisStep {
+				r.idleSteps = 0
+				r.hasWrites = true
+			} else if r.hasWrites {
+				r.idleSteps++
+				if r.idleSteps >= idleStepsBeforeStop {
+					m.mu.Lock()
+					r.Summary = "交付完成；已连续 " + strconv.Itoa(r.idleSteps) + " 步无新写入，自动收尾"
+					m.mu.Unlock()
+					break
+				}
+			}
 		}
 	}
 
@@ -362,9 +416,29 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		m.mu.Lock()
 		r.Diffs = diffs
 		r.DiffTotal = total
+		// 产物 = 本次真正改动的文件。聊天里的附件 chip 和工作面板都读它，
+		// 不再让前端从最后一条消息反推「谁产出了什么」。
+		arts := make([]domain.ArtifactRef, 0, len(diffs))
+		for _, d := range diffs {
+			if strings.TrimSpace(d.Path) == "" {
+				continue
+			}
+			arts = append(arts, domain.ArtifactRef{
+				ID:        newID("art"),
+				Kind:      "file",
+				Name:      path.Base(d.Path),
+				Path:      d.Path,
+				Size:      int64(len(d.Patch)),
+				AgentKey:  r.OperatorKey,
+				AgentName: r.OperatorName,
+				RunID:     r.ID,
+				CreatedAt: time.Now(),
+			})
+		}
+		r.Artifacts = arts
 		m.mu.Unlock()
 		if total > 0 {
-			m.emit(r, EventDiff, map[string]any{"files": len(diffs), "total": total})
+			m.emit(r, EventDiff, map[string]any{"files": len(diffs), "total": total, "artifacts": arts})
 		}
 	}
 
@@ -385,15 +459,19 @@ func (m *Manager) finishRun(r *Run) {
 }
 
 // collect 消费模型流，聚合文本与工具调用。
-func collect(ch <-chan domain.Chunk) (string, []domain.ToolCall, *domain.Usage, error) {
+func collect(ch <-chan domain.Chunk) (string, []domain.ToolCall, *domain.Usage, string, error) {
 	var sb strings.Builder
 	var usage *domain.Usage
+	var finish string
 	byIndex := map[int]*domain.ToolCall{}
 	order := []int{}
 
 	for c := range ch {
 		if c.Err != nil {
-			return sb.String(), buildCalls(byIndex, order), usage, c.Err
+			return sb.String(), buildCalls(byIndex, order), usage, finish, c.Err
+		}
+		if c.FinishReason != "" {
+			finish = c.FinishReason
 		}
 		if c.Content != "" {
 			sb.WriteString(c.Content)
@@ -418,7 +496,7 @@ func collect(ch <-chan domain.Chunk) (string, []domain.ToolCall, *domain.Usage, 
 			usage = c.Usage
 		}
 	}
-	return sb.String(), buildCalls(byIndex, order), usage, nil
+	return sb.String(), buildCalls(byIndex, order), usage, finish, nil
 }
 
 func buildCalls(byIndex map[int]*domain.ToolCall, order []int) []domain.ToolCall {
@@ -459,13 +537,20 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 		"tool":       call.Name,
 		"args":       clip(call.Arguments, 600),
 		"risk":       risk,
+		"agentKey":   r.OperatorKey,
+		"agentName":  r.OperatorName,
+		"step":       r.Step,
+		"summary":    summarizeCall(call),
+		"path":       argPath(call.Arguments),
 	})
 
 	deny := func(msg string) string {
+		m.mu.Lock()
 		record.Status = "denied"
 		record.Output = msg
 		record.EndedAt = time.Now()
 		record.DurationMS = time.Since(started).Milliseconds()
+		m.mu.Unlock()
 		m.emit(r, EventToolEnd, map[string]any{"toolCallId": call.ID, "status": "denied", "output": msg})
 		payload, _ := json.Marshal(map[string]any{"error": msg, "denied": true})
 		return string(payload)
@@ -473,6 +558,14 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 
 	if !allowed {
 		return deny(reason)
+	}
+	// 团队执行者的验证策略：构建/测试可以，联网和常驻服务不行。
+	// 端到端冒烟由团队流水线的验证阶段统一做，worker 重复做一遍
+	// 只会多烧步数（基准里两个 worker 各用 6 步起服务 + curl）。
+	if r.VerifyOnly && call.Name == ToolRun {
+		if why := verifyOnlyBlock(call.Arguments); why != "" {
+			return deny(why)
+		}
 	}
 
 	// 文档里的统计数字必须有来源，否则拒绝。
@@ -533,9 +626,9 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 		m.mu.Lock()
 		m.approvals[ap.ID] = ap
 		r.Status = StatusWaiting
-		m.mu.Unlock()
 		record.ApprovalID = ap.ID
 		record.Status = "pending_approval"
+		m.mu.Unlock()
 		m.emit(r, EventApproval, ap)
 
 		select {
@@ -563,6 +656,7 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 	}
 
 	out, diff, exitCode, err := runTool(ctx, w, call)
+	m.mu.Lock()
 	record.EndedAt = time.Now()
 	record.DurationMS = time.Since(started).Milliseconds()
 	record.Diff = clip(diff, 4000)
@@ -570,20 +664,26 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 	if err != nil {
 		record.Status = "error"
 		record.Output = clip(err.Error(), MaxToolOutputBytes)
-		m.emit(r, EventToolEnd, map[string]any{"toolCallId": call.ID, "status": "error", "output": record.Output})
-		payload, _ := json.Marshal(map[string]any{"error": record.Output})
+	} else {
+		record.Output = clip(out, MaxToolOutputBytes)
+	}
+	status, output, recDiff, duration := record.Status, record.Output, record.Diff, record.DurationMS
+	m.mu.Unlock()
+	if err != nil {
+		m.emit(r, EventToolEnd, map[string]any{"toolCallId": call.ID, "status": "error", "output": output})
+		payload, _ := json.Marshal(map[string]any{"error": output})
 		return string(payload)
 	}
-	record.Output = clip(out, MaxToolOutputBytes)
 	m.emit(r, EventToolEnd, map[string]any{
 		"toolCallId": call.ID,
 		"status":     "ok",
-		"output":     record.Output,
-		"diff":       record.Diff,
+		"output":     output,
+		"diff":       recDiff,
 		"exitCode":   exitCode,
-		"durationMs": record.DurationMS,
+		"durationMs": duration,
 	})
-	return record.Output
+	_ = status
+	return output
 }
 
 // toolRisk 按工具与参数推断风险。
@@ -601,6 +701,40 @@ func toolRisk(call domain.ToolCall) string {
 	default:
 		return workspace.RiskRead
 	}
+}
+
+// verifyOnlyBlock 判断团队执行者的这条命令是否属于「重复的端到端验证」。
+//
+// 允许：go test / go build / go vet / node --check / 静态检查。
+// 拒绝：联网（curl/wget）、起常驻服务（go run &、nohup）、后台进程。
+// 返回空字符串表示放行。
+func verifyOnlyBlock(rawArgs string) string {
+	var args struct {
+		Argv  []string `json:"argv"`
+		Shell bool     `json:"shell"`
+	}
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil || len(args.Argv) == 0 {
+		return ""
+	}
+	argv := args.Argv
+	joined := strings.ToLower(strings.Join(argv, " "))
+	first := strings.ToLower(filepathBase(argv[0]))
+	switch first {
+	case "curl", "wget", "nc", "ncat", "telnet", "ssh", "scp":
+		return "团队执行者不做联网验证（" + argv[0] + "）；端到端冒烟由服务端验证阶段统一执行"
+	}
+	// shell 包裹：看里面是否在起服务/联网/后台。
+	if args.Shell || first == "bash" || first == "sh" || first == "zsh" {
+		for _, sig := range []string{"curl ", "wget ", "nohup ", " &", "& ", "go run ", "npm run dev", "node server"} {
+			if strings.Contains(joined, sig) {
+				return "团队执行者不启动常驻服务或联网验证；构建/测试由服务端统一执行"
+			}
+		}
+	}
+	if strings.Contains(joined, "go run ") {
+		return "团队执行者不启动常驻服务；构建/测试由服务端统一执行"
+	}
+	return ""
 }
 
 func commandOf(call domain.ToolCall) string {

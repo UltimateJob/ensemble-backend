@@ -1,0 +1,476 @@
+{
+  "stamp": "2026-10-23T07-25-12",
+  "base": "http://127.0.0.1:8098",
+  "results": [
+    {
+      "case": "seeded-bugfix",
+      "title": "已有项目跨端修 bug（后端校验 + 前端展示）",
+      "kind": "complex",
+      "mode": "solo",
+      "convId": "c_9d8d68391bcbdb22",
+      "outcome": {
+        "mode": "solo",
+        "wallMs": 94404,
+        "phases": [
+          {
+            "name": "实现",
+            "wallMs": 94404
+          }
+        ],
+        "runs": [
+          {
+            "id": "run_5c436ed4054e1a19",
+            "agentKey": "solo",
+            "agentName": "单聊工程师",
+            "status": "done",
+            "steps": 20,
+            "tokensIn": 124033,
+            "tokensOut": 8270,
+            "toolCalls": 26,
+            "changedFiles": 4,
+            "summary": "完成 20 步，改动 4 个文件",
+            "error": "",
+            "elapsedMs": 91984
+          }
+        ],
+        "status": "done",
+        "error": ""
+      },
+      "verification": {
+        "workspace": "/tmp/ensemble-bench/2026-10-23T07-25-12/seeded-bugfix/solo",
+        "files": [
+          {
+            "path": "backend/go.mod",
+            "size": 21
+          },
+          {
+            "path": "backend/handler.go",
+            "size": 1824
+          },
+          {
+            "path": "backend/handler_test.go",
+            "size": 2467
+          },
+          {
+            "path": "backend/main.go",
+            "size": 361
+          },
+          {
+            "path": "web/app.js",
+            "size": 1707
+          },
+          {
+            "path": "web/index.html",
+            "size": 320
+          }
+        ],
+        "verify": {
+          "code": 0,
+          "out": "ok  \ttodo\t0.121s\n",
+          "err": ""
+        },
+        "smoke": {
+          "requests": [
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 不能为空\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 不能超过 200 个字符\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"id\":1,\"text\":\"正常\",\"done\":false}\n",
+              "expect": [
+                200,
+                201
+              ],
+              "status": 201,
+              "ok": true
+            },
+            {
+              "method": "GET",
+              "path": "/",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "<!doctype html>\n<html lang=\"zh-CN\">\n<head><meta charset=\"utf-8\"><title>待办</title></head>\n<body>\n<h1>待办</h1>\n<form id=\"form\"><input id=\"text\" required><button>添加</button></form>\n<p id=\"error\" role=\"alert\" style=\"color:#c00;display:none\"></p>\n<ul id=\"list\"></ul>\n<script src=\"app.js\"></script>\n</body>\n"
+            }
+          ],
+          "log": "2026/10/23 15:26:50 listening on 127.0.0.1:18081\n"
+        },
+        "checks": [
+          {
+            "name": "后端测试通过",
+            "ok": true
+          },
+          {
+            "name": "新增了校验测试",
+            "ok": true
+          },
+          {
+            "name": "前端有错误展示",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 201",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET / → 200",
+            "ok": true
+          }
+        ],
+        "score": 100
+      }
+    },
+    {
+      "case": "seeded-bugfix",
+      "title": "已有项目跨端修 bug（后端校验 + 前端展示）",
+      "kind": "complex",
+      "mode": "team",
+      "convId": "c_16370e0968a20404",
+      "outcome": {
+        "mode": "team",
+        "teamId": "team_8943441412b687c7",
+        "wallMs": 182135,
+        "phases": [
+          {
+            "name": "规划",
+            "wallMs": 80033
+          },
+          {
+            "name": "并行开发",
+            "wallMs": 74081
+          },
+          {
+            "name": "验收",
+            "wallMs": 28017
+          }
+        ],
+        "runs": [
+          {
+            "id": "run_82497512fea275e5",
+            "agentKey": "frontend",
+            "agentName": "前端",
+            "status": "done",
+            "steps": 14,
+            "tokensIn": 97487,
+            "tokensOut": 8254,
+            "toolCalls": 18,
+            "changedFiles": 2,
+            "summary": "前端修复完成。\n\n## 改了哪些文件\n\n**`web/app.js`**（重写，88 行）\n- 新增 `showError` / `clearError`：错误写入 `#error` 的 `textContent`（不用 innerHTML，避免注入），同一容器只保留一条消息，后写覆盖先写 → 不会堆叠，成功时清空并 `hidden`。\n- 新增 `messageFromBody` + `responseErrorMessage`：优先取后端契约里的 `error.message`（`{\"error\":{\"message\":\"...\"}}`），兼容顶层 `message`；响应体非 JSON 时回退到带状态码的兜底文案，不会因为 `res.json()` 抛错而静默失败。\n- 提交与加载路径都加了 `res.ok` 判断：非 2xx 一律显示错误，不再「没反应」。\n- `fetch` 网络层异常捕获 `err.message` 显示。\n- 加 `submitting` 重入标志，防重复点击造成并发提交/错误反复覆盖。\n- 请求路径 `/api/todos`、`method: 'POST'`、字段 `text`、`todos`/`t.text` 全部原样保留；原有 DOM id（`form`/`text`/`list`）与事件结构不变。\n\n**`web/index.html`**（最小改动，+1 行）：仅新增错误展示容器 `<p id=\"error\" role=\"alert\" aria-live=\"polite\" hidden></p>`，其余结构未动。\n\n## 运行了什么验证\n\n1. `node --check web/app.js` → **exit 0**，语法通过。\n2. 用 `node -e` 内联脚本（stub `document`/`fetch`，vm 执行 app.js，无文件落地）跑 7 条行为断言，全部 PASS：\n   - POST 400 → 错误区可见，文案等于 `error.message`（`\"text 不能为空\"`）\n   - 连续 3 次失败 → 仍只有一条消息，无堆叠\n   - 成功（201）→ 错误清空、列表正常渲染\n   - 500 且响应体非 JSON → 回退文案含状态码\n   - 网络异常 → 渲染 `err.message`\n3. `grep` 复核契约字面量：`/api/todos`、`method: 'POST'`、`JSON.stringify({ text })`、`error.message` 均在位，零改名。\n4. 工作区 `list` 复核：只剩 `backend/`、`web/`，无临时脚本、无构建产物（临时目录用 `/tmp`，`rm -rf` 被黑名单拦截但也未落在工作区内）。\n\n## 还剩什",
+            "error": "",
+            "elapsedMs": 69869
+          },
+          {
+            "id": "run_4bfd14ea47466d87",
+            "agentKey": "backend",
+            "agentName": "后端",
+            "status": "done",
+            "steps": 20,
+            "tokensIn": 126153,
+            "tokensOut": 6073,
+            "toolCalls": 26,
+            "changedFiles": 2,
+            "summary": "完成 20 步，改动 2 个文件",
+            "error": "",
+            "elapsedMs": 73303
+          }
+        ],
+        "status": "done",
+        "score": 100,
+        "repairs": 0,
+        "checks": [
+          {
+            "name": "go-vet",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "go-build",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "go-test",
+            "passed": true,
+            "exitCode": 0,
+            "output": "=== RUN   TestCreateAndList\n--- PASS: TestCreateAndList (0.00s)\n=== RUN   TestCreateTextValidation\n=== RUN   TestCreateTextValidation/empty_text\n=== RUN   TestCreateTextValidation/whitespace_not_trimmed\n=== RUN   TestCreateTextValidation/exactly_200_runes\n=== RUN   TestCreateTextValidation/x201_runes_multibyte\n--- PASS: TestCreateTextValidation (0.00s)\n    --- PASS: TestCreateTextValidation/empty_text (0.00s)\n    --- PASS: TestCreateTextValidation/whitespace_not_trimmed (0.00s)\n    --- PASS: TestCreateTextValidation/exactly_200_runes (0.00s)\n    --- PASS: TestCreateTextValidation/x201_runes_mu"
+          }
+        ],
+        "review": {
+          "agentKey": "qa",
+          "verdict": "pass",
+          "summary": "后端校验与前端错误提示均按契约实现：validateText 用 utf8.RuneCountInString 按 rune 计数（空串 400、>200 400、恰好 200 放行、不做 trim），校验在写库前返回 {\"error\":{\"message\":...}} 且不产生新资源；前端在 fetch 异常、非 2xx 时把 error.message 写入页面可见的 #error 区域。路径 /api/todos 与字段 text/id/done/todos 未改动，原有 TestCreateAndList 未改且确定性验证全部通过，新增测试同时覆盖空文本与 201 个多字节 rune 超长文本。",
+          "issues": [
+            "web/index.html 的 <input id=\"text\" required> 会在提交前被浏览器原生非空校验拦下，用户无法从 UI 触发空串 400 并看到该错误提示（超长文本场景仍可触发）。若希望在页面上演示空文本错误，可考虑移除 required 或改为自定义校验；不阻塞，服务端已按要求返回 400。",
+            "web/app.js 的 messageFromBody 额外接受顶层 message 字段，超出契约约定的 error.message；功能无害，但与契约描述不完全一致。",
+            "web/app.js 的 load() 中 `const data = await res.json()` 未包 try/catch：若 2xx 响应体不是合法 JSON 会抛未捕获异常、页面无任何提示。仅服务端异常时出现，不属于本次契约要求。",
+            "backend/todo 疑似为编译产物留在工作区，建议移出版本控制，避免二进制文件入库。"
+          ],
+          "nits": [
+            "web/index.html 的 <input id=\"text\" required> 会在提交前被浏览器原生非空校验拦下，用户无法从 UI 触发空串 400 并看到该错误提示（超长文本场景仍可触发）。若希望在页面上演示空文本错误，可考虑移除 required 或改为自定义校验；不阻塞，服务端已按要求返回 400。",
+            "web/app.js 的 messageFromBody 额外接受顶层 message 字段，超出契约约定的 error.message；功能无害，但与契约描述不完全一致。",
+            "web/app.js 的 load() 中 `const data = await res.json()` 未包 try/catch：若 2xx 响应体不是合法 JSON 会抛未捕获异常、页面无任何提示。仅服务端异常时出现，不属于本次契约要求。",
+            "backend/todo 疑似为编译产物留在工作区，建议移出版本控制，避免二进制文件入库。"
+          ]
+        },
+        "assignments": [
+          {
+            "agentKey": "backend",
+            "agentName": "后端",
+            "task": "交付后端修复：新增/更新待办时对 text 做服务端校验；空字符串、仅空格但未 trim 仍按原始长度规则处理；使用 Unicode 字符数/rune 判断超过 200 个字符时返回 400；保持现有响应字段和接口路径不变；在 backend/handler_test.go 补充覆盖空文本、空白不 trim 的边界、超过 200 Unicode 字符、等于 200 字符通过等用例；确保 go test 全部通过。；并补齐「字符数/rune」。",
+            "scope": [
+              "backend/",
+              "server/",
+              "api/",
+              "cmd/",
+              "internal/",
+              "pkg/",
+              "go.mod",
+              "go.sum",
+              "*.go",
+              "字符数/rune/"
+            ]
+          },
+          {
+            "agentKey": "frontend",
+            "agentName": "前端",
+            "task": "交付前端修复：在新增待办请求失败或接口返回错误时，从 error.message 获取提示并在页面可见区域渲染错误信息；保持现有 DOM/事件结构和请求路径、字段名不变；避免重复提交导致错误提示堆叠或无法清除；确保 app.js 语法可检查，并能体现使用 error.message 展示错误。",
+            "scope": [
+              "web/",
+              "frontend/",
+              "client/",
+              "ui/",
+              "public/",
+              "*.html",
+              "*.css",
+              "*.js",
+              "*.ts",
+              "*.tsx",
+              "*.jsx",
+              "*.vue"
+            ]
+          }
+        ],
+        "issues": [],
+        "plan": {
+          "objective": "修复后端待办文本校验与前端错误提示，保持接口路径、字段名和现有测试契约不变。",
+          "acceptance": [
+            "后端：创建待办时 text=\"\"（空字符串）返回 HTTP 400，且不产生新资源",
+            "后端：text 为 201 个 rune（含中文/emoji 多字节字符）返回 400；恰好 200 个 rune 按现有成功行为处理",
+            "后端：仅空格文本（如 \"   \"）不做 trim，按原始 rune 数处理；仅空串视为空并返回 400",
+            "后端：校验使用 rune 计数，未使用字节长度（len(string)）判断",
+            "后端：handler_test.go 新增一条测试，同时覆盖空文本 400 与超长文本 400（含多字节字符）",
+            "后端：backend 目录下 go test ./... 全部通过，原有测试无改动仍通过",
+            "前端：接口返回错误时，页面可见区域渲染 error.message 的文本，不再出现\"没反应\"",
+            "前端：成功流程、现有 DOM/事件结构、请求路径与字段名均不变",
+            "双方：接口路径与 JSON 字段名零改动（qa 以 git diff 核对）"
+          ],
+          "contracts": "接口契约（前后端并行；路径与字段名一律沿用现状，禁止修改）：\n1. 创建待办：POST 现有创建路由（以 backend/main.go 注册为准）；请求 JSON 字段 text:string；成功 2xx 响应字段保持现状不变。\n2. 更新待办（若现有实现存在）：方法/路径/字段不变，text 执行同样校验。\n3. 服务端校验规则（唯一事实来源）：\n   - text == \"\"（空字符串）→ HTTP 400；\n   - 按 rune（Unicode 码点）计数，rune 数 > 200 → HTTP 400；恰好 200 → 允许；\n   - 不做 trim：仅空格文本按原始 rune 数处理（\" \" 为 1 个 rune，允许；仅空串 \"\" 视为空）；\n   - 禁止用字节长度（len(string)）判断。\n4. 错误响应：400 响应体沿用现有错误 JSON 结构与字段名（含 message），前端据此取 error.message 展示；语义：2xx=成功，400=text 非法。\n5. 前端行为契约：任何非 2xx/错误响应时，前端读取响应中的 message（即 error.message）并渲染到页面可见的错误提示区域；成功路径 UI 行为、请求路径与字段名均不变。",
+          "assignments": [
+            {
+              "agentKey": "backend",
+              "agentName": "后端",
+              "task": "交付后端修复：新增/更新待办时对 text 做服务端校验；空字符串、仅空格但未 trim 仍按原始长度规则处理；使用 Unicode 字符数/rune 判断超过 200 个字符时返回 400；保持现有响应字段和接口路径不变；在 backend/handler_test.go 补充覆盖空文本、空白不 trim 的边界、超过 200 Unicode 字符、等于 200 字符通过等用例；确保 go test 全部通过。；并补齐「字符数/rune」。",
+              "scope": [
+                "backend/",
+                "server/",
+                "api/",
+                "cmd/",
+                "internal/",
+                "pkg/",
+                "go.mod",
+                "go.sum",
+                "*.go",
+                "字符数/rune/"
+              ]
+            },
+            {
+              "agentKey": "frontend",
+              "agentName": "前端",
+              "task": "交付前端修复：在新增待办请求失败或接口返回错误时，从 error.message 获取提示并在页面可见区域渲染错误信息；保持现有 DOM/事件结构和请求路径、字段名不变；避免重复提交导致错误提示堆叠或无法清除；确保 app.js 语法可检查，并能体现使用 error.message 展示错误。",
+              "scope": [
+                "web/",
+                "frontend/",
+                "client/",
+                "ui/",
+                "public/",
+                "*.html",
+                "*.css",
+                "*.js",
+                "*.ts",
+                "*.tsx",
+                "*.jsx",
+                "*.vue"
+              ]
+            }
+          ],
+          "verification": [
+            {
+              "name": "go-vet",
+              "argv": [
+                "go",
+                "vet",
+                "./..."
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "go-build",
+              "argv": [
+                "go",
+                "build",
+                "./..."
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "go-test",
+              "argv": [
+                "go",
+                "test",
+                "-v",
+                "-count=1",
+                "./..."
+              ],
+              "cwd": "backend"
+            }
+          ],
+          "notes": "分工维持已定方案不再改动：backend 改 backend/（handler.go 校验 + handler_test.go 新增一条测试），frontend 改 web/（app.js 错误提示，index.html 仅在需要错误展示容器时最小改动），qa 只读审查并运行验证命令。路径以现有代码为准，双方均不得修改接口路径与字段名。验证命令均离线执行，不访问任何服务。"
+        },
+        "error": ""
+      },
+      "verification": {
+        "workspace": "/tmp/ensemble-bench/2026-10-23T07-25-12/seeded-bugfix/team",
+        "files": [
+          {
+            "path": "backend/go.mod",
+            "size": 21
+          },
+          {
+            "path": "backend/handler.go",
+            "size": 2159
+          },
+          {
+            "path": "backend/handler_test.go",
+            "size": 3967
+          },
+          {
+            "path": "backend/main.go",
+            "size": 361
+          },
+          {
+            "path": "backend/todo",
+            "size": 8309570
+          },
+          {
+            "path": "web/app.js",
+            "size": 2290
+          },
+          {
+            "path": "web/index.html",
+            "size": 314
+          }
+        ],
+        "verify": {
+          "code": 0,
+          "out": "ok  \ttodo\t0.092s\n",
+          "err": ""
+        },
+        "smoke": {
+          "requests": [
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 不能为空\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 长度不能超过 200 个字符\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"id\":1,\"text\":\"正常\",\"done\":false}\n",
+              "expect": [
+                200,
+                201
+              ],
+              "status": 201,
+              "ok": true
+            },
+            {
+              "method": "GET",
+              "path": "/",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "<!doctype html>\n<html lang=\"zh-CN\">\n<head><meta charset=\"utf-8\"><title>待办</title></head>\n<body>\n<h1>待办</h1>\n<form id=\"form\"><input id=\"text\" required><button>添加</button></form>\n<p id=\"error\" role=\"alert\" aria-live=\"polite\" hidden></p>\n<ul id=\"list\"></ul>\n<script src=\"app.js\"></script>\n</body>\n</html"
+            }
+          ],
+          "log": "2026/10/23 15:29:55 listening on 127.0.0.1:18081\n"
+        },
+        "checks": [
+          {
+            "name": "后端测试通过",
+            "ok": true
+          },
+          {
+            "name": "新增了校验测试",
+            "ok": true
+          },
+          {
+            "name": "前端有错误展示",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 201",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET / → 200",
+            "ok": true
+          }
+        ],
+        "score": 100
+      }
+    }
+  ]
+}

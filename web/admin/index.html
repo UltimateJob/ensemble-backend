@@ -60,7 +60,7 @@ a{color:inherit;text-decoration:none}
 .btn-grad{background:var(--grad);color:#fff;width:100%;box-shadow:0 8px 20px -10px rgba(79,70,229,.6)}
 .btn-line{border:1px solid var(--line2);background:#fff;color:var(--tx2)}
 .btn-line:hover{color:var(--tx)}
-.btn-sm{height:30px;padding:0 12px;border-radius:8px;font-size:12px}
+.btn-sm{height:30px;padding:0 10px;border-radius:8px;font-size:12px}
 
 /* 焦点环：键盘导航要看得见。浏览器默认的 1px 黑框在浅色卡片上太弱。 */
 :focus-visible{outline:2px solid var(--pri);outline-offset:2px}
@@ -149,7 +149,8 @@ tr:hover td{background:rgba(255,255,255,.6)}
 .pr-ok{color:var(--ok)}
 .pr-bad{color:var(--bad)}
 .model-probe .pr-line{margin-top:3px;font-size:10.5px;max-width:260px}
-.row-actions{display:flex;gap:6px;justify-content:flex-end}
+.row-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:nowrap;white-space:nowrap}
+.row-actions .btn{white-space:nowrap;flex:none}
 
 /* 提示 */
 .toast{
@@ -353,16 +354,33 @@ button:disabled{opacity:.55;cursor:default}
       <div class="card">
         <div class="card-h">
           <h3>模型路由表</h3>
-          <span class="r">权重决定加权轮询比例</span>
+          <span class="r">排名小优先，同级按权重轮询；整档饱和自动溢出</span>
           <button class="btn btn-line btn-sm" id="addModel" style="margin-left:12px">新增</button>
         </div>
         <table class="tbl-resp">
           <thead><tr>
             <th>Key</th><th>Provider</th><th>上游模型</th>
-            <th style="text-align:right">权重</th><th style="text-align:right">单价/1K</th>
-            <th>状态</th><th style="width:60px"></th>
+            <th style="text-align:right">排名</th>
+            <th style="text-align:right">权重</th>
+            <th style="text-align:right">并发</th>
+            <th style="text-align:right">单价/1K</th>
+            <th>状态</th><th style="width:200px"></th>
           </tr></thead>
           <tbody id="modelBody"></tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-h">
+          <h3>上游渠道</h3>
+          <span class="r">Key 加密存储，只写不读；保存后立即生效，无需重启</span>
+          <button class="btn btn-line btn-sm" id="addUpstream" style="margin-left:12px">新增渠道</button>
+        </div>
+        <table class="tbl-resp">
+          <thead><tr>
+            <th>名称</th><th>地址</th><th>Key</th><th>默认模型</th>
+            <th>来源</th><th>状态</th><th style="width:120px"></th>
+          </tr></thead>
+          <tbody id="upstreamBody"></tbody>
         </table>
       </div>
       <div class="card" style="margin-top:12px">
@@ -723,6 +741,11 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
   }
 
   /* ---- 模型 ---- */
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('addUpstream');
+    if(btn) btn.addEventListener('click', () => openUpstreamForm(null));
+  });
+
   async function loadModels(){
     const modelProbe = window.__modelProbe || (window.__modelProbe = {});
     const list = await api('/models');
@@ -733,10 +756,12 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
         <td class="mono" data-label="模型">${esc(m.key)}${m.taskOnly ? ' <span class="b b-warn" title="只给执行器用，用户不可见">任务</span>' : ''}<div class="model-probe" data-probe-box="${esc(m.key)}">${modelProbe[m.key] ? probeHTML(modelProbe[m.key]) : ''}</div></td>
         <td data-label="上游"><span class="b b-pri">${esc(m.provider)}</span></td>
         <td class="mono" data-label="模型名">${esc(m.upstream || '—')}</td>
+        <td class="num" data-label="排名">${m.rank ? esc(m.rank) : '<span style="color:var(--tx4)">保底</span>'}</td>
         <td class="num" data-label="权重">${esc(m.weight)}</td>
+        <td class="num" data-label="并发">${m.concurrency || 8}</td>
         <td class="num" data-label="单价">${cost != null ? Number(cost).toFixed(4) : '—'}</td>
         <td data-label="启用"><button class="sw ${m.enabled?'on':''}" data-toggle="${esc(m.key)}"></button></td>
-        <td data-label=""><div class="row-actions"><button class="btn btn-line btn-sm" data-probe="${esc(m.key)}" data-provider="${esc(m.provider)}" data-model="${esc(m.upstream || m.key)}" title="真发一次小请求（约 160 token）：首字延迟、输出 token 速度">测试</button><button class="btn btn-line btn-sm" data-del="${esc(m.key)}">删除</button></div></td>
+        <td data-label=""><div class="row-actions"><button class="btn btn-line btn-sm" data-edit="${esc(m.key)}">编辑</button><button class="btn btn-line btn-sm" data-probe="${esc(m.key)}" data-provider="${esc(m.provider)}" data-model="${esc(m.upstream || m.key)}" title="真发一次小请求（约 160 token）：首字延迟、输出 token 速度">测试</button><button class="btn btn-line btn-sm" data-del="${esc(m.key)}">删除</button></div></td>
       </tr>`;}).join('');
 
     /* 选择器都圈在本表内：[data-reset] 在用户表和熔断卡里撞名，全文档扫会串处理器 */
@@ -753,6 +778,9 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
         }
         loadModels();
       });
+    });
+    $('#modelBody').querySelectorAll('[data-edit]').forEach(b => {
+      b.addEventListener('click', () => openModelForm(list.find(x => x.key === b.dataset.edit)));
     });
     $('#modelBody').querySelectorAll('[data-del]').forEach(b => {
       b.addEventListener('click', async () => {
@@ -805,9 +833,9 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
   }
 
   /* ---- 新增模型：内联表单弹层（替代两个原生 prompt）---- */
-  $('#addModel').addEventListener('click', openModelForm);
+  $('#addModel').addEventListener('click', () => openModelForm(null));
 
-  async function openModelForm(){
+  async function openModelForm(cur){
     // Provider 下拉项来自 /admin/api/overview 的 providers 列表
     let provs = [];
     try{
@@ -816,28 +844,33 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
     }catch(e){ /* 拿不到列表时下拉留空，提交前的校验会拦 */ }
 
     const provField = provs.length
-      ? `<select id="fProv">${provs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select>`
+      ? `<select id="fProv">${provs.map(p => `<option value="${esc(p)}" ${cur && cur.provider === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`
       : `<select id="fProv"><option value="">（没拿到 Provider 列表，稍后再试）</option></select>`;
 
-    openDialog('新增模型', `
+    const e = cur || {};
+    openDialog(cur ? '编辑模型' : '新增模型', `
       <div class="fld"><label>Key · 模型标识</label>
-        <input id="fKey" placeholder="如 deepseek-reasoner" autocomplete="off"></div>
+        <input id="fKey" placeholder="如 deepseek-reasoner" autocomplete="off" value="${esc(e.key || '')}" ${cur ? 'readonly' : ''}></div>
       <div class="fld"><label>Provider · 上游服务</label>${provField}</div>
       <div class="fld"><label>上游模型 · 默认同 Key</label>
-        <input id="fUp" placeholder="默认同 Key" autocomplete="off"></div>
+        <input id="fUp" placeholder="默认同 Key" autocomplete="off" value="${esc(e.upstream || '')}"></div>
       <div class="fld fld-row2">
-        <div><label>权重</label><input id="fW" type="number" value="5" min="1" step="1"></div>
-        <div><label>单价 / 1K</label><input id="fC" type="number" value="0.001" min="0" step="0.0001"></div>
+        <div><label>排名 · 小优先，0 = 保底</label><input id="fRank" type="number" value="${e.rank || 1}" min="0" step="1"></div>
+        <div><label>权重 · 同档流量比例</label><input id="fW" type="number" value="${e.weight || 5}" min="1" step="1"></div>
       </div>
-      <div class="fld"><label>备注</label><input id="fNote" placeholder="可选" autocomplete="off"></div>
-      <div class="fld fld-inline"><label>启用</label><button type="button" class="sw on" id="fOn"></button></div>
-      <div class="fld fld-inline"><label>任务专用</label><button type="button" class="sw" id="fTask"></button>
+      <div class="fld fld-row2">
+        <div><label>并发上限 · 满则溢出下一档</label><input id="fCap" type="number" value="${e.concurrency || 8}" min="1" step="1"></div>
+        <div><label>单价 / 1K</label><input id="fC" type="number" value="${e.costPer1K != null ? e.costPer1K : 0.001}" min="0" step="0.0001"></div>
+      </div>
+      <div class="fld"><label>备注</label><input id="fNote" placeholder="可选" autocomplete="off" value="${esc(e.note || '')}"></div>
+      <div class="fld fld-inline"><label>启用</label><button type="button" class="sw ${!cur || e.enabled ? 'on' : ''}" id="fOn"></button></div>
+      <div class="fld fld-inline"><label>任务专用</label><button type="button" class="sw ${cur && e.taskOnly ? 'on' : ''}" id="fTask"></button>
         <small style="margin-left:8px;color:#7A7C90">只给执行器（代码开发等真实任务）用，不出现在用户的选择器里</small></div>
-    `, '提交', submitModelForm);
+    `, cur ? '保存' : '提交', submitModelForm);
 
     // Upstream 默认跟着 Key 走，手动改过就不再联动
-    let upDirty = false;
-    $('#fKey').addEventListener('input', () => { if(!upDirty) $('#fUp').value = $('#fKey').value; });
+    let upDirty = !!cur;
+    if(!cur) $('#fKey').addEventListener('input', () => { if(!upDirty) $('#fUp').value = $('#fKey').value; });
     $('#fUp').addEventListener('input', () => { upDirty = true; });
     $('#fOn').addEventListener('click', function(){ this.classList.toggle('on'); });
     $('#fTask').addEventListener('click', function(){ this.classList.toggle('on'); });
@@ -848,11 +881,15 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
     const provider = $('#fProv').value.trim();
     const upstream = $('#fUp').value.trim() || key;
     const weight = Number($('#fW').value);
+    const rank = Number($('#fRank').value);
+    const cap = Number($('#fCap').value);
     const cost = Number($('#fC').value);
     const enabled = $('#fOn').classList.contains('on');
     if(!key) return showDlgErr('请填写模型 Key');
     if(!provider) return showDlgErr('请选择 Provider（后端要求 Provider 必须真实存在）');
     if(!Number.isFinite(weight) || weight <= 0) return showDlgErr('权重必须是正数');
+    if(!Number.isFinite(rank) || rank < 0) return showDlgErr('排名必须是非负整数');
+    if(!Number.isFinite(cap) || cap < 1) return showDlgErr('并发上限至少为 1');
     if(!Number.isFinite(cost) || cost < 0) return showDlgErr('单价格式不正确');
 
     const btn = $('#dlgOk');
@@ -860,7 +897,8 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
     try{
       await api('/models', { method:'POST', body:{
         key, provider, upstream, enabled,
-        weight: Math.round(weight), costPer1k: cost,
+        weight: Math.round(weight), rank: Math.round(rank),
+        concurrency: Math.round(cap), costPer1k: cost,
         note: $('#fNote').value.trim(),
         taskOnly: $('#fTask').classList.contains('on')
       }});
@@ -875,6 +913,95 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
   }
 
   /* ---- 用户 ---- */
+  async function loadUpstreams(){
+    const list = await api('/upstreams');
+    const body = $('#upstreamBody');
+    if(!list.length){
+      body.innerHTML = `<tr><td colspan="7" style="color:var(--tx4);font-size:12px">还没有渠道。中转挂了时在这里补一条官方 Key 即可顶上。</td></tr>`;
+      return;
+    }
+    body.innerHTML = list.map(u => `
+      <tr>
+        <td class="mono" data-label="名称">${esc(u.name)}</td>
+        <td class="mono" data-label="地址" style="font-size:11px">${esc(u.baseUrl)}</td>
+        <td class="mono" data-label="Key">${u.keyHint ? esc(u.keyHint) : '<span class="b b-warn">未配置</span>'}</td>
+        <td class="mono" data-label="模型">${esc(u.model || '—')}</td>
+        <td data-label="来源"><span class="b b-pri">${esc(u.source || 'admin')}</span></td>
+        <td data-label="启用"><button class="sw ${u.enabled?'on':''}" data-up-toggle="${esc(u.name)}"></button></td>
+        <td data-label=""><div class="row-actions">
+          <button class="btn btn-line btn-sm" data-up-edit="${esc(u.name)}">编辑</button>
+          <button class="btn btn-line btn-sm" data-up-del="${esc(u.name)}">删除</button>
+        </div></td>
+      </tr>`).join('');
+
+    body.querySelectorAll('[data-up-toggle]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const name = b.dataset.upToggle;
+        const row = list.find(x => x.name === name);
+        try{
+          await api('/upstreams', { method:'POST', body:{ name, baseUrl: row.baseUrl, model: row.model, enabled: !row.enabled } });
+          toast((row.enabled ? '已停用 ' : '已启用 ') + name);
+          loadUpstreams();
+        }catch(e){ toast(e.message, true); }
+      });
+    });
+    body.querySelectorAll('[data-up-edit]').forEach(b => {
+      b.addEventListener('click', () => openUpstreamForm(list.find(x => x.name === b.dataset.upEdit)));
+    });
+    body.querySelectorAll('[data-up-del]').forEach(b => {
+      b.addEventListener('click', async () => {
+        const name = b.dataset.upDel;
+        if(!confirm('删除渠道 ' + name + '？')) return;
+        try{
+          await api('/upstreams/' + encodeURIComponent(name), { method:'DELETE' });
+          toast('已删除 ' + name);
+          loadUpstreams();
+        }catch(e){ toast(e.message, true); }
+      });
+    });
+  }
+
+  function openUpstreamForm(cur){
+    const editing = !!cur;
+    openDialog(editing ? '编辑渠道' : '新增渠道', `
+      <div class="fld"><label>名称 · 路由标识</label>
+        <input id="uName" placeholder="如 deepseek-official" autocomplete="off" value="${editing ? esc(cur.name) : ''}" ${editing ? 'readonly' : ''}></div>
+      <div class="fld"><label>Base URL</label>
+        <input id="uBase" placeholder="https://api.deepseek.com" autocomplete="off" value="${editing ? esc(cur.baseUrl) : ''}"></div>
+      <div class="fld"><label>API Key</label>
+        <input id="uKey" type="password" placeholder="${editing && cur.keyHint ? '已配置 ' + esc(cur.keyHint) + '，留空则不修改' : 'sk-...'}" autocomplete="off"></div>
+      <div class="fld"><label>默认模型 · 可空</label>
+        <input id="uModel" placeholder="deepseek-chat" autocomplete="off" value="${editing ? esc(cur.model || '') : ''}"></div>
+      <div class="fld fld-inline"><label>启用</label><button type="button" class="sw ${!editing || cur.enabled ? 'on' : ''}" id="uOn"></button></div>
+      <div style="font-size:11.5px;color:var(--tx4);line-height:1.7">
+        Key 用 JWT_SECRET 派生的 AES-GCM 加密后存到 data/upstreams.json，接口只返回末四位。
+        保存后立即注册到网关；同名渠道会重置熔断状态。
+      </div>
+    `, '保存', async () => {
+      const name = $('#uName').value.trim();
+      const baseUrl = $('#uBase').value.trim();
+      const apiKey = $('#uKey').value.trim();
+      const model = $('#uModel').value.trim();
+      if(!name) return showDlgErr('请填写渠道名称');
+      if(!baseUrl) return showDlgErr('请填写 Base URL');
+      if(!editing && !apiKey) return showDlgErr('首次创建必须填写 API Key');
+      const btn = $('#dlgOk'); btn.disabled = true; const old = btn.textContent; btn.textContent = '保存中…';
+      try{
+        await api('/upstreams', { method:'POST', body:{
+          name, baseUrl, apiKey, model,
+          enabled: $('#uOn').classList.contains('on'),
+        }});
+        $('#dlgMask').hidden = true; settleDialog();
+        toast('已保存 ' + name);
+        loadUpstreams();
+      }catch(e){
+        btn.disabled = false; btn.textContent = old;
+        showDlgErr(e.message);
+      }
+    });
+    $('#uOn').addEventListener('click', function(){ this.classList.toggle('on'); });
+  }
+
   async function loadUsers(){
     const list = await api('/users');
     $('#userCount').textContent = list.length + ' 位用户';
@@ -1027,7 +1154,7 @@ $('#provList').innerHTML = (m.providers || []).map(p => {
     const active = document.querySelector('.page.on').id;
     try{
       if(active === 'p-dash') await loadDash();
-      if(active === 'p-models') await loadModels();
+      if(active === 'p-models') { await loadModels(); await loadUpstreams(); }
       if(active === 'p-users') await loadUsers();
       if(active === 'p-logs') await loadLogs();
       if(active === 'p-slow') await loadSlow();

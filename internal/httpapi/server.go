@@ -36,6 +36,8 @@ type Server struct {
 
 	mem    *service.MemoryService
 	agents *agent.Manager
+	// teams 团队任务编排器。未注入时团队接口不注册。
+	teams *agent.TeamManager
 
 	// 手机端相关。devices 为 nil 时远程路由不注册（单机模式不受影响）。
 	devices  *service.Devices
@@ -43,6 +45,13 @@ type Server struct {
 	conns    *service.Connectors
 	library  *service.Library
 	activity *service.Activity
+
+	// upstreams 可编辑的上游渠道表。为 nil 时渠道接口不注册。
+	upstreams *store.Upstreams
+	// beforeProviderDelete 删除渠道前的业务校验（main 注入：模型表引用检查）。
+	beforeProviderDelete func(name string) string
+	// providerTimeout 新注册渠道的 HTTP 超时。
+	providerTimeout time.Duration
 }
 
 func NewServer(
@@ -65,6 +74,18 @@ func NewServer(
 		mem:     mem,
 	}
 }
+
+// SetUpstreams 注入可编辑的上游渠道表。须在开始接请求前调用。
+func (s *Server) SetUpstreams(u *store.Upstreams, timeout time.Duration) {
+	s.upstreams = u
+	s.providerTimeout = timeout
+}
+
+// SetProviderDeleteGuard 注入删除渠道前的引用检查。
+func (s *Server) SetProviderDeleteGuard(fn func(name string) string) { s.beforeProviderDelete = fn }
+
+// SetTeamManager 注入团队任务编排器。须在开始接请求前调用。
+func (s *Server) SetTeamManager(t *agent.TeamManager) { s.teams = t }
 
 // SetRemoteServices 注入手机端所需的服务。
 //
@@ -130,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 	// ---- 鉴权 ----
 	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCode)
 	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /v1/auth/reset-password", s.handleResetPassword)
 
 	// ---- 需要登录 ----
 	userMux := http.NewServeMux()
@@ -140,6 +162,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("POST /v1/characters/to-agent", s.handleCharacterToAgent)
 	userMux.HandleFunc("GET /v1/me", s.handleMe)
 	userMux.HandleFunc("PATCH /v1/me", s.handleUpdateMe)
+	userMux.HandleFunc("POST /v1/me/password", s.handleSetPassword)
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
 	userMux.HandleFunc("POST /v1/events", s.handleTrack)
 	userMux.HandleFunc("POST /v1/agents/draft", s.handleDraftAgent)
@@ -186,6 +209,21 @@ func (s *Server) Handler() http.Handler {
 		userMux.HandleFunc("POST /v1/runs/{id}/abort", s.handleAbort)
 		userMux.HandleFunc("GET /v1/runs/{id}/diff", s.handleRunDiff)
 		userMux.HandleFunc("POST /v1/runs/{id}/revert", s.handleRevert)
+
+		// 会话级工作区：代码工作室绑定本地目录、@ 派活、团队任务。
+		userMux.HandleFunc("PUT /v1/conversations/{id}/workspace", s.handleBindConvWorkspace)
+		userMux.HandleFunc("DELETE /v1/conversations/{id}/workspace", s.handleUnbindConvWorkspace)
+		userMux.HandleFunc("POST /v1/conversations/{id}/execute", s.handleExecute)
+		userMux.HandleFunc("GET /v1/conversations/{id}/runs", s.handleConvRuns)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/raw", s.handleWorkspaceRaw)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/runs", s.handleWorkspaceRuns)
+	}
+	if s.teams != nil {
+		userMux.HandleFunc("POST /v1/conversations/{id}/team", s.handleStartTeam)
+		userMux.HandleFunc("GET /v1/conversations/{id}/teams", s.handleListTeams)
+		userMux.HandleFunc("GET /v1/teams/{id}", s.handleGetTeam)
+		userMux.HandleFunc("GET /v1/teams/{id}/events", s.handleTeamEvents)
+		userMux.HandleFunc("POST /v1/teams/{id}/cancel", s.handleCancelTeam)
 	}
 
 	// ---- 手机端：目标 / 连接器 / 资料库 / 状态环 ----
@@ -223,7 +261,7 @@ func (s *Server) Handler() http.Handler {
 	for _, p := range []string{
 		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/models", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
 		"/v1/conversations", "/v1/conversations/", "/v1/memories",
-		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/",
+		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/", "/v1/teams", "/v1/teams/",
 		"/v1/goals", "/v1/goals/", "/v1/connectors", "/v1/connectors/",
 		"/v1/library", "/v1/library/", "/v1/devices", "/v1/devices/",
 	} {
@@ -243,6 +281,9 @@ func (s *Server) Handler() http.Handler {
 	adminMux.HandleFunc("GET /admin/api/users", s.handleAdminUsers)
 	adminMux.HandleFunc("POST /admin/api/users/{id}/status", s.handleAdminUserStatus)
 	adminMux.HandleFunc("POST /admin/api/users/{id}/quota", s.handleAdminUserQuota)
+	adminMux.HandleFunc("GET /admin/api/upstreams", s.handleAdminUpstreams)
+	adminMux.HandleFunc("POST /admin/api/upstreams", s.handleAdminUpstreams)
+	adminMux.HandleFunc("DELETE /admin/api/upstreams/{name}", s.handleAdminUpstreamDelete)
 	adminMux.HandleFunc("POST /admin/api/providers/{name}/reset", s.handleAdminResetProvider)
 	adminMux.HandleFunc("POST /admin/api/providers/{name}/check", s.handleAdminProviderCheck)
 	adminMux.HandleFunc("GET /admin/api/logs", s.handleAdminLogs)

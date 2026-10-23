@@ -27,24 +27,48 @@ func NewChat(s store.Store, gw *gateway.Gateway) *Chat {
 	return &Chat{store: s, gw: gw}
 }
 
+// CreateOptions 新建会话时的扩展字段。
+type CreateOptions struct {
+	Workspace         *domain.ConvWorkspace
+	DefaultPermission string
+	AgentPermissions  map[string]string
+}
+
 // Create 新建会话。
 func (c *Chat) Create(userID, title, studio, model string, members []string, agents []domain.ConvAgent) (*domain.Conversation, error) {
+	return c.CreateWithOptions(userID, title, studio, model, members, agents, CreateOptions{})
+}
+
+// CreateWithOptions 新建会话，可绑定工作区与权限。
+func (c *Chat) CreateWithOptions(userID, title, studio, model string, members []string, agents []domain.ConvAgent, opts CreateOptions) (*domain.Conversation, error) {
 	if title == "" {
 		title = "新群聊"
 	}
+	defaultPerm := strings.TrimSpace(opts.DefaultPermission)
+	if defaultPerm == "" && opts.Workspace != nil {
+		// 绑定本地目录的代码群默认最安全的「逐项批准」。
+		// 没绑工作区时不写死默认值：内置代码角色各自的权限（架构只读、
+		// 前后端自动接受编辑）才能生效，团队任务开箱可用。
+		defaultPerm = "ask"
+	}
 	conv := &domain.Conversation{
-		UserID:  userID,
-		Title:   title,
-		Studio:  studio,
-		Model:   model,
-		Members: members,
-		Agents:  agents,
+		UserID:            userID,
+		Title:             title,
+		Studio:            studio,
+		Model:             model,
+		Members:           members,
+		Agents:            agents,
+		Workspace:         opts.Workspace,
+		DefaultPermission: defaultPerm,
+		AgentPermissions:  opts.AgentPermissions,
 	}
 	if err := c.store.CreateConv(conv); err != nil {
 		return nil, err
 	}
-	// 场景有开场白时，由第一个角色先开口，新群不会一片空白
-	if sc, ok := FindScenario(studio); ok && sc.Opening != "" && len(sc.Agents) > 0 && len(agents) == 0 {
+	// 场景有开场白时，由第一个角色先开口，新群不会一片空白。
+	// 单聊不要这条：成员只有一个，开场白却来自另一个角色，会显得莫名其妙。
+	if sc, ok := FindScenario(studio); ok && sc.Opening != "" && len(sc.Agents) > 0 &&
+		len(agents) == 0 && len(members) != 1 {
 		first := sc.Agents[0]
 		_ = c.store.AppendMessage(&domain.Message{
 			ConversationID: conv.ID,
@@ -54,6 +78,31 @@ func (c *Chat) Create(userID, title, studio, model string, members []string, age
 		})
 	}
 	return conv, nil
+}
+
+// AppendUserMessage 落一条用户消息（执行入口用，保证历史里有这句话）。
+func (c *Chat) AppendUserMessage(convID, content string, mentions []string) *domain.Message {
+	msg := &domain.Message{
+		ConversationID: convID,
+		Role:           domain.RoleUser,
+		Content:        content,
+		Mentions:       mentions,
+	}
+	_ = c.store.AppendMessage(msg)
+	return msg
+}
+
+// AppendSystemNote 落一条系统提示（绑定工作区、权限变更等）。
+func (c *Chat) AppendSystemNote(convID, content string) {
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	_ = c.store.AppendMessage(&domain.Message{
+		ConversationID: convID,
+		Role:           domain.RoleSystem,
+		Content:        content,
+		Kind:           "system",
+	})
 }
 
 func (c *Chat) List(userID string) []*domain.Conversation {

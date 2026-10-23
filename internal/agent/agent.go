@@ -15,10 +15,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/workspace"
 )
 
@@ -28,6 +30,8 @@ type Permission string
 const (
 	// PermissionReadonly 只读：能看，不能改，不能跑命令。
 	PermissionReadonly Permission = "readonly"
+	// PermissionAsk 逐项批准：写文件和执行命令前都要问。代码工作室的默认档。
+	PermissionAsk Permission = "ask"
 	// PermissionApproval 写工作区自动（有 diff），执行命令每次需批准。
 	PermissionApproval Permission = "approval"
 	// PermissionFull 完全访问：文件工具受工作区约束，命令等同当前系统用户权限。
@@ -41,7 +45,7 @@ const (
 // ValidPermission 校验权限字符串。
 func ValidPermission(p Permission) bool {
 	switch p {
-	case PermissionReadonly, PermissionApproval, PermissionFull, PermissionAudit:
+	case PermissionReadonly, PermissionAsk, PermissionApproval, PermissionFull, PermissionAudit:
 		return true
 	}
 	return false
@@ -126,6 +130,7 @@ type Run struct {
 	ConversationID string     `json:"conversationId"`
 	UserID         string     `json:"userId"`
 	OperatorKey    string     `json:"operatorKey"`
+	OperatorName   string     `json:"operatorName,omitempty"`
 	Permission     Permission `json:"permission"`
 	// Scope 写入边界（相对路径/glob）。空表示不限。
 	Scope Scope `json:"scope,omitempty"`
@@ -157,17 +162,28 @@ type Run struct {
 	Diffs      []workspace.FileDiff `json:"diffs,omitempty"`
 	DiffTotal  int                  `json:"diffTotal"`
 	ToolCalls  []*ToolCall          `json:"toolCalls,omitempty"`
+	// Notes 每一步的可见说明（assistant 正文），用于验收汇总和复盘。
+	Notes []string `json:"notes,omitempty"`
+	// Artifacts 本次 Run 产出的文件/文档。run.end 时随事件和群消息返回。
+	Artifacts []domain.ArtifactRef `json:"artifacts,omitempty"`
+	// MessageID 本次 Run 结束后写入群聊的消息 id（由观察者回填）。
+	MessageID string `json:"messageId,omitempty"`
 	// ForceApproval 来自远程设备的策略：为真时即使权限是 full，
 	// 写文件与跑命令也要审批。设备可以关掉（用户的决定）。
 	ForceApproval bool `json:"forceApproval,omitempty"`
 	// Origin 这条指令从哪来：""（本机）或 "device:<id>"。
 	// 手机发起的任务在电脑端时间线里能看出处。
 	Origin string `json:"origin,omitempty"`
+	// VerifyOnly 团队执行者：只允许构建/测试，不允许联网或起常驻服务。
+	VerifyOnly bool `json:"verifyOnly,omitempty"`
 	// approved 本次 Run 内已批准的同类命令（scope=run），避免每条命令都打扰用户
 	approved map[string]bool
-	Summary  string  `json:"summary,omitempty"`
-	Error    string  `json:"error,omitempty"`
-	Events   []Event `json:"-"`
+	// 团队执行者的收尾判断：是否已写入过、连续多少步没有新写入。
+	hasWrites bool
+	idleSteps int
+	Summary   string  `json:"summary,omitempty"`
+	Error     string  `json:"error,omitempty"`
+	Events    []Event `json:"-"`
 
 	cancel context.CancelFunc
 }
@@ -189,6 +205,7 @@ const (
 	EventToolEnd   = "tool.end"
 	EventApproval  = "approval.required"
 	EventDiff      = "diff"
+	EventArtifact  = "artifact"
 	EventRunEnd    = "run.end"
 	EventError     = "error"
 )
@@ -216,8 +233,10 @@ type Manager struct {
 	workspaces map[string]*Workspace
 	runs       map[string]*Run
 	approvals  map[string]*Approval
-	snapshots  map[string]*workspace.Snapshot
-	subs       map[string][]chan Event
+	// onRunEnd Run 结束时回调（把结果沉淀成群消息）。返回消息 id。
+	onRunEnd  func(*Run) string
+	snapshots map[string]*workspace.Snapshot
+	subs      map[string][]chan Event
 	// 同一工作区允许并行 Run，但 scope 不能重叠（写入冲突的根因）
 	active map[string][]*Run
 	// writers 记录「哪个 Run 最近写了哪个文件」，用于文件级互斥。
@@ -329,6 +348,104 @@ func (m *Manager) UnbindWorkspace(id, userID string) bool {
 	return true
 }
 
+// BindWorkspaceFor 按 (userID, convID) upsert 工作区：同一个会话重复绑定
+// 同一目录时复用原来的工作区，不同目录则在无活动 Run 时重新打开。
+func (m *Manager) BindWorkspaceFor(userID, convID, root, label string) (*Workspace, error) {
+	ws, err := workspace.Open(root)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	for id, w := range m.workspaces {
+		if w.UserID != userID || w.ConversationID != convID {
+			continue
+		}
+		if w.Root == ws.Root {
+			m.mu.Unlock()
+			return w, nil
+		}
+		if len(m.active[id]) > 0 {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("这个群还有任务在运行，等结束再换目录")
+		}
+		delete(m.workspaces, id)
+	}
+	m.mu.Unlock()
+
+	w := &Workspace{
+		ID:             newID("wsp"),
+		UserID:         userID,
+		ConversationID: convID,
+		Root:           ws.Root,
+		Label:          label,
+		CreatedAt:      time.Now(),
+		ws:             ws,
+	}
+	m.mu.Lock()
+	m.workspaces[w.ID] = w
+	m.mu.Unlock()
+	m.SaveAsync()
+	return w, nil
+}
+
+// UnbindByConversation 解绑某会话的工作区。有活动 Run 时拒绝。
+func (m *Manager) UnbindByConversation(convID, userID string) bool {
+	m.mu.Lock()
+	var id string
+	for wid, w := range m.workspaces {
+		if w.ConversationID == convID && w.UserID == userID {
+			id = wid
+			break
+		}
+	}
+	if id == "" {
+		m.mu.Unlock()
+		return false
+	}
+	if len(m.active[id]) > 0 {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.workspaces, id)
+	m.mu.Unlock()
+	// 删除后必须落盘：否则重启会把已删的绑定又读回来。
+	m.SaveAsync()
+	return true
+}
+
+// RunsForConversation 列出某会话的 Run（最新在前）。
+func (m *Manager) RunsForConversation(convID string, activeOnly bool, limit int) []*Run {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*Run, 0)
+	for _, r := range m.runs {
+		if r.ConversationID != convID {
+			continue
+		}
+		if activeOnly && r.Status != StatusRunning && r.Status != StatusWaiting {
+			continue
+		}
+		out = append(out, cloneRunLocked(r))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// PendingApprovals 列出某个 Run 待处理的审批。
+func (m *Manager) PendingApprovals(runID string) []*Approval {
+	all := m.ApprovalsOf(runID)
+	out := make([]*Approval, 0, len(all))
+	for _, a := range all {
+		if a.Status == "pending" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // fs 暴露底层工作区（同包内使用）。
 func (w *Workspace) fs() *workspace.Workspace { return w.ws }
 
@@ -336,11 +453,79 @@ func (w *Workspace) fs() *workspace.Workspace { return w.ws }
 func (w *Workspace) FS() *workspace.Workspace { return w.ws }
 
 // GetRun 查询运行。
+// GetRun 返回 Run 的快照。
+// 以前返回 map 里的活指针，HTTP 层序列化时 runner 还在改 Status/Step/ToolCalls，
+// -race 下是实打实的数据竞争；调用方只需要读，就给深拷贝。
 func (m *Manager) GetRun(id string) (*Run, bool) {
+	return m.RunView(id)
+}
+
+// RunView 持锁深拷贝一个 Run，避免 HTTP 层读到 runner 正在修改的字段。
+func (m *Manager) RunView(id string) (*Run, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.runs[id]
-	return r, ok
+	if !ok {
+		return nil, false
+	}
+	return cloneRunLocked(r), true
+}
+
+// cloneRunLocked 深拷贝一个 Run。调用方必须持有 m.mu。
+func cloneRunLocked(r *Run) *Run {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	cp.cancel = nil
+	cp.approved = nil
+	if r.Scope != nil {
+		cp.Scope = append(Scope(nil), r.Scope...)
+	}
+	if r.Diffs != nil {
+		cp.Diffs = append([]workspace.FileDiff(nil), r.Diffs...)
+	}
+	if r.ToolCalls != nil {
+		cp.ToolCalls = make([]*ToolCall, 0, len(r.ToolCalls))
+		for _, tc := range r.ToolCalls {
+			if tc == nil {
+				continue
+			}
+			tcc := *tc
+			cp.ToolCalls = append(cp.ToolCalls, &tcc)
+		}
+	}
+	if r.Notes != nil {
+		cp.Notes = append([]string(nil), r.Notes...)
+	}
+	if r.Artifacts != nil {
+		cp.Artifacts = append([]domain.ArtifactRef(nil), r.Artifacts...)
+	}
+	if r.Chain != nil {
+		chain := *r.Chain
+		cp.Chain = &chain
+	}
+	return &cp
+}
+
+// WorkspaceByConversation 按会话找绑定的工作区。
+func (m *Manager) WorkspaceByConversation(convID string) (*Workspace, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, w := range m.workspaces {
+		if w.ConversationID == convID {
+			return w, true
+		}
+	}
+	return nil, false
+}
+
+// SetRunEndObserver 注册 Run 结束回调（把结果沉淀成群消息）。
+// 回调在锁外执行，返回值会写回 Run.MessageID 并随 run.end 下发。
+func (m *Manager) SetRunEndObserver(fn func(*Run) string) {
+	m.mu.Lock()
+	m.onRunEnd = fn
+	m.mu.Unlock()
 }
 
 // ListRuns 列出某工作区的运行（最新在前）。
@@ -537,6 +722,12 @@ func permissionForBase(p Permission, tool string, risk string) (allowed bool, ne
 			return true, false, ""
 		}
 		return false, false, "只读权限不能写文件或执行命令"
+	case PermissionAsk:
+		// 逐项批准：读自动放行；写文件和任何命令都要先问。
+		if readOnlyTool {
+			return true, false, ""
+		}
+		return true, true, "该操作需要批准"
 	case PermissionApproval:
 		if readOnlyTool {
 			return true, false, ""

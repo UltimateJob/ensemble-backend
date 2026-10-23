@@ -7,6 +7,8 @@ import { openPanel, closePanel, renderNav } from '../js/shell.js';
 import { confirmModal, promptModal, openModal, closeModal } from '../js/modal.js';
 import { avatarHTML, coverUrl } from '../js/avatars.js';
 import { navigate } from '../js/router.js';
+import { openWorkspaceDialog, workspacePath } from '../js/workspace.js';
+import { permissionLabel } from '../js/activity.js';
 
 const COVERS = ['bid', 'xhs', 'code', 'anime', 'research', 'companion'];
 
@@ -29,6 +31,22 @@ export function openTeamSettings(conv) {
             ? `<img src="${esc(coverSrc)}" alt="团队封面" style="width:112px;height:63px;object-fit:cover;border-radius:8px">`
             : avatarHTML(conv.title, '#367BED', { size: 56 })}
         </div>
+        <button class="set-row" data-act="workspace">
+          <span class="set-ic">${icon('folder', 17)}</span>
+          <span class="set-body">
+            <span class="set-t">本地工作区</span>
+            <span class="set-s">${esc(workspacePath(conv) || '未绑定')}</span>
+          </span>
+          ${icon('chevron-right', 16)}
+        </button>
+        <button class="set-row" data-act="permission">
+          <span class="set-ic">${icon('shield', 17)}</span>
+          <span class="set-body">
+            <span class="set-t">默认执行权限</span>
+            <span class="set-s">${esc(conv.defaultPermission ? permissionLabel(conv.defaultPermission) : '跟随角色设置')}</span>
+          </span>
+          ${icon('chevron-right', 16)}
+        </button>
         <button class="set-row" data-act="rename">
           <span class="set-ic">${icon('pencil', 17)}</span><span class="set-t">修改团队名称</span>${icon('chevron-right', 16)}
         </button>
@@ -46,10 +64,50 @@ export function openTeamSettings(conv) {
         </button>`;
 
       el.querySelector('[data-act=rename]').addEventListener('click', () => rename(conv));
+      el.querySelector('[data-act=workspace]').addEventListener('click', () => openWorkspaceDialog(conv, {
+        onDone: () => openTeamSettings(state.convs.find(c => c.id === conv.id) || conv),
+      }));
+      el.querySelector('[data-act=permission]').addEventListener('click', () => pickPermission(conv));
       el.querySelector('[data-act=cover]').addEventListener('click', () => pickCover(conv));
       el.querySelector('[data-act=members]').addEventListener('click', () => showMembers(conv));
       el.querySelector('[data-act=copy]').addEventListener('click', () => copyTemplate(conv));
       el.querySelector('[data-act=dissolve]').addEventListener('click', () => dissolve(conv));
+    },
+  });
+}
+
+function pickPermission(conv) {
+  const options = [
+    { k: '', label: '跟随角色设置', hint: '内置角色用自己的默认权限' },
+    { k: 'ask', label: '逐项批准', hint: '每次写文件和命令都要确认' },
+    { k: 'approval', label: '自动接受编辑', hint: '文件自动改，命令仍需批准' },
+    { k: 'full', label: '完全访问', hint: '文件和命令都自动执行' },
+    { k: 'readonly', label: '只读', hint: '不能执行写操作' },
+  ];
+  openModal({
+    title: '默认执行权限',
+    width: 520,
+    body: `<p class="hint" style="margin-bottom:14px">作用于所有「没有单独设置权限」的角色。团队任务需要至少一个可写角色。</p>
+      ${options.map(o => `<button class="perm-opt${(conv.defaultPermission || '') === o.k ? ' on' : ''}" data-k="${esc(o.k)}">
+        <b>${esc(o.label)}</b><span>${esc(o.hint)}</span>
+      </button>`).join('')}`,
+    actions: [{ key: 'close', label: '关闭', kind: 'line' }],
+    onMount: mask => {
+      mask.querySelectorAll('.perm-opt').forEach(b => b.addEventListener('click', async () => {
+        try {
+          await api('/v1/conversations/' + encodeURIComponent(conv.id), {
+            method: 'PATCH', body: { defaultPermission: b.dataset.k },
+          });
+          conv.defaultPermission = b.dataset.k;
+          const hit = (state.convs || []).find(c => c.id === conv.id);
+          if (hit) hit.defaultPermission = b.dataset.k;
+          closeModal();
+          openTeamSettings(conv);
+          toast('已更新，下一次派活生效', { type: 'ok' });
+        } catch (e) {
+          toast('保存失败：' + e.message, { type: 'err' });
+        }
+      }));
     },
   });
 }

@@ -98,8 +98,9 @@ func main() {
 	}
 
 	models := []domain.ModelInfo{
-		{Key: "deepseek-chat", Provider: "deepseek", Upstream: "deepseek-chat", Enabled: true, Weight: 10, CostPer1K: 0.001, Note: "通用对话"},
-		{Key: "deepseek-reasoner", Provider: "deepseek", Upstream: "deepseek-reasoner", Enabled: false, Weight: 1, CostPer1K: 0.002, Note: "推理模型"},
+		// Rank 决定路由优先级：官方渠道排最前，中转作为保底。
+		{Key: "deepseek-chat", Provider: "deepseek", Upstream: "deepseek-chat", Enabled: true, Rank: 1, Weight: 10, CostPer1K: 0.001, Note: "通用对话（官方，首选）"},
+		{Key: "deepseek-reasoner", Provider: "deepseek", Upstream: "deepseek-reasoner", Enabled: false, Rank: 1, Weight: 1, CostPer1K: 0.002, Note: "推理模型"},
 	}
 
 	// 生产自检：不安全的默认值直接拒绝启动。
@@ -166,6 +167,11 @@ func main() {
 		log.Warn("DEV_BYPASS 已开启：演示账号免验证码，生产环境请设 DEV_BYPASS=false")
 	}
 	auth := service.NewAuth(st, cfg.JWTSecret, sender, cfg.DevBypass)
+	// 密码凭据单独落盘，不塞进用户对象。文件损坏不拒绝启动：
+	// 记一条告警，密码登录按「未设置密码」处理，账号本身还能用验证码进。
+	if err := auth.SetCredentialsPath(filepath.Join(dataDir, "credentials.json")); err != nil {
+		log.Warn("加载密码凭据失败，密码登录暂不可用", "err", err.Error())
+	}
 	chat := service.NewChat(st, gw)
 	slow := service.NewSlowLog(200, int64(cfg.SlowThresholdMS))
 
@@ -194,6 +200,11 @@ func main() {
 	// ---- HTTP ----
 	// 工作层：本地工作区、Run、审批、回滚。
 	agentMgr := agent.NewManager()
+	// Run 结束后把结果沉淀成一条群消息（kind=run），刷新后仍能看到。
+	// 返回的消息 id 会随 run.end 事件下发，前端用它避免重复渲染。
+	agentMgr.SetRunEndObserver(func(r *agent.Run) string {
+		return chat.AppendRunMessage(r)
+	})
 	// 执行器的 token 按「每 10k token 折 1 次额度」计入用量，最少 1 次。
 	agentMgr.SetUsageRecorder(func(userID string, in, out int) {
 		credits := (in + out + 9999) / 10000
@@ -204,7 +215,54 @@ func main() {
 			log.Warn("记录执行用量失败", "err", err.Error())
 		}
 	})
+	// 团队任务：规划、并行执行、验证、返工由后端编排。
+	// 结束时落一条团队消息；run 级消息仍由上面的 observer 负责。
+	teamMgr := agent.NewTeamManager()
+	teamMgr.SetObserver(func(t *domain.TeamRun) {
+		if t == nil {
+			return
+		}
+		switch t.Status {
+		case "done", "partial", "failed", "cancelled":
+			chat.AppendTeamMessage(t)
+		}
+	})
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc, shared.Limiter)
+	srv.SetTeamManager(teamMgr)
+
+	// ---- 可编辑的上游渠道 ----
+	// 环境变量里的渠道作为初始种子写入渠道表（只在文件里没有同名渠道时），
+	// 之后全部在管理台维护。这样「填官方 Key 顶上」不需要改 .env 重启。
+	upstreams, uerr := store.NewUpstreams(filepath.Join(dataDir, "upstreams.json"))
+	if uerr != nil {
+		log.Warn("加载上游渠道表失败，管理台渠道编辑暂不可用", "err", uerr.Error())
+	} else {
+		seedUpstreams(upstreams, cfg)
+		srv.SetUpstreams(upstreams, cfg.UpstreamTimeout)
+		srv.SetProviderDeleteGuard(func(name string) string {
+			for _, m := range admin.Models() {
+				if m.Provider == name && m.Enabled {
+					return "渠道「" + name + "」还有启用的模型，先停用或删除模型"
+				}
+			}
+			return ""
+		})
+		// 热注册：文件里存在但当前注册表没有的渠道，启动时补上。
+		for _, rec := range upstreams.List() {
+			if !rec.Enabled {
+				continue
+			}
+			key, _ := upstreams.Key(rec.Name)
+			if key == "" {
+				continue
+			}
+			if _, exists := reg.Get(rec.Name); exists {
+				continue
+			}
+			reg.Add(gateway.NewDeepSeek(rec.BaseURL, key, rec.Model, cfg.UpstreamTimeout).WithName(rec.Name))
+			log.Info("已从渠道表注册上游", "name", rec.Name, "base", rec.BaseURL)
+		}
+	}
 
 	// ---- 手机端 ----
 	// 加密密钥已在上方存储初始化前注入（加载时要解密）。
@@ -265,4 +323,30 @@ func main() {
 	}
 	<-done
 	log.Info("已退出")
+}
+
+// seedUpstreams 把环境变量里的渠道补进渠道表。
+//
+// 只在文件里没有同名渠道时写入：管理台改过的 Key 不能被下次启动的
+// 环境变量覆盖回去（否则「热改 Key」重启就丢）。
+func seedUpstreams(u *store.Upstreams, cfg config.Config) {
+	existing := map[string]bool{}
+	for _, r := range u.List() {
+		existing[r.Name] = true
+	}
+	if !existing["deepseek"] && cfg.DeepSeekAPIKey != "" {
+		_, _ = u.Upsert(store.UpstreamRecord{
+			Name: "deepseek", BaseURL: cfg.DeepSeekBaseURL, Key: cfg.DeepSeekAPIKey,
+			Model: cfg.DeepSeekModel, Source: "env", Enabled: true,
+		})
+	}
+	for _, ep := range cfg.ExtraProviders {
+		if existing[ep.Name] {
+			continue
+		}
+		_, _ = u.Upsert(store.UpstreamRecord{
+			Name: ep.Name, BaseURL: ep.BaseURL, Key: ep.APIKey,
+			Model: ep.Model, Source: "env", Enabled: true,
+		})
+	}
 }
