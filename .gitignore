@@ -44,3 +44,8 @@ desktop/AppIcon.icns
 .claude/COORDINATION.md
 # 本地编译产物
 /server
+
+# 本地协作文件（两个 agent 共享，不入库）
+.claude/COORDINATION.md
+# 本地编译产物
+/server
