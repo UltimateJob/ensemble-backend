@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "纸团",
+    "slug": "zhituan",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "zhituan",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ultimatejob.zhituan",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.ultimatejob.zhituan",
+      "usesCleartextTraffic": true,
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "扫描电脑上的配对二维码，把这台手机绑定到你的电脑。",
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
+    "experiments": {
+      "baseUrl": "/m"
+    }
+  }
+}
