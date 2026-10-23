@@ -166,7 +166,9 @@ type dsChunk struct {
 // 关键点：没有指定时必须返回 nil。omitempty 对接口类型只看接口本身
 // 是不是 nil，不看里面的值——装着一个空字符串的接口照样会被序列化成
 // "tool_choice":""，DeepSeek 一律 422：
-//   tool_choice: expected one of `none`, `auto`, `required` or a tool
+//
+//	tool_choice: expected one of `none`, `auto`, `required` or a tool
+//
 // 这条曾经让线上所有聊天（含不带 tools 的）全部失败。
 func toDSToolChoice(req domain.ChatRequest) any {
 	if req.ToolChoiceName != "" {

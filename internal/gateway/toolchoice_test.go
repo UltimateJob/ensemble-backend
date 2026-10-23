@@ -12,7 +12,9 @@ import (
 // dsRequest.ToolChoice 是 any。encoding/json 的 omitempty 对接口类型
 // 只看接口本身是否为 nil，不看它装的值——装着一个空字符串的接口仍会
 // 被序列化成 "tool_choice":""，上游 DeepSeek 直接 422：
-//   tool_choice: expected one of `none`, `auto`, `required` or a tool
+//
+//	tool_choice: expected one of `none`, `auto`, `required` or a tool
+//
 // 这曾经让线上所有聊天（包括不带 tools 的）全部失败，重试后熔断打开。
 func TestToolChoiceEmptyIsOmitted(t *testing.T) {
 	tc := toDSToolChoice(domain.ChatRequest{})

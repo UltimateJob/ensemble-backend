@@ -8,6 +8,122 @@ import (
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 )
 
+// 这个文件把 /v1/chat/completions 真正做成 OpenAI 兼容协议。
+//
+// 之前它只是「长得像」：请求体直接按内部结构（扁平的 Tool）解码，
+// 响应也只拼 Content。于是：
+//   - 外部按 OpenAI 规范发的 {"type":"function","function":{...}} 工具
+//     解出来是空名字，上游 400；
+//   - 模型返回 tool_calls 时，非流式响应把它们丢了，调用方只看到空正文。
+//
+// 桌面端把线上当模型上游用，正好就是外部调用方，所以这两处必须补上。
+// 内部结构保持不变：只在边界上做一次转换。
+
+// oaTool OpenAI 的工具声明。
+type oaTool struct {
+	Type     string `json:"type"`
+	Function struct {
+		Name        string          `json:"name"`
+		Description string          `json:"description,omitempty"`
+		Parameters  json.RawMessage `json:"parameters,omitempty"`
+	} `json:"function"`
+}
+
+// oaToolCall OpenAI 的工具调用。
+type oaToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// oaMessage OpenAI 的消息体。tool_calls 用嵌套结构。
+type oaMessage struct {
+	Role       string       `json:"role"`
+	Content    string       `json:"content"`
+	ToolCalls  []oaToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string       `json:"tool_call_id,omitempty"`
+	Name       string       `json:"name,omitempty"`
+}
+
+// oaRequest OpenAI 的请求体。只收我们支持的字段，
+// 其余字段（top_p / stop 等）被忽略而不是报错——上游客户端的请求
+// 往往带一堆可选参数，为它们拒绝请求没有意义。
+type oaRequest struct {
+	Model       string      `json:"model"`
+	Messages    []oaMessage `json:"messages"`
+	Stream      bool        `json:"stream"`
+	Temperature float64     `json:"temperature"`
+	MaxTokens   int         `json:"max_tokens"`
+	Tools       []oaTool    `json:"tools"`
+	ToolChoice  any         `json:"tool_choice"`
+}
+
+// toChatRequest 把 OpenAI 请求转成内部结构。
+func toChatRequest(in oaRequest) (domain.ChatRequest, error) {
+	out := domain.ChatRequest{
+		Model:       in.Model,
+		Stream:      in.Stream,
+		Temperature: in.Temperature,
+		MaxTokens:   in.MaxTokens,
+	}
+	for _, m := range in.Messages {
+		dm := domain.ChatMessage{
+			Role:       m.Role,
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+		}
+		for _, tc := range m.ToolCalls {
+			dm.ToolCalls = append(dm.ToolCalls, domain.ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+		}
+		out.Messages = append(out.Messages, dm)
+	}
+	for _, t := range in.Tools {
+		if t.Function.Name == "" {
+			return out, fmt.Errorf("tools[].function.name 不能为空")
+		}
+		out.Tools = append(out.Tools, domain.Tool{
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  t.Function.Parameters,
+		})
+	}
+	// tool_choice 有两种形态：字符串（auto/none/required）或
+	// {"type":"function","function":{"name":"..."}}。后者表意更准，
+	// 用 ToolChoiceName 表达，避免上游把 required 当成 auto。
+	switch v := in.ToolChoice.(type) {
+	case string:
+		out.ToolChoice = v
+	case map[string]any:
+		if fn, ok := v["function"].(map[string]any); ok {
+			if name, ok := fn["name"].(string); ok {
+				out.ToolChoiceName = name
+				out.ToolChoice = "required"
+			}
+		}
+	}
+	return out, nil
+}
+
+// oaResponse 非流式响应。工具调用必须带出去，
+// 否则调用方拿到 200 + 空正文，只能当模型什么都没说。
+type oaResponse struct {
+	Message oaMessage `json:"message"`
+}
+
+func writeChatOK(w http.ResponseWriter, msg oaMessage) {
+	ok(w, map[string]any{
+		"choices": []map[string]any{{"message": msg}},
+	})
+}
+
 // handleGatewayChat 网关直连接口，协议对齐 OpenAI /v1/chat/completions。
 // 客户端可指定 model，网关按模型表与权重选路。
 func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
@@ -23,9 +139,14 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req domain.ChatRequest
-	if err := decode(r, &req); err != nil {
+	var in oaRequest
+	if err := decode(r, &in); err != nil {
 		badRequest(w, "请求格式不正确")
+		return
+	}
+	req, err := toChatRequest(in)
+	if err != nil {
+		badRequest(w, err.Error())
 		return
 	}
 	if len(req.Messages) == 0 {
@@ -40,25 +161,23 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !req.Stream {
-		var full string
+		msg := oaMessage{Role: "assistant"}
 		var lastErr string
+		var calls []*oaToolCall
 		for c := range stream {
 			if c.Err != nil {
 				lastErr = c.Err.Error()
 				break
 			}
-			full += c.Content
+			msg.Content += c.Content
+			msg.ToolCalls, calls = mergeToolCall(msg.ToolCalls, calls, c)
 		}
 		if lastErr != "" {
 			fail(w, 502, "upstream_error", lastErr)
 			return
 		}
 		_ = s.store.IncrementUsed(u.ID, 1)
-		ok(w, map[string]interface{}{
-			"choices": []map[string]interface{}{
-				{"message": map[string]string{"role": "assistant", "content": full}},
-			},
-		})
+		writeChatOK(w, msg)
 		return
 	}
 
@@ -67,15 +186,23 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 	sw := startSSE(w)
 	defer sw.stop()
 
+	var calls []*oaToolCall
 	for c := range stream {
 		if c.Err != nil {
 			b, _ := json.Marshal(map[string]string{"error": c.Err.Error()})
 			sw.writeRaw(fmt.Sprintf("data: %s\n\n", b))
 			break
 		}
+		delta := map[string]any{}
 		if c.Content != "" {
-			b, _ := json.Marshal(map[string]interface{}{
-				"choices": []map[string]interface{}{{"delta": map[string]string{"content": c.Content}}},
+			delta["content"] = c.Content
+		}
+		if tc := toolCallDelta(calls, c); tc != nil {
+			delta["tool_calls"] = []any{tc}
+		}
+		if len(delta) > 0 {
+			b, _ := json.Marshal(map[string]any{
+				"choices": []map[string]any{{"delta": delta}},
 			})
 			// 写失败＝客户端已断开，继续把流读完即可，不需要扣费
 			if !sw.writeRaw(fmt.Sprintf("data: %s\n\n", b)) {
@@ -90,6 +217,62 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+}
+
+// mergeToolCall 处理非流式累积：把增量合并成完整的 tool_call 列表。
+//
+// 返回合并后的列表和新的指针尾部，调用方原样带回下一轮。
+func mergeToolCall(out []oaToolCall, live []*oaToolCall, c domain.Chunk) ([]oaToolCall, []*oaToolCall) {
+	if c.ToolCall == nil {
+		return out, live
+	}
+	d := c.ToolCall
+	// 新调用：补齐列表到 index 位置
+	for len(live) <= d.Index {
+		live = append(live, &oaToolCall{Type: "function"})
+	}
+	tc := live[d.Index]
+	if d.ID != "" {
+		tc.ID = d.ID
+	}
+	if d.Name != "" {
+		tc.Function.Name = d.Name
+	}
+	tc.Function.Arguments += d.Arguments
+
+	out = out[:0]
+	for _, l := range live {
+		out = append(out, *l)
+	}
+	return out, live
+}
+
+// toolCallDelta 把一块工具调用增量转成 SSE 的 tool_calls 元素。
+// OpenAI 的流式格式要求每块都带 index。
+func toolCallDelta(live []*oaToolCall, c domain.Chunk) map[string]any {
+	if c.ToolCall == nil {
+		return nil
+	}
+	d := c.ToolCall
+	for len(live) <= d.Index {
+		live = append(live, &oaToolCall{Type: "function"})
+	}
+	fn := map[string]any{}
+	if d.Name != "" {
+		fn["name"] = d.Name
+	}
+	if d.Arguments != "" {
+		fn["arguments"] = d.Arguments
+	}
+	item := map[string]any{
+		"index":    d.Index,
+		"type":     "function",
+		"function": fn,
+	}
+	if d.ID != "" {
+		item["id"] = d.ID
+	}
+	return item
 }
 
 // handleUserModels 给普通用户的可选模型列表（建群/换模型的选择器用）。
