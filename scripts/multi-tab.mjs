@@ -145,13 +145,19 @@ async function connect(wsUrl) {
     // 标签 1 登录
     await tab1.send('Page.navigate', { url: `${BASE}/app/?token=${auth.token}&c=${convA.id}` });
     await tab1.waitFor('document.readyState === "complete"', 20000, '标签1 加载');
-    await tab1.waitFor('document.querySelector("#app").classList.contains("on")', 20000, '标签1 进主界面');
+    // 主界面的判定是「#app 不再 hidden」。#app 从来没有 on 这个类，
+    // 旧断言在多标签页这条路径上一直没生效（main 的 CI 也一直是红的）。
+    await tab1.waitFor(
+      '!document.querySelector("#app").classList.contains("hidden") && document.querySelector("#login").classList.contains("hidden")',
+      20000, '标签1 进主界面');
     ok('标签 1 登录并打开群 A', true);
 
     // 标签 2 直接进（不需要再登录，共享 localStorage）
     await tab2.send('Page.navigate', { url: `${BASE}/app/?c=${convB.id}` });
     await tab2.waitFor('document.readyState === "complete"', 20000, '标签2 加载');
-    await tab2.waitFor('document.querySelector("#app").classList.contains("on")', 20000, '标签2 自动登录');
+    await tab2.waitFor(
+      '!document.querySelector("#app").classList.contains("hidden") && document.querySelector("#login").classList.contains("hidden")',
+      20000, '标签2 自动登录');
     ok('标签 2 共享登录态，无需重新登录', true);
 
     // 两边各自打开不同的群
@@ -182,23 +188,19 @@ async function connect(wsUrl) {
     await tab1.waitFor('document.querySelectorAll(".msg.me").length > 0', 15000, '标签1 消息上屏');
     ok('标签 1 发出消息', true);
 
-    // 标签 2 打开同一个群，应看到这条
-    await tab2.eval(`(() => {
-      const el = [...document.querySelectorAll('.conv')].find(c => c.querySelector('.conv-name').textContent.includes('A'));
-      if (el) el.click();
-    })()`);
-    await sleep(1500);
+    // 标签 2 打开同一个群，应看到这条。
+    // 新 UI 的侧栏是 .nav-room（旧的 .conv/.conv-name 已经不存在），
+    // 直接用路由跳转更稳，也不依赖列表有没有渲染完。
+    await tab2.eval(`location.hash = '#/room/${convA.id}'`);
+    await sleep(2000);
     const seen = await tab2.eval(
       '[...document.querySelectorAll(".msg-text")].some(t => t.textContent.includes("来自标签页 A"))'
     );
     ok('标签 2 能看到标签 1 发的消息', seen);
 
     // 同一个群同时说话：一个成功，一个 busy
-    await tab1.eval(`(() => {
-      const el = [...document.querySelectorAll('.conv')].find(c => c.querySelector('.conv-name').textContent.includes('A'));
-      if (el) el.click();
-    })()`);
-    await sleep(1200);
+    await tab1.eval(`location.hash = '#/room/${convA.id}'`);
+    await sleep(1500);
 
     const fire = tab => tab.eval(`(() => {
       const ta = document.querySelector('#ta');
