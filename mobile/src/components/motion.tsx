@@ -231,3 +231,167 @@ export function TypingDots({ color }: { color: string }) {
     </Animated.View>
   );
 }
+
+/* ============================================================
+   规范 §8 专用动效
+   ============================================================ */
+
+/**
+ * 按钮按压（规范 §8）：缩放 0.97 + 投影减半，120ms。
+ *
+ * 与 PressableScale 的区别：这个会把「投影强度」也一起调，
+ * 因为主按钮的投影是它看起来"浮着"的关键——按下时不减投影，
+ * 就只是"变小了"，没有"被按下去"的感觉。
+ */
+export function PressButton({
+  children,
+  onPress,
+  disabled,
+  style,
+  scaleTo = 0.97,
+}: {
+  children: React.ReactNode;
+  onPress?: () => void;
+  disabled?: boolean;
+  style?: any;
+  scaleTo?: number;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const shadow = useRef(new Animated.Value(1)).current;
+
+  const run = (to: number) => {
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: to,
+        duration: 120,
+        easing: Easing.bezier(0.32, 0.72, 0.24, 1),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shadow, {
+        toValue: to === 1 ? 1 : 0.5,
+        duration: 120,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  };
+
+  return (
+    <Animated.View style={[{ transform: [{ scale }], opacity: disabled ? 0.4 : 1 }, style]}>
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        onPressIn={() => run(scaleTo)}
+        onPressOut={() => run(1)}
+      >
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/**
+ * 消息入场（规范 §8）：上浮 6px + 淡入，220ms。
+ *
+ * 自己发送的消息不加这个动画——你刚按了发送，它再"飞"进来一次
+ * 会显得迟钝。只有别人说的话才需要入场。
+ */
+export function MessageIn({
+  children,
+  enabled = true,
+}: {
+  children: React.ReactNode;
+  enabled?: boolean;
+}) {
+  const v = useRef(new Animated.Value(enabled ? 0 : 1)).current;
+
+  useEffect(() => {
+    if (!enabled) return;
+    Animated.timing(v, {
+      toValue: 1,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [v, enabled]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: v,
+        transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/**
+ * 审批托盘展开（规范 §8）：高度展开 300ms ease-out + 内容淡入 120ms。
+ *
+ * 用 maxHeight 做高度动画（内容高度不固定），比 scaleY 真实——
+ * scale 会把文字一起压扁。
+ */
+export function TrayExpand({
+  children,
+  visible,
+  maxHeight = 260,
+}: {
+  children: React.ReactNode;
+  visible: boolean;
+  maxHeight?: number;
+}) {
+  const h = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const fade = useRef(new Animated.Value(visible ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(h, {
+        toValue: visible ? 1 : 0,
+        duration: 300,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(fade, {
+        toValue: visible ? 1 : 0,
+        duration: visible ? 120 : 90,
+        delay: visible ? 100 : 0,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [visible, h, fade]);
+
+  return (
+    <Animated.View
+      style={{
+        maxHeight: h.interpolate({ inputRange: [0, 1], outputRange: [0, maxHeight] }),
+        opacity: fade,
+        overflow: 'hidden',
+      }}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/**
+ * 面板滑入（规范 §8）：380ms，弹簧曲线。
+ * 同时让背景内容缩放 0.96 + 压暗——这是 iOS 的模态层级语言。
+ */
+export function usePanelScale(visible: boolean) {
+  const v = useRef(new Animated.Value(visible ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.timing(v, {
+      toValue: visible ? 1 : 0,
+      duration: 380,
+      easing: Easing.bezier(0.32, 0.72, 0.24, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [visible, v]);
+
+  return {
+    transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] }) }],
+    opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.92] }),
+  };
+}

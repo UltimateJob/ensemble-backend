@@ -33,6 +33,10 @@ export interface Theme {
   /** 悬浮板（成员条 / 托盘 / 输入板） */
   slab: string;
   slabTop: string;
+  /** 门面页深色英雄卡底（附录 A2，明暗两套都用这个深色） */
+  heroBg: string;
+  /** 品牌渐变投影色（附录 A1：0 12px 28px rgba(99,91,240,.38)） */
+  brandShadow: string;
 
   /* 品牌（仅门面页） */
   accent: string;
@@ -100,6 +104,8 @@ export const LIGHT: Theme = {
   cardTint: '#FAFAF8',
   slab: 'rgba(255,255,255,0.86)',
   slabTop: '#FFFFFF',
+  heroBg: '#141519',
+  brandShadow: 'rgba(99,91,240,0.38)',
 
   accent: light.brandFrom,
   accentDeep: light.brandTo,
@@ -161,6 +167,8 @@ export const DARK: Theme = {
   cardTint: '#202024',
   slab: 'rgba(38,38,43,0.92)',
   slabTop: darkRaw.slabTop,
+  heroBg: '#141519',
+  brandShadow: 'rgba(99,91,240,0.38)',
 
   accent: '#7C9BFF',
   accentDeep: '#A78BFA',

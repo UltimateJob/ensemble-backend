@@ -12,7 +12,7 @@ import {
   setBaseURL,
   getToken,
 } from './api';
-import { useApp } from './store';
+import { restoreCurrentConv, useApp } from './store';
 import type { Scenario, User } from './types';
 
 /**
@@ -54,6 +54,26 @@ export async function boot(): Promise<'ok' | 'need-login'> {
   if (cv.status === 'fulfilled') {
     useApp.getState().setConvs(cv.value ?? []);
   }
+
+  // 官方群（附录 B1）：确保存在，并作为首次进入的落点。
+  // 失败不阻塞登录——没有官方群照样能用。
+  try {
+    const off = await get<{ conversation: any; hints: string[] }>('/v1/official');
+    if (off?.conversation?.id) {
+      useApp.getState().setOfficial(off.conversation.id, off.hints ?? []);
+      useApp.getState().upsertConv(off.conversation);
+    }
+  } catch {
+    /* 官方群可选 */
+  }
+
+  // 冷启动恢复上次停留的群（附录 B2）；没有就落到官方群
+  await restoreCurrentConv();
+  const st = useApp.getState();
+  if (!st.currentConv) {
+    st.setCurrentConv(st.officialConv ?? st.convs[0]?.id ?? null);
+  }
+
   useApp.getState().setReady(true);
   return 'ok';
 }

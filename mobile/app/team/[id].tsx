@@ -8,37 +8,55 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AgentPanel } from '../../src/components/AgentPanel';
-import { ApprovalSheet } from '../../src/components/ApprovalSheet';
+import { ApprovalTray } from '../../src/components/ApprovalTray';
 import { Avatar } from '../../src/components/Avatar';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Canvas } from '../../src/components/Canvas';
-import { FadeInUp, PressableScale, TypingDots } from '../../src/components/motion';
-import { Card, Icon, IconButton, PulseDot, Row, T, withAlpha } from '../../src/components/ui';
+import { GroupInfoPanel } from '../../src/components/GroupInfoPanel';
+import {
+  ChatHeader,
+  FileCard,
+  MemberBar,
+  MemberBubble,
+  TaskCard,
+  UserBubble,
+  memberColor,
+  withAlpha,
+  type BarMember,
+  type MemberState,
+} from '../../src/components/chat';
+import { TypingDots } from '../../src/components/motion';
+import { Icon, T } from '../../src/components/ui';
 import { get, humanError, post, stream } from '../../src/lib/api';
 import type { Approval } from '../../src/lib/runs';
+import { useApp } from '../../src/lib/store';
 import type { AgentActivity, ChatEvent, Conversation, Message } from '../../src/lib/types';
-import { color, gap, leading, PAGE_X, radius, shadow, type, weight } from '../../src/theme/tokens';
+import { useTheme } from '../../src/theme/theme';
+import { gap, lead, radius, shadow, type, weight } from '../../src/theme/tokens';
 
 /**
- * 群聊房间。
+ * 群聊主界面（设计规范 §6.1-6.6 / §9 第 1-2 屏）。
  *
- * 视觉结构：
- *   顶栏（返回 / 团队名 / 设置）
- *   → 成员条：头像 + 名字，状态环只在"有事发生"时出现
- *   → 状态条：只在有人后台干活时出现，是"谁在动"的主信号
- *   → 消息流：用户气泡靠右（主色实底），Agent 靠左（灰底白字区块）
- *   → 输入栏：圆角输入框 + 主色发送键
+ * 结构：
+ *   顶栏（玻璃，群名 + 状态句）
+ *   → 成员状态条（当前发言者放大）
+ *   → 消息流（成员气泡 / 用户气泡 / 任务卡 / 文件卡）
+ *   → 输入板 + 审批托盘（同一块玻璃容器）
  *
- * Agent 静默是默认行为：只在协商和同步结论时说话，后台干活靠头像环表达。
+ * 三条纪律：
+ *   - 黑白灰打底，彩色只给头像和状态语义
+ *   - 输入板是一整块，不做「框里套框」
+ *   - 审批托盘锚定输入板上方，与输入框同一个容器
  */
 export default function Room() {
+  const t = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const userId = useApp((s) => s.user?.id);
 
   const [conv, setConv] = useState<Conversation | null>(null);
   const [msgs, setMsgs] = useState<Message[]>([]);
@@ -47,37 +65,41 @@ export default function Room() {
   const [input, setInput] = useState('');
   const [err, setErr] = useState('');
   const [panelAgent, setPanelAgent] = useState<string | null>(null);
-  const [pendingApproval, setPendingApproval] = useState<{
-    approval: Approval;
-    runId: string;
-  } | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [approval, setApproval] = useState<{ a: Approval; runId: string } | null>(null);
+  const [speaker, setSpeaker] = useState<string | null>(null);
 
   const abortRef = useRef<(() => void) | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
   const streamingRef = useRef<Record<string, string>>({});
   const seenApprovals = useRef<Set<string>>(new Set());
 
-  /**
-   * 成员来源。
-   *
-   * 内置场景的群，会话详情里没有 agents（角色是运行时由场景解析的）。
-   * /activity 会带上解析后的 key/name，用它作为主来源。
-   */
-  const members: { key: string; name: string; title?: string; color?: string }[] =
+  /* ---------- 成员 ---------- */
+  const rawMembers: { key: string; name: string; title?: string; color?: string }[] =
     conv?.agents?.length
       ? conv.agents.map((a) => ({ key: a.key, name: a.name, title: a.title, color: a.color }))
-      : activity.map((a) => ({
-          key: a.key,
-          name: a.name,
-          color: (conv?.agents ?? []).find((x) => x.key === a.key)?.color,
-        }));
+      : activity.map((a) => ({ key: a.key, name: a.name }));
 
+  const members: BarMember[] = rawMembers.map((m, i) => ({
+    key: m.key,
+    name: m.name,
+    title: m.title,
+    color: m.color,
+    index: i,
+    state: stateOf(activity.find((x) => x.key === m.key)),
+  }));
+
+  const workingCount = activity.filter((a) => a.state === 'working').length;
+  const blockedCount = activity.filter((a) => a.state === 'blocked').length;
+
+  /* ---------- 加载 ---------- */
   const loadConv = useCallback(async () => {
     try {
       const c = await get<Conversation>(`/v1/conversations/${id}`);
       setConv(c);
       const m = await get<{ messages?: Message[] } | Message[]>(
-        `/v1/conversations/${id}/messages?page=1&limit=40`,
+        `/v1/conversations/${id}/messages?page=1&limit=60`,
       );
       setMsgs(Array.isArray(m) ? m : (m?.messages ?? []));
     } catch (e) {
@@ -100,50 +122,51 @@ export default function Room() {
   }, [loadConv, loadActivity]);
 
   useEffect(() => {
-    const t = setInterval(loadActivity, 5000);
-    return () => clearInterval(t);
+    const timer = setInterval(loadActivity, 5000);
+    return () => clearInterval(timer);
   }, [loadActivity]);
 
-  // 审批轮询：低频事件，4 秒一次比给每个 Run 常驻 SSE 更省电
+  // 审批轮询
   useEffect(() => {
     let alive = true;
     async function poll() {
       try {
         const acts = await get<AgentActivity[]>(`/v1/conversations/${id}/activity`);
         if (!alive) return;
-        const blocked = acts.filter((a) => a.state === 'blocked' && a.runId);
-        for (const b of blocked) {
+        for (const b of acts.filter((a) => a.state === 'blocked' && a.runId)) {
           const run = await get<any>(`/v1/runs/${b.runId}`);
           if (!alive) return;
-          const pending = (run?.approvals ?? []).find(
+          const p = (run?.approvals ?? []).find(
             (x: any) => x.status === 'pending' && !seenApprovals.current.has(x.id),
           );
-          if (pending) {
-            seenApprovals.current.add(pending.id);
-            setPendingApproval({ approval: pending, runId: b.runId! });
+          if (p) {
+            seenApprovals.current.add(p.id);
+            setApproval({ a: p, runId: b.runId! });
             break;
           }
         }
       } catch {
-        /* 下一轮再试 */
+        /* 下一轮 */
       }
     }
-    const t = setInterval(poll, 4000);
+    const timer = setInterval(poll, 4000);
     poll();
     return () => {
       alive = false;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, [id]);
 
   useEffect(() => () => abortRef.current?.(), []);
 
+  /* ---------- 发送 ---------- */
   async function send() {
     const text = input.trim();
     if (!text || busy) return;
     setInput('');
     setErr('');
     setBusy(true);
+    setMentionOpen(false);
     streamingRef.current = {};
 
     setMsgs((m) => [
@@ -161,15 +184,14 @@ export default function Room() {
     ]);
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
 
-    abortRef.current = await stream(`/v1/conversations/${id}/orchestrate`, { content: text }, (ev: ChatEvent) =>
-      handleEvent(ev),
-    );
+    abortRef.current = await stream(`/v1/conversations/${id}/orchestrate`, { content: text }, handleEvent);
   }
 
   function handleEvent(ev: ChatEvent) {
     switch (ev.type) {
-      case 'start': {
+      case 'start':
         streamingRef.current[ev.agent ?? ''] = '';
+        setSpeaker(ev.agent ?? null);
         setMsgs((m) => [
           ...m,
           {
@@ -184,11 +206,7 @@ export default function Room() {
             createdAt: new Date().toISOString(),
           },
         ]);
-        setActivity((a) =>
-          a.map((x) => (x.key === ev.agent ? { ...x, state: 'working', detail: '正在发言' } : x)),
-        );
         break;
-      }
       case 'delta': {
         const k = ev.agent ?? '';
         streamingRef.current[k] = (streamingRef.current[k] ?? '') + (ev.content ?? '');
@@ -207,11 +225,6 @@ export default function Room() {
       }
       case 'end':
         if (ev.content) streamingRef.current[ev.agent ?? ''] = ev.content;
-        setActivity((a) =>
-          a.map((x) =>
-            x.key === ev.agent ? { ...x, state: x.state === 'working' ? 'idle' : x.state } : x,
-          ),
-        );
         break;
       case 'artifact':
         setMsgs((m) => [
@@ -230,24 +243,6 @@ export default function Room() {
           },
         ]);
         break;
-      case 'ask':
-      case 'error':
-        if (ev.content) {
-          setMsgs((m) => [
-            ...m,
-            {
-              id: `sys_${Date.now()}_${Math.random()}`,
-              conversationId: id,
-              role: 'system',
-              content: ev.content!,
-              tokensIn: 0,
-              tokensOut: 0,
-              latencyMs: 0,
-              createdAt: new Date().toISOString(),
-            },
-          ]);
-        }
-        break;
       case 'busy':
         setErr('上一轮还没结束，等它说完。');
         break;
@@ -259,6 +254,7 @@ export default function Room() {
         break;
       case '__closed':
         setBusy(false);
+        setSpeaker(null);
         loadConv();
         loadActivity();
         break;
@@ -269,93 +265,70 @@ export default function Room() {
     abortRef.current?.();
     abortRef.current = null;
     setBusy(false);
+    setSpeaker(null);
   }
 
   async function decide(approve: boolean, scope: 'once' | 'run') {
-    if (!pendingApproval) return;
-    const { approval, runId } = pendingApproval;
-    setPendingApproval(null);
+    if (!approval) return;
+    const { a, runId } = approval;
+    setApproval(null);
     try {
-      await post(`/v1/runs/${runId}/approve`, { approvalId: approval.id, approve, scope });
+      await post(`/v1/runs/${runId}/approve`, { approvalId: a.id, approve, scope });
       loadActivity();
     } catch (e) {
       setErr(humanError(e));
     }
   }
 
-  const working = activity.filter((a) => a.state === 'working' || a.state === 'blocked');
-  const canSend = !!input.trim() && !busy;
+  function insertMention(name: string) {
+    setInput((v) => (v.endsWith(' ') || v === '' ? `${v}@${name} ` : `${v} @${name} `));
+    setMentionOpen(false);
+  }
+
+  /* ---------- 状态句 ---------- */
+  const statusLine =
+    workingCount > 0 && blockedCount > 0
+      ? `${workingCount} 位在干活 · ${blockedCount} 位等你审批`
+      : workingCount > 0
+        ? `${workingCount} 位在干活`
+        : blockedCount > 0
+          ? `${blockedCount} 位等你审批`
+          : `${members.length} 位成员`;
+
+  const barSummary = speaker ? (
+    <T size={type.caption} color={t.ink} numberOfLines={1}>
+      <Text style={{ fontWeight: weight.heavy as any }}>{rawMembers.find((m) => m.key === speaker)?.name}</Text>
+      <Text style={{ color: t.ink3 }}> 正在发言</Text>
+    </T>
+  ) : (
+    <T size={type.caption} color={t.ink3} numberOfLines={1}>
+      {workingCount > 0 ? `${workingCount} 位在干活` : '都在待命'}
+    </T>
+  );
 
   return (
-    <Canvas>
-    <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
-      {/* 顶栏 */}
-      <View style={s.topbar}>
-        <IconButton name="chevron-back" onPress={() => router.back()} accessibilityLabel="返回" />
-        <View style={s.topCenter}>
-          <T size={type.headline} weight="600" numberOfLines={1}>
-            {conv?.title ?? '加载中'}
-          </T>
-          {members.length ? (
-            <T size={type.caption} color={color.ink3} style={{ marginTop: 1 }}>
-              {members.length} 位成员
-            </T>
-          ) : null}
-        </View>
-        <IconButton
-          name="ellipsis-horizontal"
-          onPress={() => router.push('/settings')}
-          accessibilityLabel="团队设置"
+    <SafeAreaView style={{ flex: 1, backgroundColor: t.canvas[0] }} edges={['top', 'bottom']}>
+      <ChatHeader
+        title={conv?.title ?? '加载中'}
+        statusLine={statusLine}
+        onBack={() => router.back()}
+        onMenu={() => setInfoOpen(true)}
+      />
+
+      {/* 成员状态条 */}
+      {members.length > 0 ? (
+        <MemberBar
+          members={members}
+          speakerKey={speaker}
+          summary={barSummary}
+          onOpenInfo={() => setInfoOpen(true)}
         />
-      </View>
-
-      {/* 成员条 */}
-      <View style={s.membersWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.membersRow}
-        >
-          {members.map((a) => {
-            const st = activity.find((x) => x.key === a.key);
-            return (
-              <Pressable
-                key={a.key}
-                onPress={() => setPanelAgent(a.key)}
-                style={({ pressed }) => [s.memberItem, pressed && { opacity: 0.7 }]}
-              >
-                <Avatar name={a.name} tint={a.color} size={46} state={st?.state} />
-                <T
-size={type.caption}
-                  color={st?.state === 'working' ? color.accent : color.ink2}
-                  weight={st?.state === 'working' ? '600' : '400'}
-                  numberOfLines={1}
-                  style={{ marginTop: 7 }}
-                >
-                  {a.name}
-                </T>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* 状态条：只在有人干活时出现 */}
-      {working.length > 0 ? (
-        <View style={s.banner}>
-          <PulseDot active tone={color.accent} />
-          <T size={type.sub} color={color.accent} style={{ flex: 1 }} numberOfLines={2}>
-            {working.some((a) => a.state === 'blocked')
-              ? `${working.map((a) => a.name).join('、')} 在等你处理`
-              : `${working.map((a) => a.name).join('、')} 正在后台处理`}
-          </T>
-        </View>
       ) : null}
 
       {err ? (
-        <Pressable onPress={() => setErr('')} style={[s.banner, s.bannerErr]}>
-          <Icon name="alert-circle-outline" size={16} color={color.bad} />
-          <T size={type.sub} color={color.bad} style={{ flex: 1 }}>
+        <Pressable onPress={() => setErr('')} style={[s.errBar, { backgroundColor: t.badSoft }]}>
+          <Icon name="alert-circle" size={14} color={t.bad} />
+          <T size={type.caption} color={t.bad} style={{ flex: 1 }}>
             {err}
           </T>
         </Pressable>
@@ -366,55 +339,102 @@ size={type.caption}
         ref={listRef}
         data={msgs}
         keyExtractor={(m, i) => `${m.id}_${i}`}
-        contentContainerStyle={s.msgList}
+        contentContainerStyle={s.list}
         showsVerticalScrollIndicator={false}
-        renderItem={({ item, index }) => {
-          const prev = msgs[index - 1];
-          const showAgent = item.role === 'assistant' && prev?.agent !== item.agent;
-          const isLast = index === msgs.length - 1;
-          return <Bubble msg={item} showAgent={showAgent} conv={conv} streaming={busy && isLast} />;
-        }}
+        renderItem={({ item, index }) => (
+          <MessageRow
+            msg={item}
+            prev={msgs[index - 1]}
+            members={rawMembers}
+            streaming={busy && index === msgs.length - 1}
+            onAvatar={(name) => {
+              const found = rawMembers.find((x) => x.name === name);
+              if (found) setPanelAgent(found.key);
+            }}
+          />
+        )}
         onContentSizeChange={() => {
           if (busy) listRef.current?.scrollToEnd({ animated: true });
         }}
       />
 
-      {/* 输入栏 */}
+      {/* 输入板 + 审批托盘：同一块容器 */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={s.composer}>
-          <TextInput
-            value={input}
-            onChangeText={setInput}
-            placeholder="@角色名字 发起任务"
-            placeholderTextColor={color.ink4}
-            multiline
-            style={s.input}
-            editable={!busy}
-          />
-          {busy ? (
-            <Pressable onPress={stop} style={s.stopBtn} accessibilityLabel="停止">
-              <View style={s.stopSquare} />
+        <View
+          style={[
+            s.dock,
+            {
+              backgroundColor: t.slab,
+              borderColor: t.hairline,
+            },
+          ]}
+        >
+          {/* 审批托盘：托盘与输入区连成一块，中间发丝线 */}
+          {approval ? (
+            <>
+              <ApprovalTray
+                approval={approval.a}
+                level={rawMembers.find((m) => m.key === (approval.a as any).agentKey)?.title}
+                onAllow={() => decide(true, 'once')}
+                onDeny={() => decide(false, 'once')}
+                onAllowRun={() => decide(true, 'run')}
+                onOpenSettings={() => {
+                  setApproval(null);
+                  setInfoOpen(true);
+                }}
+              />
+              <View style={[s.dockDivider, { backgroundColor: t.hairline }]} />
+            </>
+          ) : null}
+
+          {/* 输入行：图标直接落在板上，输入框不描边不填底 */}
+          <View style={s.inputRow}>
+            <Pressable hitSlop={8} style={s.iconBtn}>
+              <Icon name="mic-outline" size={22} color={t.ink3} />
             </Pressable>
-          ) : (
-            <Pressable
-              onPress={send}
-              disabled={!canSend}
-              style={[s.sendBtn, !canSend && s.sendBtnOff]}
-              accessibilityLabel="发送"
-            >
-              <Ionicons name="arrow-up" size={20} color={color.white} />
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              placeholder="发消息，或 @ 指定成员"
+              placeholderTextColor={t.ink4}
+              multiline
+              style={[s.input, { color: t.ink }]}
+              editable={!busy}
+            />
+            <Pressable onPress={() => setMentionOpen((v) => !v)} hitSlop={8} style={s.iconBtn}>
+              <Icon name="at" size={21} color={mentionOpen ? t.ink : t.ink3} />
             </Pressable>
-          )}
+            {busy ? (
+              <Pressable onPress={stop} hitSlop={8} style={s.iconBtn}>
+                <View style={[s.stopSquare, { backgroundColor: t.ink }]} />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={input.trim() ? send : undefined}
+                hitSlop={8}
+                style={s.iconBtn}
+                disabled={!input.trim()}
+              >
+                <Icon
+                  name={input.trim() ? 'arrow-up-circle' : 'add-circle-outline'}
+                  size={24}
+                  color={input.trim() ? t.ink : t.ink3}
+                />
+              </Pressable>
+            )}
+          </View>
+
+          {mentionOpen ? (
+            <MentionPicker members={rawMembers} onPick={insertMention} onClose={() => setMentionOpen(false)} />
+          ) : null}
         </View>
       </KeyboardAvoidingView>
 
       <AgentPanel
         visible={!!panelAgent}
         agent={(() => {
-          const found = members.find((a) => a.key === panelAgent);
-          return found
-            ? { key: found.key, name: found.name, title: found.title, color: found.color }
-            : null;
+          const f = rawMembers.find((a) => a.key === panelAgent);
+          return f ? { key: f.key, name: f.name, title: f.title, color: f.color } : null;
         })()}
         activity={activity.find((a) => a.key === panelAgent)}
         convId={id}
@@ -422,43 +442,77 @@ size={type.caption}
         onClose={() => setPanelAgent(null)}
       />
 
-      <ApprovalSheet
-        visible={!!pendingApproval}
-        tool={pendingApproval?.approval.tool ?? ''}
-        summary={pendingApproval?.approval.command || pendingApproval?.approval.summary || ''}
-        risk={pendingApproval?.approval.risk ?? 'write'}
-        reason={pendingApproval?.approval.summary}
-        onAllow={() => decide(true, 'once')}
-        onAllowRun={() => decide(true, 'run')}
-        onDeny={() => decide(false, 'once')}
+      <GroupInfoPanel
+        visible={infoOpen}
+        conv={conv}
+        members={rawMembers.map((m, i) => ({
+          key: m.key,
+          name: m.name,
+          title: m.title,
+          color: m.color ?? memberColor(i),
+          index: i,
+          state: stateOf(activity.find((a) => a.key === m.key)),
+        }))}
+        activity={activity}
+        goal={null}
+        muted={false}
+        isOwner={conv?.userId === userId}
+        onClose={() => setInfoOpen(false)}
+        onOpenMember={(key) => {
+          setInfoOpen(false);
+          setPanelAgent(key);
+        }}
+        onAddMember={() => {}}
+        onRename={async () => {}}
+        onSetPermission={async () => {}}
+        onToggleMute={() => {}}
+        onLeave={() => router.back()}
+        onOpenLibrary={() => router.push('/library')}
+        onOpenGoals={() => router.push('/goals')}
+        onOpenConnect={() => router.push('/connect')}
       />
     </SafeAreaView>
-    </Canvas>
   );
 }
 
-/* ---------------- 气泡 ---------------- */
+/* ============================================================
+   消息行
+   ============================================================ */
 
-/** LinearGradient 需要至少两个色标的元组类型。 */
-const grad = (c: readonly string[]) => c as unknown as readonly [string, string, ...string[]];
-
-function Bubble({
+function MessageRow({
   msg,
-  showAgent,
-  conv,
+  prev,
+  members,
   streaming,
+  onAvatar,
 }: {
   msg: Message;
-  showAgent: boolean;
-  conv: Conversation | null;
+  prev?: Message;
+  members: { key: string; name: string; color?: string }[];
   streaming: boolean;
+  onAvatar: (name: string) => void;
 }) {
-  if (msg.role === 'system' && msg.artifacts?.length) return <TaskCard msg={msg} />;
+  const t = useTheme();
+
+  // 任务卡 / 文件卡
+  if (msg.role === 'system' && msg.artifacts?.length) {
+    const title = msg.artifacts[0];
+    const isTask = /任务|方案|架构/.test(title);
+    return (
+      <View style={{ marginVertical: 5, marginLeft: 50 }}>
+        {isTask ? (
+          <TaskCard title={title} step={3} total={5} status="等你审批" statusTone="blocked" />
+        ) : (
+          <FileCard name={title} meta={msg.agent ?? ''} />
+        )}
+      </View>
+    );
+  }
 
   if (msg.role === 'system') {
     return (
-      <View style={{ alignItems: 'center', paddingVertical: gap.xxs }}>
-        <T size={type.caption} color={color.ink3} align="center" lh={leading.caption}>
+      <View style={{ alignItems: 'center', paddingVertical: 6 }}>
+        <T size={type.micro} color={t.faint}>
           {msg.content}
         </T>
       </View>
@@ -467,211 +521,164 @@ function Bubble({
 
   if (msg.role === 'user') {
     return (
-      <FadeInUp distance={10}>
-      <View style={{ alignItems: 'flex-end', marginBottom: gap.sm }}>
-        <LinearGradient
-          colors={grad(color.gradient)}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={s.userBubble}
-        >
-          <T size={type.body} color={color.white} lh={leading.body}>
+      <View style={{ marginVertical: 5, paddingLeft: 50 }}>
+        <UserBubble>
+          <T size={type.body} lh={lead.body} color={t.dark ? t.primaryInk : '#FFFFFF'}>
             {msg.content}
           </T>
-        </LinearGradient>
+        </UserBubble>
       </View>
-      </FadeInUp>
     );
   }
 
-  const agent = conv?.agents?.find((a) => a.name === msg.agent);
+  // 成员消息
+  const showHead = prev?.agent !== msg.agent;
+  const idx = members.findIndex((m) => m.name === msg.agent);
+  const color = idx >= 0 ? (members[idx].color ?? memberColor(idx)) : undefined;
+
   return (
-    <View style={[s.agentRow, { marginTop: showAgent ? gap.md : gap.xxs }]}>
-      <View style={{ width: 34 }}>
-        {showAgent ? <Avatar name={msg.agent ?? '?'} size={34} tint={agent?.color} /> : null}
-      </View>
-      <View style={{ flex: 1, maxWidth: '84%' }}>
-        {showAgent ? (
-          <T size={type.caption} color={color.ink3} weight="500" style={{ marginBottom: 5 }}>
-            {msg.agent}
-          </T>
-        ) : null}
-        <View style={s.agentBubble}>
-          {msg.content ? (
-            <T size={type.body} lh={leading.body}>
-              {msg.content}
+    <View style={{ marginTop: showHead ? 11 : 4 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+        <Pressable onPress={() => onAvatar(msg.agent ?? '')} style={{ width: 40 }}>
+          {showHead ? <Avatar name={msg.agent ?? '?'} size={40} index={idx >= 0 ? idx : 0} tint={color} /> : null}
+        </Pressable>
+        <View style={{ flex: 1, maxWidth: '84%' }}>
+          {showHead ? (
+            <T size={type.micro} color={t.ink3} weight={weight.semibold} style={{ marginBottom: 5 }}>
+              {msg.agent}
             </T>
-          ) : streaming ? (
-            <TypingDots color={color.ink4} />
-          ) : (
-            <T size={type.body} color={color.ink4}>
-              …
-            </T>
-          )}
+          ) : null}
+          <MemberBubble>
+            {msg.content ? (
+              <T size={type.body} lh={lead.body}>
+                {msg.content}
+              </T>
+            ) : streaming ? (
+              <TypingDots color={t.ink4} />
+            ) : (
+              <T size={type.body} color={t.ink4}>
+                …
+              </T>
+            )}
+          </MemberBubble>
         </View>
       </View>
     </View>
   );
 }
 
-/** 通栏任务卡：所有重要产出走这里，而不是大段刷屏气泡。 */
-function TaskCard({ msg }: { msg: Message }) {
+/* ============================================================
+   @ 成员选择
+   ============================================================ */
+
+function MentionPicker({
+  members,
+  onPick,
+  onClose,
+}: {
+  members: { key: string; name: string; title?: string; color?: string }[];
+  onPick: (name: string) => void;
+  onClose: () => void;
+}) {
+  const t = useTheme();
   return (
-    <Card style={{ marginVertical: gap.xs }}>
-      <Row style={{ justifyContent: 'space-between', marginBottom: gap.xs }}>
-        <Row gap={6}>
-          <View style={s.taskIcon}>
-            <Icon name="document-text-outline" size={13} color={color.accent} />
-          </View>
-          <T size={type.caption} color={color.accent} weight="600">
-            产出
-          </T>
-        </Row>
-        <T size={type.caption} color={color.ink3}>
-          {msg.agent}
+    <View style={[s.mention, { backgroundColor: t.card, borderColor: t.hairline }]}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+        <T size={type.micro} color={t.ink3} weight={weight.semibold}>
+          指定成员
         </T>
-      </Row>
-      <T size={type.headline} weight="600" numberOfLines={1}>
-        {msg.artifacts?.[0]}
-      </T>
-      <T
-size={type.sub}
-        color={color.ink2}
-        lh={leading.sub}
-        numberOfLines={3}
-        style={{ marginTop: 4 }}
-      >
-        {msg.content}
-      </T>
-      <Row style={{ marginTop: gap.sm }} gap={4}>
-        <T size={type.caption} color={color.accent} weight="600">
-          查看详情
-        </T>
-        <Icon name="chevron-forward" size={11} color={color.accent} />
-      </Row>
-    </Card>
+        <Pressable onPress={onClose} hitSlop={8}>
+          <Icon name="close" size={15} color={t.ink3} />
+        </Pressable>
+      </View>
+      <ScrollView style={{ maxHeight: 180 }}>
+        {members.map((m, i) => (
+          <Pressable key={m.key} onPress={() => onPick(m.name)} style={{ paddingVertical: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Avatar name={m.name} size={30} index={i} tint={m.color} />
+              <View style={{ flex: 1 }}>
+                <T size={type.sub} weight={weight.semibold}>
+                  {m.name}
+                </T>
+                {m.title ? (
+                  <T size={type.micro} color={t.ink3} style={{ marginTop: 1 }}>
+                    {m.title}
+                  </T>
+                ) : null}
+              </View>
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
+/* ============================================================
+   工具
+   ============================================================ */
+
+function stateOf(a?: AgentActivity): MemberState {
+  if (!a) return 'idle';
+  if (a.state === 'working') return 'working';
+  if (a.state === 'done') return 'done';
+  if (a.state === 'blocked') return 'blocked';
+  return 'idle';
+}
+
 const s = StyleSheet.create({
-  topbar: {
-    height: 54,
+  list: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16 },
+
+  errBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: gap.sm,
-    gap: gap.xxs,
+    gap: 7,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: radius.tag,
   },
-  topCenter: { flex: 1, alignItems: 'center' },
-  membersWrap: {
-    paddingBottom: gap.sm,
+
+  dock: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: radius.tray,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    ...shadow.tray,
   },
-  membersRow: {
-    paddingHorizontal: PAGE_X,
-    gap: gap.md,
-  },
-  memberItem: { alignItems: 'center', width: 56 },
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: gap.xs,
-    marginHorizontal: PAGE_X,
-    marginBottom: gap.xs,
-    paddingVertical: 11,
-    paddingHorizontal: gap.sm,
-    backgroundColor: color.accentSoft,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: withAlpha(color.accent, 0.12),
-  },
-  bannerErr: { backgroundColor: color.badSoft },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.accent,
-  },
-  msgList: {
-    paddingHorizontal: PAGE_X,
-    paddingTop: gap.xs,
-    paddingBottom: gap.lg,
-  },
-  userBubble: {
-    backgroundColor: color.accent,
-    borderRadius: radius.card,
-    borderBottomRightRadius: 6,
-    paddingHorizontal: gap.md,
-    paddingVertical: 11,
-    maxWidth: '84%',
-  },
-  agentRow: {
-    flexDirection: 'row',
-    gap: gap.xs,
-    alignItems: 'flex-start',
-  },
-  agentBubble: {
-    backgroundColor: color.card,
-    borderRadius: radius.card,
-    borderTopLeftRadius: 8,
-    paddingHorizontal: gap.md,
-    paddingVertical: 12,
-    alignSelf: 'flex-start',
-    ...shadow.card,
-  },
-  typingDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: color.ink4,
-  },
-  taskIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 7,
-    backgroundColor: color.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  composer: {
+  dockDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16 },
+
+  inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: gap.xs,
-    paddingHorizontal: PAGE_X,
-    paddingTop: gap.xs,
-    paddingBottom: gap.xs,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.line,
-    backgroundColor: color.bg,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 56,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   input: {
     flex: 1,
-    minHeight: 46,
-    maxHeight: 130,
-    backgroundColor: color.card,
-    borderRadius: radius.card,
-    paddingHorizontal: gap.md,
-    paddingTop: 13,
-    paddingBottom: 13,
+    minHeight: 40,
+    maxHeight: 120,
+    paddingTop: 9,
+    paddingBottom: 9,
+    paddingHorizontal: 2,
     fontSize: type.body,
-    color: color.ink,
-    borderWidth: 1,
-    borderColor: color.line,
   },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: color.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
+  stopSquare: { width: 12, height: 12, borderRadius: 3 },
+
+  mention: {
+    marginHorizontal: 10,
+    marginBottom: 10,
+    borderRadius: radius.tag,
+    padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  sendBtnOff: { backgroundColor: color.cardSunken },
-  stopBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: color.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stopSquare: { width: 12, height: 12, borderRadius: 3, backgroundColor: color.white },
 });

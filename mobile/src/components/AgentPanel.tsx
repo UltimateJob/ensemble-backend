@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -9,18 +9,41 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Avatar } from './Avatar';
-import { Button, Icon, IconButton, Row, T, Tag } from './ui';
-import { get, humanError } from '../lib/api';
-import type { AgentActivity, Run } from '../lib/types';
-import { useTheme } from '../theme/theme';
-import { gap, leading, radius, type } from '../theme/tokens';
+import { Icon, RadioDot, Row, T, Tag, withAlpha } from './ui';
+import { PressableScale } from './motion';
+import { get, humanError, patch } from '../lib/api';
+import type { AgentActivity, Conversation, Run } from '../lib/types';
+import { useTheme, type Theme } from '../theme/theme';
+import { gap, leading, radius, shadow, type, weight } from '../theme/tokens';
 
 /**
- * Agent 独立工作面板（从右侧滑出）。
+ * 成员详情（设计规范 §9 第 4 屏，图 09）。
  *
- * 这是「Agent 私有视图」：它正在干什么、干到第几步、之前的活干得怎么样。
- * 草稿默认不推群聊，所以群里保持干净。
+ * 形态是 bottom sheet：从底部升起，顶部有拖拽手柄，点遮罩关闭。
+ *
+ * 内容自上而下：
+ *   72 头像（带状态点）+ 名字 + 「角色 · 群名」
+ *   → 等审批胶囊（红底红字）
+ *   → 当前动态（说明 + 进度 + 任务 n / m 步）
+ *   → 人设 / 权限三级单选（§7）/ 使用模型
+ *   → 运行记录（最多 4 条）
+ *   → 底部：刷新状态（白底描边）+ 单独发指令（墨黑胶囊）
+ *
+ * 权限单选直接 PATCH 会话的 agentPermissions（成员级覆盖群默认），
+ * 先动 UI 再等接口，失败回滚。
  */
+
+const LEVELS = [
+  { key: 'ask', label: '需要审批', hint: '执行任何操作前都先问过你' },
+  { key: 'approval', label: '工作区内修改', hint: '区内可自由读写；联网、删除、区外仍询问' },
+  {
+    key: 'full',
+    label: '完全访问权限',
+    hint: '全部操作不再询问',
+    warn: true,
+  },
+] as const;
+
 export function AgentPanel({
   visible,
   agent,
@@ -37,16 +60,21 @@ export function AgentPanel({
   onClose: () => void;
 }) {
   const th = useTheme();
-  const s = mkStyles(th);
-  const { width, height } = useWindowDimensions();
+  const s = useMemo(() => mkStyles(th), [th]);
+  const { height } = useWindowDimensions();
   const panelH = height * 0.88;
-  const slide = React.useRef(new Animated.Value(1)).current;
+  const slide = useRef(new Animated.Value(1)).current;
 
   const [run, setRun] = useState<Run | null>(null);
   const [history, setHistory] = useState<Run[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
+
+  const [convTitle, setConvTitle] = useState('');
+  const [level, setLevel] = useState(activity?.permission ?? '');
+  const [levelErr, setLevelErr] = useState('');
+  const [savingLevel, setSavingLevel] = useState(false);
 
   useEffect(() => {
     Animated.spring(slide, {
@@ -59,12 +87,21 @@ export function AgentPanel({
   }, [visible, slide]);
 
   useEffect(() => {
+    setLevel(activity?.permission ?? '');
+    setLevelErr('');
+  }, [activity?.permission, agent?.key]);
+
+  useEffect(() => {
     if (!visible || !agent) return;
     let alive = true;
     (async () => {
       setErr('');
       setLoading(true);
       try {
+        if (convId) {
+          const c = await get<Conversation>(`/v1/conversations/${convId}`);
+          if (alive && c?.title) setConvTitle(c.title);
+        }
         if (activity?.runId) {
           const r = await get<Run>(`/v1/runs/${activity.runId}`);
           if (alive) setRun(r);
@@ -88,247 +125,463 @@ export function AgentPanel({
     return () => {
       alive = false;
     };
-  }, [visible, agent, activity?.runId, workspaceId, reloadKey]);
+  }, [visible, agent, activity?.runId, workspaceId, convId, reloadKey]);
 
   if (!visible || !agent) return null;
 
-  const stateTone =
-    activity?.state === 'done' ? 'done' : activity?.state === 'blocked' ? 'blocked' : 'working';
-  const stateLabel =
-    activity?.state === 'working'
-      ? '执行中'
-      : activity?.state === 'blocked'
-        ? '待处理'
-        : activity?.state === 'done'
-          ? '刚完成'
-          : '空闲';
+  const state = activity?.state;
+  const blocked = state === 'blocked';
+  const dotColor =
+    state === 'blocked'
+      ? th.dangerDot
+      : state === 'done'
+        ? th.okDot
+        : state === 'working'
+          ? th.ink
+          : th.ink4;
+
+  const step = run?.step ?? activity?.step ?? 0;
+  const maxSteps = run?.maxSteps ?? activity?.maxSteps ?? 0;
+  const pct = maxSteps > 0 ? Math.min(100, (step / maxSteps) * 100) : 0;
+  const detail =
+    activity?.detail ||
+    run?.summary ||
+    (run?.task ? `正在处理：${run.task}` : '现在没有在跑的任务，私活不会刷到群聊。');
+
+  const pillText = `等你审批 · ${
+    activity?.currentTool?.summary ||
+    activity?.detail ||
+    run?.task ||
+    '等待你确认'
+  }`;
+
+  const records = buildRecords(history, run).slice(0, 4);
+  const subtitle = [
+    agent.title || '团队成员',
+    convTitle || null,
+  ].filter(Boolean).join(' · ');
+
+  async function pickLevel(next: string) {
+    if (next === level || savingLevel || !convId) return;
+    const prev = level;
+    setLevel(next);
+    setLevelErr('');
+    setSavingLevel(true);
+    try {
+      await patch(`/v1/conversations/${convId}`, {
+        agentPermissions: { [agent!.key]: next },
+      });
+    } catch (e) {
+      setLevel(prev);
+      setLevelErr(humanError(e));
+    } finally {
+      setSavingLevel(false);
+    }
+  }
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <Pressable style={s.scrim} onPress={onClose} />
+      <Pressable style={s.scrim} onPress={onClose} accessibilityLabel="关闭成员详情" />
+
       <Animated.View
         style={[
           s.panel,
           {
-            left: 0,
             transform: [
               {
-                translateY: slide.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, panelH],
-                }),
+                translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [0, panelH] }),
               },
             ],
           },
         ]}
       >
         {/* 拖拽手柄：iOS bottom sheet 的标准视觉语言 */}
-        <View style={{ alignItems: 'center', paddingTop: 8, paddingBottom: 2 }}>
-          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: th.dark ? 'rgba(255,255,255,0.18)' : 'rgba(16,20,45,0.14)' }} />
-        </View>
-        <View style={s.header}>
-          <Row gap={gap.xs} style={{ flex: 1 }}>
-            <Avatar name={agent.name} size={52} tint={agent.color} state={activity?.state} />
-            <View style={{ flex: 1, marginLeft: 2 }}>
-              <T size={type.title} weight="600" numberOfLines={1}>
-                {agent.name}
-              </T>
-              <T size={type.caption} color={th.ink3} numberOfLines={1} style={{ marginTop: 2 }}>
-                {agent.title || '团队成员'}
-              </T>
-            </View>
-          </Row>
-          <IconButton name="close" onPress={onClose} accessibilityLabel="关闭" />
+        <View style={s.handleWrap}>
+          <View style={s.handle} />
         </View>
 
+        <Pressable
+          onPress={onClose}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="关闭"
+          style={s.close}
+        >
+          <Icon name="close" size={20} color={th.ink3} />
+        </Pressable>
+
         <ScrollView
-          contentContainerStyle={[s.body, { flexGrow: 1 }]}
+          contentContainerStyle={s.body}
           showsVerticalScrollIndicator={false}
         >
-          {loading ? <ActivityIndicator color={th.accent} style={{ marginTop: gap.md }} /> : null}
+          {/* 头像 + 名字 + 角色 · 群名 */}
+          <View style={s.identity}>
+            <View style={{ width: 72, height: 72 }}>
+              <Avatar name={agent.name} size={72} tint={agent.color} />
+              <View
+                style={[
+                  s.bigDot,
+                  { backgroundColor: dotColor, borderColor: th.card },
+                ]}
+              />
+            </View>
+            <T size={type.page} weight={weight.bold} style={{ marginTop: gap.md }}>
+              {agent.name}
+            </T>
+            <T size={type.sub} color={th.ink3} align="center" style={{ marginTop: 4 }}>
+              {subtitle}
+            </T>
+
+            {/* 状态胶囊：等审批红底红字，置于头像下方（§9 第 4 屏） */}
+            {blocked ? (
+              <View
+                style={[
+                  s.statusPill,
+                  { backgroundColor: blocked ? th.badSoft : th.cardSunken },
+                ]}
+              >
+                <View
+                  style={[
+                    s.pillDot,
+                    { backgroundColor: blocked ? th.dangerDot : dotColor },
+                  ]}
+                />
+                <T
+                  size={type.caption}
+                  weight={weight.semibold}
+                  color={blocked ? th.bad : th.ink2}
+                  numberOfLines={1}
+                  style={{ flexShrink: 1 }}
+                >
+                  {pillText}
+                </T>
+              </View>
+            ) : null}
+          </View>
+
+          {loading ? <ActivityIndicator color={th.ink3} style={{ marginTop: gap.md }} /> : null}
           {err ? (
-            <T size={type.sub} color={th.bad}>
+            <T size={type.sub} color={th.bad} style={{ marginTop: gap.sm }}>
               {err}
             </T>
           ) : null}
 
-          <Row style={{ justifyContent: 'space-between', marginBottom: gap.xs }}>
-            <T size={type.caption} color={th.ink3} weight="600">
-              当前任务
+          {/* 当前动态 */}
+          <View style={s.activityCard}>
+            <T size={type.caption} weight={weight.strong} color={th.ink3} tracking={0.6}>
+              当前动态
             </T>
-            <Tag label={stateLabel} tone={stateTone as any} />
-          </Row>
-
-          <View style={s.block}>
-            {run ? (
-              <>
-                <T size={type.body} weight="500" lh={leading.body}>
-                  {run.task}
-                </T>
-                <T size={type.caption} color={th.ink3} style={{ marginTop: 6 }}>
-                  第 {run.step}/{run.maxSteps} 步
-                  {run.origin ? ` · 来自${run.origin.startsWith('device:') ? '手机' : '本机'}` : ''}
-                </T>
-                {run.toolCalls?.length ? (
-                  <View style={{ marginTop: gap.sm, gap: gap.xs }}>
-                    {run.toolCalls.slice(-6).map((t: any, i: number) => (
-                      <Row key={i} gap={7} align="flex-start">
-                        <View style={s.dot} />
-                        <T
-size={type.caption}
-                          color={th.ink2}
-                          numberOfLines={1}
-                          style={{ flex: 1 }}
-                        >
-                          {t.name} {t.arg?.path || t.arg?.cmd || ''}
-                        </T>
-                      </Row>
-                    ))}
-                  </View>
-                ) : null}
-                {run.summary ? (
-                  <T size={type.sub} color={th.ink2} lh={leading.sub} style={{ marginTop: gap.sm }}>
-                    {run.summary}
-                  </T>
-                ) : null}
-                {run.error ? (
-                  <T size={type.sub} color={th.bad} lh={leading.sub} style={{ marginTop: gap.sm }}>
-                    {run.error}
-                  </T>
-                ) : null}
-              </>
-            ) : (
-              <T size={type.sub} color={th.ink3} lh={leading.sub}>
-                现在没有在跑的任务。它的私活会出现在这里，不会刷到群聊。
+            <T size={type.body} lh={leading.body} style={{ marginTop: gap.xs }}>
+              {detail}
+            </T>
+            <Row gap={gap.sm} style={{ marginTop: gap.md }}>
+              <View
+                style={[
+                  s.track,
+                  { backgroundColor: th.dark ? withAlpha(th.white, 0.14) : th.track },
+                ]}
+              >
+                <View
+                  style={[
+                    s.fill,
+                    {
+                      width: `${pct}%`,
+                      backgroundColor: th.dark ? '#F2F2F2' : th.ink,
+                    },
+                  ]}
+                />
+              </View>
+              <T
+                size={type.micro}
+                weight={weight.semibold}
+                color={th.ink2}
+                style={{ fontVariant: ['tabular-nums'] }}
+              >
+                任务 {step} / {maxSteps || '—'} 步
               </T>
-            )}
+            </Row>
           </View>
 
-          <T size={type.caption} color={th.ink3} weight="600" style={{ marginTop: gap.lg }}>
-            历史记录
+          {/* 人设 / 权限 / 模型 */}
+          <View style={s.card}>
+            <View style={s.settingRow}>
+              <T size={type.card} weight={weight.strong} style={{ flex: 1 }}>
+                人设
+              </T>
+              <T size={type.caption} color={th.ink3} numberOfLines={1} style={{ maxWidth: '60%' }}>
+                简洁直接 · 先结论后展开
+              </T>
+              <Icon name="chevron-forward" size={13} color={th.ink4} />
+            </View>
+
+            <View style={[s.hair, { backgroundColor: th.line }]} />
+
+            <View style={{ paddingVertical: gap.xs, gap: 2 }}>
+              {LEVELS.map((l) => {
+                const on = level === l.key;
+                return (
+                  <Pressable
+                    key={l.key}
+                    onPress={() => pickLevel(l.key)}
+                    disabled={savingLevel || !convId}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on, disabled: savingLevel || !convId }}
+                    style={({ pressed }) => [
+                      s.levelRow,
+                      { backgroundColor: on ? th.cardSunken : 'transparent' },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <RadioDot on={on} />
+                    <View style={{ flex: 1 }}>
+                      <Row gap={6}>
+                        <T size={type.card} weight={weight.strong}>
+                          {l.label}
+                        </T>
+                        {'warn' in l && l.warn ? <Tag label="谨慎授予" tone="gold" /> : null}
+                      </Row>
+                      <T size={type.micro} color={th.ink3} lh={leading.micro} style={{ marginTop: 2 }}>
+                        {l.hint}
+                      </T>
+                    </View>
+                  </Pressable>
+                );
+              })}
+              {levelErr ? (
+                <T size={type.micro} color={th.bad} style={{ marginTop: 4, paddingHorizontal: 9 }}>
+                  {levelErr}
+                </T>
+              ) : null}
+            </View>
+
+            <View style={[s.hair, { backgroundColor: th.line }]} />
+
+            <View style={s.settingRow}>
+              <T size={type.card} weight={weight.strong} style={{ flex: 1 }}>
+                使用模型
+              </T>
+              <T size={type.caption} color={th.ink3} numberOfLines={1} style={{ maxWidth: '60%' }}>
+                {run?.model || '自动 · 擅长长文'}
+              </T>
+              <Icon name="chevron-forward" size={13} color={th.ink4} />
+            </View>
+          </View>
+
+          {/* 运行记录：时间 + 一句话，最多 4 条 */}
+          <T
+            size={type.caption}
+            weight={weight.strong}
+            color={th.ink3}
+            style={{ marginTop: gap.lg, marginBottom: gap.xs }}
+          >
+            运行记录
           </T>
-          {history.length === 0 ? (
-            <T size={type.caption} color={th.ink4} style={{ marginTop: gap.xxs }}>
-              还没有历史任务
+          {records.length === 0 ? (
+            <T size={type.sub} color={th.ink4}>
+              还没有运行记录
             </T>
           ) : (
-            <View style={{ marginTop: gap.xxs }}>
-              {history.map((h, i) => (
-                <View key={h.id}>
-                  {i > 0 ? <View style={s.histLine} /> : null}
-                  <View style={{ paddingVertical: gap.xs }}>
-                    <T size={type.sub} numberOfLines={1}>
-                      {h.task}
-                    </T>
-                    <Row gap={5} style={{ marginTop: 3 }}>
-                      <Icon name="time-outline" size={11} color={th.ink4} />
-                      <T size={type.caption} color={th.ink3}>
-                        {runStatusLabel(h.status)} · {fmtTime(h.startedAt)}
-                      </T>
-                    </Row>
-                  </View>
-                </View>
-              ))}
-            </View>
+            records.map((r, i) => (
+              <View key={r.id}>
+                {i > 0 ? <View style={[s.hair, { backgroundColor: th.line }]} /> : null}
+                <Row gap={gap.md} align="flex-start" style={{ paddingVertical: 11 }}>
+                  <T
+                    size={type.caption}
+                    color={th.ink4}
+                    style={{ width: 44, fontVariant: ['tabular-nums'] }}
+                  >
+                    {fmtClock(r.startedAt || r.endedAt)}
+                  </T>
+                  <T size={type.sub} color={th.ink2} lh={leading.sub} style={{ flex: 1 }} numberOfLines={2}>
+                    {r.summary || r.task}
+                  </T>
+                </Row>
+              </View>
+            ))
           )}
         </ScrollView>
 
         <View style={s.footer}>
-          <Button label="单独发指令" size="sm" style={{ flex: 1 }} />
-          <Button
-            label="刷新状态"
-            variant="secondary"
-            size="sm"
-            style={{ flex: 1 }}
+          <PressableScale
             onPress={() => setReloadKey((k) => k + 1)}
-          />
+            scaleTo={0.97}
+            accessibilityLabel="刷新状态"
+            style={{ flex: 1 }}
+          >
+            <View style={[s.btnSecondary, { backgroundColor: th.card, borderColor: th.line }]}>
+              <T size={type.card} weight={weight.semibold} color={th.ink}>
+                刷新状态
+              </T>
+            </View>
+          </PressableScale>
+          <PressableScale scaleTo={0.97} accessibilityLabel="单独发指令" style={{ flex: 1 }}>
+            <View style={[s.btnPrimary, { backgroundColor: th.primaryBg }]}>
+              <T size={type.card} weight={weight.semibold} color={th.primaryInk}>
+                单独发指令
+              </T>
+            </View>
+          </PressableScale>
         </View>
       </Animated.View>
     </View>
   );
 }
 
-function runStatusLabel(s: string): string {
-  switch (s) {
-    case 'running':
-      return '执行中';
-    case 'waiting_approval':
-      return '等审批';
-    case 'done':
-      return '已完成';
-    case 'failed':
-      return '失败';
-    case 'cancelled':
-      return '已取消';
-    case 'aborted':
-      return '已中止';
-    default:
-      return s;
-  }
+interface Rec {
+  id: string;
+  startedAt: string;
+  endedAt?: string;
+  summary?: string;
+  task: string;
 }
 
-function fmtTime(iso: string): string {
+/** 当前 run 也进记录；同一条不重复。 */
+function buildRecords(history: Run[], run: Run | null): Rec[] {
+  const list: Rec[] = [];
+  if (run) list.push(run);
+  for (const h of history) {
+    if (run && h.id === run.id) continue;
+    list.push(h);
+  }
+  return list.sort((a, b) => {
+    const at = Date.parse(a.endedAt || a.startedAt || '') || 0;
+    const bt = Date.parse(b.endedAt || b.startedAt || '') || 0;
+    return bt - at;
+  });
+}
+
+function fmtClock(iso?: string): string {
   if (!iso) return '';
   const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return '刚刚';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  if (Number.isNaN(d.getTime())) return '';
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
 }
 
-const mkStyles = (th: any) => StyleSheet.create({
-  scrim: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: th.scrim,
-  },
-  panel: {
-    position: 'absolute',
-    // 底部对齐的 sheet，高度最多 88%：内容少时不会留一大片白
-    bottom: 0,
-    right: 0,
-    maxHeight: '88%',
-    minHeight: 320,
-    backgroundColor: th.card,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    // 没有 overflow hidden，子元素的直角会盖住圆角
-    overflow: 'hidden',
-    shadowColor: th.shadowColor, shadowOpacity: 0.35, shadowRadius: 32, shadowOffset: { width: 0, height: 14 }, elevation: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: gap.xs,
-    paddingHorizontal: gap.md,
-    paddingTop: gap.lg,
-    paddingBottom: gap.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: th.line,
-  },
-  body: { padding: gap.md, paddingBottom: gap.xl },
-  block: {
-    backgroundColor: th.cardSunken,
-    borderRadius: radius.card,
-    padding: gap.md,
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: th.accent,
-    marginTop: 6,
-  },
-  histLine: { height: StyleSheet.hairlineWidth, backgroundColor: th.line },
-  footer: {
-    flexDirection: 'row',
-    gap: gap.xs,
-    padding: gap.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: th.line,
-  },
-});
+const mkStyles = (th: Theme) =>
+  StyleSheet.create({
+    scrim: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: th.scrim,
+    },
+    panel: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      maxHeight: '88%',
+      minHeight: 320,
+      backgroundColor: th.card,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      overflow: 'hidden',
+      ...shadow.tray,
+    },
+    handleWrap: { alignItems: 'center', paddingTop: 8, paddingBottom: 2 },
+    handle: {
+      width: 36,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: th.dark ? withAlpha(th.white, 0.18) : withAlpha(th.ink, 0.14),
+    },
+    close: {
+      position: 'absolute',
+      top: 14,
+      right: 14,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 2,
+    },
+    body: { paddingHorizontal: gap.lg, paddingTop: gap.sm, paddingBottom: gap.lg },
+    identity: { alignItems: 'center', paddingTop: gap.xs },
+    bigDot: {
+      position: 'absolute',
+      right: 1,
+      bottom: 1,
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 3,
+    },
+    statusPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginTop: gap.md,
+      paddingHorizontal: 13,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+      maxWidth: '100%',
+    },
+    pillDot: { width: 6, height: 6, borderRadius: 3 },
+    activityCard: {
+      backgroundColor: th.cardSunken,
+      borderRadius: radius.card,
+      padding: 15,
+      marginTop: gap.lg,
+    },
+    track: {
+      flex: 1,
+      height: 5,
+      borderRadius: 99,
+      overflow: 'hidden',
+    },
+    fill: { height: 5, borderRadius: 99 },
+    card: {
+      backgroundColor: th.card,
+      borderRadius: radius.card,
+      paddingHorizontal: 14,
+      paddingVertical: 4,
+      marginTop: gap.sm,
+      borderWidth: th.dark ? StyleSheet.hairlineWidth : 0,
+      borderColor: th.cardBorder,
+    },
+    settingRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: gap.xs,
+      paddingVertical: 14,
+      minHeight: 48,
+    },
+    hair: { height: StyleSheet.hairlineWidth },
+    levelRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: gap.xs,
+      paddingVertical: 10,
+      paddingHorizontal: 9,
+      borderRadius: 14,
+    },
+    footer: {
+      flexDirection: 'row',
+      gap: gap.sm,
+      paddingHorizontal: gap.lg,
+      paddingTop: gap.sm,
+      paddingBottom: gap.xl,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: th.line,
+      backgroundColor: th.card,
+    },
+    btnSecondary: {
+      height: 48,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    btnPrimary: {
+      height: 48,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      ...shadow.primary,
+    },
+  });

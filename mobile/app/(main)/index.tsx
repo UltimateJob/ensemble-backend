@@ -1,553 +1,416 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  KeyboardAvoidingView,
-  Platform,
+  Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AgentPanel } from '../../src/components/AgentPanel';
-import { ApprovalSheet } from '../../src/components/ApprovalSheet';
-import { Avatar, AvatarStack } from '../../src/components/Avatar';
+import { Avatar, AvatarStack, initialOf } from '../../src/components/Avatar';
 import { Canvas } from '../../src/components/Canvas';
-import { Composer } from '../../src/components/Composer';
-import { Glass } from '../../src/components/Glass';
-import { Surface } from '../../src/components/Surface';
-import { FadeInUp, PressableScale, TypingDots } from '../../src/components/motion';
-import { OnboardingChat } from '../../src/components/OnboardingChat';
+import { PressableScale } from '../../src/components/motion';
 import { Pager } from '../../src/components/Pager';
-import { FadingHeader } from '../../src/components/ScrollFx';
+import { Surface } from '../../src/components/Surface';
 import {
-  AccentIconButton,
-  Button,
-  Card,
-  Empty,
-  GlassBar,
+  Divider,
   Icon,
-  IconButton,
-  IconTile,
-  Progress,
-  PulseDot,
   Row,
+  Segmented,
   T,
   Tag,
+  TextButton,
   grad,
   withAlpha,
+  type IoniconName,
 } from '../../src/components/ui';
-import { get, humanError, post, stream } from '../../src/lib/api';
 import { normalizeActivity } from '../../src/lib/activity';
-import type { Approval } from '../../src/lib/runs';
-import { signOut } from '../../src/lib/session';
-import { ensureDefaultTeam } from '../../src/lib/defaultTeam';
+import { del, get, hasDeviceToken, humanError, patch, post } from '../../src/lib/api';
+import { getItem, setItem } from '../../src/lib/storage';
 import { useApp } from '../../src/lib/store';
-import type { AgentActivity, ChatEvent, Conversation, Message, Scenario } from '../../src/lib/types';
-import { useTheme, useThemePref } from '../../src/theme/theme';
-import { CARD_GAP, CARD_PAD, gap, leading, radius, type } from '../../src/theme/tokens';
+import type {
+  Artifact,
+  Connector,
+  ConnectorsResponse,
+  Conversation,
+  Device,
+  Goal,
+  Message,
+} from '../../src/lib/types';
+import { useTheme } from '../../src/theme/theme';
+import { MEMBER_COLORS, type as ts } from '../../src/theme/tokens';
 
 /**
- * 主界面：三页横滑。
+ * 主页：三页横滑（附录 B4）。
  *
- *   左（0）：我 —— 设备、配对、设置、主题
- *   中（1）：对话 —— 默认群聊 / 首屏引导
- *   右（2）：团队 —— 群组列表、创建团队、角色市场
+ *   0 团队 —— Bento（A4）：第一个团队占整行做主视觉，其余两列小卡
+ *   1 对话 —— 极简版（B3）：问候 + 一条待审批 + 最近对话 + 新建团队
+ *   2 我   —— 深色英雄卡（A2）+ 额度卡 + 图标砖菜单（A5）
  *
- * 没有底栏。这是元宝那类 App 的做法：内容占满整屏，
- * 导航靠手势和一个可见的方向提示，而不是一直占着一行像素。
+ * 规范对应：
+ *   §6.10  顶部悬浮玻璃胶囊分段，选中墨黑底白字，与 Pager 滑动同步
+ *   A1     品牌渐变只用于：主按钮 / 进度填充 / 选中态 / 英雄数字
+ *   A2     英雄卡底 t.heroBg + 两团低透明度蓝紫光晕，圆角 28
+ *   A3     英文微标签 10.5/700 字距 2.2 + 27/750 大标题
+ *   A4     Bento：禁止等高划一
+ *   A5     44px 圆角 13 双色渐变砖 + 顶部内高光
+ *   B1     没有 currentConv 时补拉 /v1/official 落到官方群
+ *   B3     首页不放战况数字，统计收进「我」
+ *   B4     顺序 团队 | 对话 | 我，默认停在对话
+ *
+ * 群聊本身不在这里——最近对话点进 /team/[id]，那里才是 §6.1-6.6 的群聊页。
+ * 门面页允许品牌渐变，但只限主按钮 / 进度填充 / 选中态 / 英雄数字，绝不铺背景。
  */
 
-const PAGE_ME = 0;
 const PAGE_CHAT = 1;
-const PAGE_TEAMS = 2;
+const PAGES = ['团队', '对话', '我'];
 
-const SCENE: Record<string, { icon: any; colors: [string, string] }> = {
-  bid: { icon: 'document-text', colors: ['#F5A972', '#E8734A'] },
-  code: { icon: 'code-slash', colors: ['#7FA8F7', '#4A7FE0'] },
-  xhs: { icon: 'color-palette', colors: ['#F79BB8', '#D9608A'] },
-  research: { icon: 'analytics', colors: ['#B39AF0', '#7C5CE0'] },
-  onepiece: { icon: 'boat', colors: ['#6FD8AE', '#34A87C'] },
-  anime: { icon: 'sparkles', colors: ['#F5C56B', '#DFA02F'] },
-  companion: { icon: 'chatbubbles', colors: ['#7ECBF0', '#4A9FD4'] },
-};
-const DEFAULT_SCENE = { icon: 'people' as const, colors: ['#8FA5F2', '#5B6FD9'] as [string, string] };
+const OFFICIAL_STUDIO = 'official';
+const OFFICIAL_GLYPH = '团';
+
+/** 团队卡的状态标按语义取色：干活中墨黑、等你审批红、已完成绿。 */
+type TeamTone = 'working' | 'blocked' | 'done' | 'idle';
 
 export default function Main() {
   const t = useTheme();
   const router = useRouter();
   const user = useApp((s) => s.user);
   const convs = useApp((s) => s.convs);
-  const scenarios = useApp((s) => s.scenarios);
-  const setConvs = useApp((s) => s.setConvs);
-  const setScenarios = useApp((s) => s.setScenarios);
   const setUser = useApp((s) => s.setUser);
+  const setConvs = useApp((s) => s.setConvs);
+  const setCurrentConv = useApp((s) => s.setCurrentConv);
+  const setOfficial = useApp((s) => s.setOfficial);
 
-  const [page, setPage] = useState(PAGE_CHAT); // 默认落在对话
-  const [activeConv, setActiveConv] = useState<string | null>(null);
+  const [page, setPage] = useState(PAGE_CHAT); // B4：默认停在对话
+
+  /* 全局统计：只给「我」页用，首页一个数字都不放（B3） */
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [devices, setDevices] = useState<Device[]>([]);
+  /** 官方群最近一条消息 + 各群最近消息，喂给「最近对话」列表 */
+  const [recent, setRecent] = useState<Record<string, Message>>({});
+  /** 每个群的状态标（团队卡）+ 待审批件数（首页唯一允许的提醒） */
+  const [teamStates, setTeamStates] = useState<Record<string, TeamTone>>({});
+  const [blockedCount, setBlockedCount] = useState<Record<string, number>>({});
+  const [pinned, setPinned] = useState<string[]>([]);
   const [err, setErr] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [menuFor, setMenuFor] = useState<Conversation | null>(null);
 
-  // 首屏引导：本地标记，只在第一次打开时出现
-  const [needOnboard, setNeedOnboard] = useState<boolean | null>(null);
+  const convsRef = useRef(convs);
+  convsRef.current = convs;
 
-  const [msgs, setMsgs] = useState<Message[]>([]);
-  const [activity, setActivity] = useState<AgentActivity[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [input, setInput] = useState('');
-  const [panelAgent, setPanelAgent] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [mentionOpen, setMentionOpen] = useState(false);
-  const [approval, setApproval] = useState<{ a: Approval; runId: string } | null>(null);
-
-  const abortRef = useRef<(() => void) | null>(null);
-  const listRef = useRef<ScrollView>(null);
-  const streamingRef = useRef<Record<string, string>>({});
-  const seenApprovals = useRef<Set<string>>(new Set());
-  const longPressTimer = useRef<any>(null);
-
-  /* ---------- 基础数据 ---------- */
-  const loadAll = useCallback(async () => {
-    try {
-      const [sc, cv, me] = await Promise.allSettled([
-        get<any>('/v1/scenarios'),
-        get<Conversation[]>('/v1/conversations'),
-        get<any>('/v1/me'),
-      ]);
-      if (sc.status === 'fulfilled') {
-        const raw: any = sc.value;
-        setScenarios(Array.isArray(raw) ? raw : raw?.scenarios ?? []);
-      }
-      if (cv.status === 'fulfilled') setConvs(cv.value ?? []);
-      if (me.status === 'fulfilled') {
-        const d: any = me.value;
-        setUser(d?.user ?? d);
-      }
-      // 默认落在「纸团」搭档群，而不是随便挑第一个群——
-      // 首页是用户的日常入口，不该一上来是别的群。
-      // 注意：activeConv 一旦确定就不再覆盖，否则用户从团队页切群后
-      // 每次刷新都会被拉回默认群。
-      if (!activeConv) {
-        const def = await ensureDefaultTeam();
-        if (def) {
-          setActiveConv(def.id);
-          const list = await get<Conversation[]>('/v1/conversations');
-          setConvs(list ?? []);
-        } else if (cv.status === 'fulfilled' && (cv.value?.length ?? 0) > 0) {
-          setActiveConv(cv.value[0].id);
-        }
-      }
-    } catch (e) {
-      setErr(humanError(e));
-    }
-  }, [setScenarios, setConvs, setUser, activeConv]);
-
+  /* 置顶团队：本地持久化即可（不属于服务端数据） */
   useEffect(() => {
-    loadAll();
+    (async () => {
+      const raw = await getItem('zhituan_pinned_teams');
+      if (!raw) return;
+      try {
+        const v = JSON.parse(raw);
+        if (Array.isArray(v)) setPinned(v.filter((x) => typeof x === 'string'));
+      } catch {
+        /* 脏数据忽略 */
+      }
+    })();
   }, []);
 
-  /* ---------- 首次引导标记 ---------- */
-  useEffect(() => {
-    import('../../src/lib/storage').then(async ({ getItem, setItem }) => {
-      const seen = await getItem('zhituan_onboarded');
-      setNeedOnboard(seen !== '1');
-      // 让首屏引导有机会展示；标记在用户点「开始使用」时才写
-      void setItem;
+  const togglePin = useCallback((id: string) => {
+    setPinned((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      void setItem('zhituan_pinned_teams', JSON.stringify(next));
+      return next;
     });
   }, []);
 
-  async function finishOnboard() {
-    const { setItem } = await import('../../src/lib/storage');
-    await setItem('zhituan_onboarded', '1');
-    setNeedOnboard(false);
-  }
-
-  /* ---------- 会话 ---------- */
-  const conv = convs.find((c) => c.id === activeConv) ?? null;
-
-  const loadMsgs = useCallback(async (id: string) => {
-    try {
-      const m = await get<{ messages?: Message[] } | Message[]>(`/v1/conversations/${id}/messages?page=1&limit=50`);
-      setMsgs(Array.isArray(m) ? m : (m?.messages ?? []));
-    } catch (e) {
-      setErr(humanError(e));
-    }
-  }, []);
-
-  const loadActivity = useCallback(async (id: string) => {
-    try {
-      const a = await get<unknown>(`/v1/conversations/${id}/activity`);
-      setActivity(normalizeActivity(a));
-    } catch {
-      /* 状态环失败不影响聊天 */
-    }
-  }, []);
-
+  /* ---------- 首次进入落到官方群（B1） ---------- */
   useEffect(() => {
-    if (!activeConv) return;
-    loadMsgs(activeConv);
-    loadActivity(activeConv);
-    const timer = setInterval(() => loadActivity(activeConv), 5000);
-    return () => clearInterval(timer);
-  }, [activeConv, loadMsgs, loadActivity]);
-
-  // 审批轮询
-  useEffect(() => {
-    if (!activeConv) return;
     let alive = true;
-    async function poll() {
+    (async () => {
+      if (useApp.getState().currentConv) return;
       try {
-        const acts = normalizeActivity(await get<unknown>(`/v1/conversations/${activeConv}/activity`));
-        if (!alive) return;
-        for (const b of acts.filter((a) => a.state === 'blocked' && a.runId)) {
-          const run = await get<any>(`/v1/runs/${b.runId}`);
-          if (!alive) return;
-          const p = (run?.approvals ?? []).find(
-            (x: any) => x.status === 'pending' && !seenApprovals.current.has(x.id),
-          );
-          if (p) {
-            seenApprovals.current.add(p.id);
-            setApproval({ a: p, runId: b.runId! });
-            break;
-          }
-        }
-      } catch {
-        /* 下一轮再试 */
+        const off = await get<{ conversation: Conversation; hints: string[] }>('/v1/official');
+        if (!alive || !off?.conversation?.id) return;
+        setOfficial(off.conversation.id, off.hints ?? []);
+        setCurrentConv(off.conversation.id);
+        const list = await get<Conversation[]>('/v1/conversations');
+        if (alive) setConvs(list ?? []);
+      } catch (e) {
+        if (alive) setErr(humanError(e));
       }
-    }
-    const timer = setInterval(poll, 4000);
-    poll();
+    })();
     return () => {
       alive = false;
-      clearInterval(timer);
     };
-  }, [activeConv]);
+  }, [setOfficial, setCurrentConv, setConvs]);
 
-  useEffect(() => () => abortRef.current?.(), []);
-
-  /* ---------- 发送 ---------- */
-  async function send() {
-    const text = input.trim();
-    if (!text || busy || !activeConv) return;
-    setInput('');
-    setErr('');
-    setBusy(true);
-    streamingRef.current = {};
-
-    setMsgs((m) => [
-      ...m,
-      {
-        id: `tmp_${Date.now()}`,
-        conversationId: activeConv,
-        role: 'user',
-        content: text,
-        tokensIn: 0,
-        tokensOut: 0,
-        latencyMs: 0,
-        createdAt: new Date().toISOString(),
-      },
+  /* ---------- 数据 ---------- */
+  const loadStats = useCallback(async () => {
+    const [g, a, c, d] = await Promise.allSettled([
+      get<Goal[]>('/v1/goals'),
+      get<Artifact[]>('/v1/library'),
+      get<ConnectorsResponse>('/v1/connectors'),
+      get<Device[]>('/v1/devices'),
     ]);
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+    if (g.status === 'fulfilled') setGoals(Array.isArray(g.value) ? g.value : []);
+    if (a.status === 'fulfilled') setArtifacts(Array.isArray(a.value) ? a.value : []);
+    if (c.status === 'fulfilled') setConnectors(c.value?.items ?? []);
+    if (d.status === 'fulfilled') setDevices(Array.isArray(d.value) ? d.value : []);
+  }, []);
 
-    abortRef.current = await stream(`/v1/conversations/${activeConv}/orchestrate`, { content: text }, handleEvent);
-  }
-
-  function handleEvent(ev: ChatEvent) {
-    switch (ev.type) {
-      case 'start':
-        streamingRef.current[ev.agent ?? ''] = '';
-        setMsgs((m) => [
-          ...m,
-          {
-            id: `live_${ev.agent}_${Date.now()}`,
-            conversationId: activeConv!,
-            role: 'assistant',
-            agent: ev.name,
-            content: '',
-            tokensIn: 0,
-            tokensOut: 0,
-            latencyMs: 0,
-            createdAt: new Date().toISOString(),
-          },
+  /** 每个群拉最近一条消息 + 状态环。群不多（通常 < 10），可以并发。 */
+  const loadRecent = useCallback(async (list: Conversation[]) => {
+    const next: Record<string, Message> = {};
+    const states: Record<string, TeamTone> = {};
+    const blocked: Record<string, number> = {};
+    await Promise.all(
+      list.map(async (c) => {
+        const [m, act] = await Promise.allSettled([
+          get<{ messages?: Message[] } | Message[]>(`/v1/conversations/${c.id}/messages?limit=1`),
+          get<unknown>(`/v1/conversations/${c.id}/activity`),
         ]);
-        setActivity((a) => a.map((x) => (x.key === ev.agent ? { ...x, state: 'working', detail: '正在发言' } : x)));
-        break;
-      case 'delta': {
-        const k = ev.agent ?? '';
-        streamingRef.current[k] = (streamingRef.current[k] ?? '') + (ev.content ?? '');
-        const text = streamingRef.current[k];
-        setMsgs((m) => {
-          const next = [...m];
-          for (let i = next.length - 1; i >= 0; i--) {
-            if (next[i].agent === ev.name && next[i].id.startsWith('live_')) {
-              next[i] = { ...next[i], content: text };
-              break;
-            }
-          }
-          return next;
-        });
-        break;
-      }
-      case 'end':
-        if (ev.content) streamingRef.current[ev.agent ?? ''] = ev.content;
-        break;
-      case 'artifact':
-        setMsgs((m) => [
-          ...m,
-          {
-            id: `art_${Date.now()}_${ev.agent}`,
-            conversationId: activeConv!,
-            role: 'system',
-            agent: ev.name,
-            content: ev.content ?? '',
-            artifacts: [ev.title ?? '产物'],
-            tokensIn: 0,
-            tokensOut: 0,
-            latencyMs: 0,
-            createdAt: new Date().toISOString(),
-          },
-        ]);
-        break;
-      case 'busy':
-        setErr('上一轮还没结束，等它说完。');
-        break;
-      case 'quota':
-        setErr('本月额度已用完。');
-        break;
-      case '__error':
-        setErr(ev.message ?? '连接断了');
-        break;
-      case '__closed':
-        setBusy(false);
-        if (activeConv) {
-          loadMsgs(activeConv);
-          loadActivity(activeConv);
+        if (m.status === 'fulfilled') {
+          const arr = Array.isArray(m.value) ? m.value : (m.value?.messages ?? []);
+          const last = arr[arr.length - 1];
+          if (last) next[c.id] = last;
         }
-        break;
-    }
-  }
+        if (act.status === 'fulfilled') {
+          const acts = normalizeActivity(act.value);
+          states[c.id] = toneOfActivity(acts);
+          const n = acts.filter((a) => a.state === 'blocked').length;
+          if (n > 0) blocked[c.id] = n;
+        }
+      }),
+    );
+    setRecent(next);
+    setTeamStates(states);
+    setBlockedCount(blocked);
+  }, []);
 
-  function stop() {
-    abortRef.current?.();
-    abortRef.current = null;
-    setBusy(false);
-  }
-
-  async function decide(approve: boolean, scope: 'once' | 'run') {
-    if (!approval) return;
-    const { a, runId } = approval;
-    setApproval(null);
+  const refresh = useCallback(async () => {
     try {
-      await post(`/v1/runs/${runId}/approve`, { approvalId: a.id, approve, scope });
-      if (activeConv) loadActivity(activeConv);
+      const [cv, me] = await Promise.allSettled([
+        get<Conversation[]>('/v1/conversations'),
+        get<any>('/v1/me'),
+      ]);
+      if (cv.status === 'fulfilled') setConvs(cv.value ?? []);
+      if (me.status === 'fulfilled') setUser(me.value?.user ?? me.value);
+      const list = cv.status === 'fulfilled' ? (cv.value ?? []) : convsRef.current;
+      await Promise.all([loadStats(), loadRecent(list)]);
+    } catch (e) {
+      setErr(humanError(e));
+    }
+  }, [setConvs, setUser, loadStats, loadRecent]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  useEffect(() => {
+    if (convs.length) loadRecent(convs);
+  }, [convs, loadRecent]);
+
+  // 从 /team/[id] 返回时刷新：删群、改名、审核完之后门面要跟上
+  useFocusEffect(
+    useCallback(() => {
+      loadStats();
+      if (convsRef.current.length) loadRecent(convsRef.current);
+    }, [loadStats, loadRecent]),
+  );
+
+  /* ---------- 派生 ---------- */
+  const officialConv = convs.find((c) => c.studio === OFFICIAL_STUDIO) ?? null;
+  /** 官方群是系统群，不进团队页、不占团队名额（B1） */
+  const teamConvs = useMemo(() => convs.filter((c) => c.studio !== OFFICIAL_STUDIO), [convs]);
+
+  /** 「最近对话」排序：官方群常驻第一位（B1），其余按最后消息时间倒序 */
+  const chatList = useMemo(() => {
+    const rest = convs.filter((c) => c.studio !== OFFICIAL_STUDIO);
+    rest.sort((a, b) => stampOf(recent[b.id], b) - stampOf(recent[a.id], a));
+    return officialConv ? [officialConv, ...rest] : rest;
+  }, [convs, recent, officialConv]);
+
+  /** 唯一允许的统计类提示（B3）：哪支团队在等你审批 */
+  const pending = useMemo(() => {
+    const hit = Object.entries(blockedCount)
+      .filter(([id]) => convs.some((c) => c.id === id))
+      .sort((a, b) => b[1] - a[1])[0];
+    if (!hit) return null;
+    const c = convs.find((x) => x.id === hit[0]);
+    return c ? { conv: c, count: hit[1] } : null;
+  }, [blockedCount, convs]);
+
+  const doingCount = goals.filter((g) => g.status === 'doing').length;
+  /** 团队页副标题：本周完成的目标数（统计只出现在团队/我，不在对话页） */
+  const doneThisWeek = useMemo(() => {
+    const now = new Date();
+    const weekStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - ((now.getDay() + 6) % 7),
+    );
+    return goals.filter((g) => {
+      if (g.status !== 'done') return false;
+      const at = (g as Goal & { completedAt?: string }).completedAt;
+      if (!at) return false;
+      const d = new Date(at);
+      return !Number.isNaN(d.getTime()) && d >= weekStart;
+    }).length;
+  }, [goals]);
+  const connected = connectors.find((c) => c.enabled);
+
+  /* ---------- 团队操作 ---------- */
+  function openTeam(id: string) {
+    setCurrentConv(id);
+    router.push(`/team/${id}`);
+  }
+
+  async function copyTeam(c: Conversation) {
+    setMenuFor(null);
+    try {
+      // B4：复制要连成员人设与权限级别一起复制
+      const conv = await post<Conversation>('/v1/conversations', {
+        title: `${c.title} 副本`,
+        studio: c.studio,
+        agents: c.agents ?? [],
+        members: c.members ?? [],
+        defaultPermission: c.defaultPermission || undefined,
+        agentPermissions: c.agentPermissions ?? undefined,
+      });
+      let list: Conversation[] | null = null;
+      try {
+        list = await get<Conversation[]>('/v1/conversations');
+      } catch {
+        /* 列表刷新失败不影响复制本身 */
+      }
+      setConvs(list ?? (conv?.id ? [conv, ...convsRef.current] : convsRef.current));
     } catch (e) {
       setErr(humanError(e));
     }
   }
 
-  /* ---------- 成员 ---------- */
-  const members: { key: string; name: string; title?: string; color?: string }[] = conv?.agents?.length
-    ? conv.agents.map((a) => ({ key: a.key, name: a.name, title: a.title, color: a.color }))
-    : activity.map((a) => ({ key: a.key, name: a.name }));
-
-  const working = activity.filter((a) => a.state === 'working' || a.state === 'blocked');
-
-  function insertMention(name: string) {
-    setInput((v) => (v.endsWith(' ') || v === '' ? `${v}@${name} ` : `${v} @${name} `));
-    setMentionOpen(false);
+  function removeTeam(c: Conversation) {
+    setMenuFor(null);
+    Alert.alert('删除团队', `「${c.title}」将被解散，群里的记录不再可见。`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await del(`/v1/conversations/${c.id}`);
+            setConvs(convs.filter((x) => x.id !== c.id));
+          } catch (e) {
+            setErr(humanError(e));
+          }
+        },
+      },
+    ]);
   }
 
-  if (needOnboard === null) return <Canvas><View style={{ flex: 1 }} /></Canvas>;
+  async function setPermission(c: Conversation) {
+    setMenuFor(null);
+    // 三级循环切换：需要审批 → 工作区内修改 → 完全访问权限
+    const order = ['ask', 'approval', 'full'];
+    const next = order[(order.indexOf(c.defaultPermission ?? 'approval') + 1) % order.length];
+    try {
+      await patch(`/v1/conversations/${c.id}`, { defaultPermission: next });
+      setConvs(convs.map((x) => (x.id === c.id ? { ...x, defaultPermission: next } : x)));
+    } catch (e) {
+      setErr(humanError(e));
+    }
+  }
 
+  /* ---------- 布局 ---------- */
   return (
     <Canvas>
       <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+        {/* §6.10：顶部悬浮玻璃胶囊，悬浮在内容之上，不贴边 */}
+        <View style={s.navFloat}>
+          <Segmented items={PAGES} index={page} onChange={setPage} />
+        </View>
+
         <Pager index={page} onIndexChange={setPage}>
-          {/* ---------------- 左：我 ---------------- */}
-          <MePage
-            user={user}
-            onOpenSettings={() => router.push('/settings')}
-            onOpenLibrary={() => router.push('/library')}
-            onOpenGoals={() => router.push('/goals')}
+          <TeamsPage
+            convs={teamConvs}
+            states={teamStates}
+            goals={goals}
+            doneThisWeek={doneThisWeek}
+            pinned={pinned}
+            officialConv={officialConv}
+            onOpen={openTeam}
+            onNew={() => router.push('/team/new')}
+            onMore={setMenuFor}
+            onEdit={setMenuFor}
+            onCopy={copyTeam}
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await refresh();
+              setRefreshing(false);
+            }}
           />
 
-          {/* ---------------- 中：对话 ---------------- */}
-          <View style={{ flex: 1 }}>
-            {/* 悬浮玻璃胶囊：不贴边，浮在内容上方 */}
-            <View style={s.topbarFloat}>
-              <Glass radius={26} style={s.topbarGlass}>
-                <Pressable onPress={() => setPage(PAGE_TEAMS)} style={s.pillBtn}>
-                  <Icon name="chevron-back" size={19} color={t.ink} />
-                </Pressable>
-                <View style={{ flex: 1, alignItems: 'center' }}>
-                  <T size={type.body} weight="600" numberOfLines={1}>
-                    {needOnboard ? '纸团' : conv?.title ?? '纸团'}
-                  </T>
-                  {working.length > 0 ? (
-                    <Row gap={4} style={{ marginTop: 1 }}>
-                      <PulseDot active tone={t.accent} />
-                      <T size={type.caption} color={t.accent} weight="600">
-                        {working.length} 个在干活
-                      </T>
-                    </Row>
-                  ) : null}
-                </View>
-                <Pressable onPress={() => setMenuOpen(true)} style={s.pillBtn}>
-                  <Icon name="menu" size={16} color={t.ink} />
-                </Pressable>
-              </Glass>
-            </View>
-
-            {/* 成员条 */}
-            {/* 成员条：紧凑一行。点开看这个人在干什么——这是产品的核心差异点，
-                所以它常驻在对话页顶部，而不是藏在菜单里。 */}
-            {members.length > 0 && !needOnboard ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ flexGrow: 0, flexShrink: 0 }}
-                contentContainerStyle={s.members}
-              >
-                {members.map((a) => {
-                  const st = activity.find((x) => x.key === a.key);
-                  const working = st?.state === 'working' || st?.state === 'blocked';
-                  return (
-                    <PressableScale key={a.key} onPress={() => setPanelAgent(a.key)} scaleTo={0.9}>
-                      <View
-                        style={[
-                          s.chipMember,
-                          {
-                            backgroundColor: working ? t.accentSoft : 'transparent',
-                            borderColor: working ? withAlpha(t.accent, 0.22) : 'transparent',
-                          },
-                        ]}
-                      >
-                        <Avatar name={a.name} tint={a.color} size={20} state={st?.state} />
-                        <T size={type.caption} color={working ? t.accent : t.ink2} weight={working ? '700' : '500'} numberOfLines={1}>
-                          {a.name}
-                        </T>
-                      </View>
-                    </PressableScale>
-                  );
-                })}
-              </ScrollView>
-            ) : null}
-
-            {err ? (
-              <Pressable onPress={() => setErr('')} style={[s.banner, { backgroundColor: t.badSoft }]}>
-                <Icon name="alert-circle" size={15} color={t.bad} />
-                <T size={type.sub} color={t.bad} style={{ flex: 1 }}>
-                  {err}
-                </T>
-              </Pressable>
-            ) : null}
-
-            {/* 消息流 / 引导 */}
-            {needOnboard ? (
-              <OnboardingChat onDone={finishOnboard} />
-            ) : (
-              <ScrollView
-                ref={listRef}
-                contentContainerStyle={[
-                  s.msgList,
-                  msgs.length === 0 && { flexGrow: 1 },
-                ]}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {msgs.length === 0 ? (
-                  <EmptyChat onPick={(text) => setInput(text)} />
-                ) : (
-                  msgs.map((m, i) => (
-                    <Bubble
-                      key={`${m.id}_${i}`}
-                      msg={m}
-                      showAgent={msgs[i - 1]?.agent !== m.agent}
-                      streaming={busy && i === msgs.length - 1}
-                      onAvatar={m.agent ? () => {
-                        const found = members.find((x) => x.name === m.agent);
-                        if (found) setPanelAgent(found.key);
-                      } : undefined}
-                    />
-                  ))
-                )}
-              </ScrollView>
-            )}
-
-            {/* 输入区 */}
-            {needOnboard ? null : (
-              <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-                <Composer
-                  value={input}
-                  onChangeText={setInput}
-                  onSend={send}
-                  onStop={stop}
-                  busy={busy}
-                  onMention={() => setMentionOpen((v) => !v)}
-                  placeholder={mentionOpen ? '选一个成员…' : '@ 指定成员，或直接说'}
-                />
-                {mentionOpen ? (
-                  <MentionPicker members={members} onPick={insertMention} onClose={() => setMentionOpen(false)} />
-                ) : null}
-              </KeyboardAvoidingView>
-            )}
-          </View>
-
-          {/* ---------------- 右：团队 ---------------- */}
-          <TeamsPage
-            convs={convs}
-            scenarios={scenarios}
-            activeConv={activeConv}
-            onOpen={(id) => {
-              setActiveConv(id);
-              setPage(PAGE_CHAT);
-            }}
+          <ChatPage
+            convs={chatList}
+            recent={recent}
+            states={teamStates}
+            pending={pending}
+            onOpen={openTeam}
             onNew={() => router.push('/team/new')}
-            onLibrary={() => router.push('/library')}
-            onGoals={() => router.push('/goals')}
+          />
+
+          <MePage
+            user={user}
+            convs={teamConvs}
+            goals={goals}
+            doing={doingCount}
+            artifacts={artifacts}
+            connectors={connectors}
+            connected={connected}
+            devices={devices}
+            onOpenGoals={() => router.push('/goals')}
+            onOpenLibrary={() => router.push('/library')}
+            onOpenConnect={() => router.push('/connect')}
+            onOpenDevices={() => router.push('/settings')}
+            onOpenSettings={() => router.push('/settings')}
           />
         </Pager>
 
-        {/* 成员工作面板 */}
-        <AgentPanel
-          visible={!!panelAgent}
-          agent={(() => {
-            const f = members.find((a) => a.key === panelAgent);
-            return f ? { key: f.key, name: f.name, title: f.title, color: f.color } : null;
-          })()}
-          activity={activity.find((a) => a.key === panelAgent)}
-          convId={activeConv ?? ''}
-          workspaceId={(conv as any)?.workspaceId}
-          onClose={() => setPanelAgent(null)}
-        />
-
-        {/* 更多菜单 */}
-        {menuOpen ? (
-          <MoreMenu
-            onClose={() => setMenuOpen(false)}
-            items={[
-              ...(activeConv ? [{ icon: 'people-outline', label: '交给团队', onPress: () => router.push(`/team/task?convId=${activeConv}`) }] : []),
-              { icon: 'folder-open-outline', label: '查看产物', onPress: () => router.push('/library') },
-              { icon: 'flag-outline', label: '目标看板', onPress: () => router.push('/goals') },
-              { icon: 'git-network-outline', label: '连接器', onPress: () => router.push('/connect') },
-              { icon: 'settings-outline', label: '团队设置', onPress: () => router.push('/settings') },
-            ]}
-          />
+        {err ? (
+          <Pressable onPress={() => setErr('')} style={[s.banner, { backgroundColor: t.badSoft }]}>
+            <Icon name="alert-circle" size={15} color={t.bad} />
+            <T size={ts.sub} color={t.bad} style={{ flex: 1 }} numberOfLines={2}>
+              {err}
+            </T>
+          </Pressable>
         ) : null}
 
-        <ApprovalSheet
-          visible={!!approval}
-          tool={approval?.a.tool ?? ''}
-          summary={approval?.a.command || approval?.a.summary || ''}
-          risk={approval?.a.risk ?? 'write'}
-          reason={approval?.a.summary}
-          onAllow={() => decide(true, 'once')}
-          onAllowRun={() => decide(true, 'run')}
-          onDeny={() => decide(false, 'once')}
+        <TeamMenu
+          conv={menuFor}
+          onClose={() => setMenuFor(null)}
+          pinned={pinned}
+          onEdit={(c) => {
+            // 改名 / 公告 / 成员都在群信息面板里——直接进群
+            setMenuFor(null);
+            openTeam(c.id);
+          }}
+          onCopy={copyTeam}
+          onMembers={(c) => {
+            setMenuFor(null);
+            openTeam(c.id);
+          }}
+          onPermission={setPermission}
+          onPin={(c) => {
+            togglePin(c.id);
+            setMenuFor(null);
+          }}
+          onDelete={removeTeam}
         />
       </SafeAreaView>
     </Canvas>
@@ -555,807 +418,1378 @@ export default function Main() {
 }
 
 /* ============================================================
-   气泡
-   ============================================================ */
-
-function Bubble({
-  msg,
-  showAgent,
-  streaming,
-  onAvatar,
-}: {
-  msg: Message;
-  showAgent: boolean;
-  streaming: boolean;
-  onAvatar?: () => void;
-}) {
-  const t = useTheme();
-
-  if (msg.role === 'system' && msg.artifacts?.length) {
-    return (
-      <Card style={{ marginVertical: gap.xs }}>
-        <Row style={{ justifyContent: 'space-between', marginBottom: gap.xs }}>
-          <Row gap={6}>
-            <IconTileSoftMini name="document-text" tint={t.accent} />
-            <T size={type.caption} color={t.accent} weight="600">
-              产出
-            </T>
-          </Row>
-          <T size={type.caption} color={t.ink3}>
-            {msg.agent}
-          </T>
-        </Row>
-        <T size={type.headline} weight="600" numberOfLines={1}>
-          {msg.artifacts?.[0]}
-        </T>
-        <T size={type.sub} color={t.ink2} lh={leading.sub} numberOfLines={3} style={{ marginTop: 4 }}>
-          {msg.content}
-        </T>
-      </Card>
-    );
-  }
-
-  if (msg.role === 'system') {
-    return (
-      <View style={{ alignItems: 'center', paddingVertical: gap.xxs }}>
-        <T size={type.caption} color={t.ink3} align="center">
-          {msg.content}
-        </T>
-      </View>
-    );
-  }
-
-  if (msg.role === 'user') {
-    return (
-      <FadeInUp distance={8}>
-        <View style={{ alignItems: 'flex-end', marginBottom: gap.sm }}>
-          <LinearGradient
-            colors={grad(t.gradient)}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={s.userBubble}
-          >
-            <T size={type.body} color="#FFFFFF" lh={leading.body}>
-              {msg.content}
-            </T>
-          </LinearGradient>
-        </View>
-      </FadeInUp>
-    );
-  }
-
-  // AI 气泡：柔和的浅色底、大圆角、无边框。
-  // 不用纯白（会和画布混在一起），也不用描边（显硬）——
-  // 用比画布稍亮一档的米白，靠圆角和留白建立"卡片感"。
-  return (
-    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', marginTop: showAgent ? 22 : 8 }}>
-      <Pressable onPress={onAvatar} disabled={!onAvatar} style={{ width: 32 }}>
-        {showAgent ? <Avatar name={msg.agent ?? '?'} size={30} /> : null}
-      </Pressable>
-      <View style={{ flex: 1, maxWidth: '86%' }}>
-        {showAgent ? (
-          <T size={type.caption} color={t.ink3} weight="600" style={{ marginBottom: 5, marginLeft: 2 }}>
-            {msg.agent}
-          </T>
-        ) : null}
-        <View
-          style={[
-            s.agentBubble,
-            {
-              backgroundColor: t.dark ? t.card : '#FFFFFF',
-              borderColor: t.dark ? t.cardBorder : 'rgba(20,24,45,0.045)',
-            },
-          ]}
-        >
-          {msg.content ? (
-            <T size={type.body} lh={24} color={t.ink}>
-              {msg.content}
-            </T>
-          ) : streaming ? (
-            <TypingDots color={t.ink4} />
-          ) : (
-            <T size={type.body} color={t.ink4}>
-              …
-            </T>
-          )}
-        </View>
-
-        {/* 操作条：元宝在每个回复下面都有一条。只在完整回复后出现，
-            流式中不出现（那时候用户还没读完，按钮是干扰）。 */}
-        {msg.content && !streaming ? <MsgActions text={msg.content} /> : null}
-        {msg.attachments?.length ? (
-          <Row gap={6} style={{ flexWrap: 'wrap', marginTop: 6 }}>
-            {msg.attachments.map((a) => (
-              <Tag key={a.id || a.path} label={a.name || a.path || '产物'} tone="done" />
-            ))}
-          </Row>
-        ) : null}
-      </View>
-    </View>
-  );
-}
-
-/** 一条回复的操作按钮：复制 / 重说 / 记下来。圆形 ghost，无底色。 */
-function MsgActions({ text }: { text: string }) {
-  const t = useTheme();
-  const [copied, setCopied] = useState(false);
-
-  const item = (icon: any, label: string, onPress: () => void, active?: boolean) => (
-    <Pressable
-      key={label}
-      onPress={onPress}
-      accessibilityLabel={label}
-      style={({ pressed }) => [
-        s.actionBtn,
-        {
-          backgroundColor: pressed
-            ? t.dark
-              ? 'rgba(255,255,255,0.08)'
-              : 'rgba(16,20,45,0.05)'
-            : 'transparent',
-        },
-      ]}
-    >
-      <Icon name={icon} size={15} color={active ? t.accent : t.ink4} />
-    </Pressable>
-  );
-
-  return (
-    <Row gap={0} style={{ marginTop: 2, marginLeft: -7 }}>
-      {item(copied ? 'checkmark' : 'copy-outline', '复制', async () => {
-        try {
-          const { default: Clipboard } = await import('expo-clipboard');
-          await Clipboard.setStringAsync(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1600);
-        } catch {
-          /* 剪贴板不可用时静默 */
-        }
-      }, copied)}
-      {item('refresh-outline', '重说', () => {})}
-      {item('bookmark-outline', '记下来', () => {})}
-      {item('share-outline', '分享', () => {})}
-    </Row>
-  );
-}
-
-/** 空对话页：一句招呼 + 几个可以点的建议。比一个孤零零的图标有用得多。 */
-function EmptyChat({ onPick }: { onPick: (t: string) => void }) {
-  const t = useTheme();
-  const ideas = ['帮我把这个需求拆成任务', '解释一下这段代码在做什么', '查一下这个概念的区别'];
-  const h = new Date().getHours();
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', paddingBottom: 40 }}>
-      <View>
-        {/* 大标题：字号拉开到 32，字距收紧。这是整页唯一的视觉重心。 */}
-        <T size={type.display} weight="700" lh={40} style={{ letterSpacing: -0.5 }}>
-          有什么可以帮你的？
-        </T>
-        <T size={type.sub} color={t.ink3} style={{ marginTop: 8 }}>
-          {h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'}，我是纸团
-        </T>
-      </View>
-
-      <View style={{ marginTop: 28, gap: 10 }}>
-        {ideas.map((idea, i) => (
-          <FadeInUp key={idea} delay={i * 70}>
-            <Surface onPress={() => onPick(idea)} shell={4} outerRadius={22}>
-              <View style={s.ideaInner}>
-                <T size={type.body} color={t.ink} weight="500" style={{ flex: 1 }}>
-                  {idea}
-                </T>
-                {/* Button-in-Button：箭头有自己的圆形容器，不裸放 */}
-                <View style={[s.arrowDot, { backgroundColor: t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(16,20,45,0.045)' }]}>
-                  <Icon name="arrow-up" size={13} color={t.ink3} style={{ transform: [{ rotate: '45deg' }] }} />
-                </View>
-              </View>
-            </Surface>
-          </FadeInUp>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function IconTileSoftMini({ name, tint }: { name: any; tint: string }) {
-  return (
-    <View
-      style={{
-        width: 20,
-        height: 20,
-        borderRadius: 7,
-        backgroundColor: withAlpha(tint, 0.12),
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Ionicons name={name} size={11} color={tint} />
-    </View>
-  );
-}
-
-/* ============================================================
-   左侧：我
-   ============================================================ */
-
-function MePage({
-  user,
-  onOpenSettings,
-  onOpenLibrary,
-  onOpenGoals,
-}: {
-  user: any;
-  onOpenSettings: () => void;
-  onOpenLibrary: () => void;
-  onOpenGoals: () => void;
-}) {
-  const t = useTheme();
-  const pref = useThemePref((s) => s.pref);
-  const setPref = useThemePref((s) => s.setPref);
-
-  return (
-    <ScrollView contentContainerStyle={s.page} showsVerticalScrollIndicator={false}>
-      <FadeInUp>
-        <Row gap={gap.sm} style={{ marginTop: gap.md }}>
-          <LinearGradient colors={grad(t.gradient)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.meAvatar}>
-            <T size={type.title} color="#FFFFFF" weight="600">
-              {(user?.name ?? '我').slice(0, 1)}
-            </T>
-          </LinearGradient>
-          <View style={{ flex: 1 }}>
-            <T size={type.title} weight="600" numberOfLines={1}>
-              {user?.name ?? '已连接'}
-            </T>
-            <T size={type.caption} color={t.ink3} style={{ marginTop: 2 }}>
-              额度 {user ? Math.max(0, (user.quota ?? 0) - (user.used ?? 0)) : '—'} / {user?.quota ?? '—'}
-            </T>
-          </View>
-        </Row>
-      </FadeInUp>
-
-      <T size={type.caption} color={t.ink3} weight="600" style={{ marginTop: gap.xxl, marginBottom: gap.xs }}>
-        外观
-      </T>
-      <Card>
-        <Row gap={6}>
-          {(['auto', 'light', 'dark'] as const).map((k) => (
-            <Pressable
-              key={k}
-              onPress={() => setPref(k)}
-              style={{
-                flex: 1,
-                paddingVertical: 9,
-                borderRadius: radius.control,
-                backgroundColor: pref === k ? t.accentSoft : 'transparent',
-                alignItems: 'center',
-              }}
-            >
-              <T size={type.sub} color={pref === k ? t.accentText : t.ink2} weight={pref === k ? "600" : "400"}>
-                {k === 'auto' ? '跟随系统' : k === 'light' ? '浅色' : '深色'}
-              </T>
-            </Pressable>
-          ))}
-        </Row>
-      </Card>
-
-      <T size={type.caption} color={t.ink3} weight="600" style={{ marginTop: gap.xl, marginBottom: gap.xs }}>
-        常用
-      </T>
-      <View style={{ gap: gap.xs }}>
-        <MenuRow icon="flag" colors={['#7FA8F7', '#4A7FE0']} label="目标看板" onPress={onOpenGoals} />
-        <MenuRow icon="folder-open" colors={['#B39AF0', '#7C5CE0']} label="资料库" onPress={onOpenLibrary} />
-        <MenuRow icon="settings" colors={['#9AA0B4', '#6E7488']} label="设备与设置" onPress={onOpenSettings} />
-      </View>
-
-      <T size={type.caption} color={t.ink3} weight="600" style={{ marginTop: gap.xl, marginBottom: gap.xs }}>
-        连接电脑
-      </T>
-      <Card>
-        <Row gap={gap.xs} align="flex-start">
-          <Icon name="laptop-outline" size={16} color={t.ink3} style={{ marginTop: 1 }} />
-          <T size={type.sub} color={t.ink2} lh={leading.sub} style={{ flex: 1 }}>
-            在电脑上打开纸团 → 设置 → 配对新设备，把 6 位码填进「设备与设置」。
-            配对后这台手机就能远程看工作区、发任务、审批。
-          </T>
-        </Row>
-      </Card>
-    </ScrollView>
-  );
-}
-
-function MenuRow({
-  icon,
-  colors,
-  label,
-  onPress,
-}: {
-  icon: any;
-  colors: [string, string];
-  label: string;
-  onPress: () => void;
-}) {
-  const t = useTheme();
-  return (
-    <Surface onPress={onPress} shell={4} outerRadius={20}>
-      <Row gap={12} style={{ padding: CARD_PAD }}>
-        <IconTile name={icon} colors={colors} size={36} iconSize={17} radius={12} />
-        <T size={type.body} weight="600" style={{ flex: 1 }}>
-          {label}
-        </T>
-        <View style={[s.arrowDot, { backgroundColor: t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(16,20,45,0.04)' }]}>
-          <Icon name="chevron-forward" size={13} color={t.ink3} />
-        </View>
-      </Row>
-    </Surface>
-  );
-}
-
-/* ============================================================
-   右侧：团队
+   页 1：团队（左）
    ============================================================ */
 
 function TeamsPage({
   convs,
-  scenarios,
-  activeConv,
+  states,
+  goals,
+  doneThisWeek,
+  pinned,
+  officialConv,
   onOpen,
   onNew,
-  onLibrary,
-  onGoals,
+  onMore,
+  onEdit,
+  onCopy,
+  refreshing,
+  onRefresh,
 }: {
   convs: Conversation[];
-  scenarios: Scenario[];
-  activeConv: string | null;
+  states: Record<string, TeamTone>;
+  goals: Goal[];
+  doneThisWeek: number;
+  pinned: string[];
+  officialConv: Conversation | null;
   onOpen: (id: string) => void;
   onNew: () => void;
-  onLibrary: () => void;
-  onGoals: () => void;
+  onMore: (c: Conversation) => void;
+  onEdit: (c: Conversation) => void;
+  onCopy: (c: Conversation) => void;
+  refreshing: boolean;
+  onRefresh: () => void;
 }) {
   const t = useTheme();
-  const router = useRouter();
-  const presets = scenarios.filter((s) => !s.random && (s.agents?.length ?? 0) > 0);
-  const scrollY = useRef(new Animated.Value(0)).current;
+
+  // Bento 的主角永远是「最该被看到的那一个」：有审批的优先，
+  // 其次是官方群（首次进入的落点），再其次才是正在干活的。
+  // 置顶改变的是顺序，不改变卡型——第一张永远占整行。
+  const ranked = useMemo(() => {
+    const score = (c: Conversation) => {
+      if (states[c.id] === 'blocked') return 3;
+      if (c.id === officialConv?.id) return 2;
+      if (states[c.id] === 'working') return 1;
+      return 0;
+    };
+    return [...convs].sort((a, b) => {
+      const pin = pinned.indexOf(a.id);
+      const pin2 = pinned.indexOf(b.id);
+      if (pin >= 0 || pin2 >= 0) {
+        if (pin < 0) return 1;
+        if (pin2 < 0) return -1;
+        return pin - pin2;
+      }
+      return score(b) - score(a);
+    });
+  }, [convs, states, officialConv, pinned]);
+
+  const hero = convs.length ? ranked[0] : null;
+  const others = convs.length ? ranked.slice(1) : [];
+  /** 目标进度：优先用这个群在做的目标，没有就退到全局第一个进行中的 */
+  const goalFor = (c: Conversation): Goal | undefined =>
+    goals.find((g) => g.conversationId === c.id && g.status === 'doing') ??
+    goals.find((g) => g.status === 'doing') ??
+    goals.find((g) => g.conversationId === c.id);
 
   return (
-    <Animated.ScrollView
+    <ScrollView
+      style={{ flex: 1 }}
       contentContainerStyle={s.page}
       showsVerticalScrollIndicator={false}
-      scrollEventThrottle={16}
-      onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-        useNativeDriver: true,
-      })}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.accent} />
+      }
     >
-      <FadingHeader scrollY={scrollY}>
-        <Row style={{ justifyContent: 'space-between', marginTop: gap.sm }}>
-          <View>
-            <T size={type.display} weight="700" lh={40} style={{ letterSpacing: -0.5 }}>
-              团队
-            </T>
-            <T size={type.caption} color={t.ink3} style={{ marginTop: 2 }}>
-              {convs.length} 个群组 · {presets.length} 个模板
-            </T>
-          </View>
-          <AccentIconButton name="add" onPress={onNew} accessibilityLabel="新建团队" />
-        </Row>
-      </FadingHeader>
-
-      {/* 快捷入口 */}
-      <FadeInUp delay={50}>
-        <Row gap={gap.xs} style={{ marginTop: gap.lg }}>
-          <QuickTile icon="flag" colors={['#7FA8F7', '#4A7FE0']} label="目标" onPress={onGoals} />
-          <QuickTile icon="folder-open" colors={['#B39AF0', '#7C5CE0']} label="资料" onPress={onLibrary} />
-          <QuickTile icon="chatbubble-ellipses" colors={['#6FD8AE', '#34A87C']} label="单聊" onPress={() => router.push('/solo')} />
-        </Row>
-      </FadeInUp>
-
-      {/* 我的群组：第一张是英雄卡（更大、带成员），
-          其余是紧凑行。全部同尺寸会让页面读起来像表格。 */}
-      <T size={type.headline} weight="600" style={{ marginTop: gap.xl, marginBottom: gap.sm }}>
-        我的群组
-      </T>
-      {convs.length === 0 ? (
-        <Empty icon="people-outline" title="还没有群组" hint="从下面的模板建一个" />
-      ) : (
-        <View style={{ gap: CARD_GAP }}>
-          {/* 当前群排第一当英雄卡：它的信息最多、最该被看到 */}
-          {[...convs].sort((a, b) => (a.id === activeConv ? -1 : b.id === activeConv ? 1 : 0)).map((c, i) => {
-            const sc = SCENE[c.studio] ?? DEFAULT_SCENE;
-            const sc2 = scenarios.find((x) => x.key === c.studio);
-            const names = c.agents?.length
-              ? c.agents.map((a) => a.name)
-              : (sc2?.agents ?? []).map((a) => a.name);
-            const active = c.id === activeConv;
-            const hero = i === 0;
-
-            return (
-              <FadeInUp key={c.id} delay={i * 45}>
-                {hero ? (
-                  <Surface
-                    onPress={() => onOpen(c.id)}
-                    shell={5}
-                    outerRadius={26}
-                    style={active ? { borderColor: t.accent, borderWidth: 1 } : undefined}
-                  >
-                    <View style={{ padding: CARD_PAD }}>
-                      <Row gap={12} style={{ alignItems: 'flex-start' }}>
-                        <IconTile name={sc.icon} colors={sc.colors} size={52} iconSize={24} radius={16} />
-                        <View style={{ flex: 1 }}>
-                          <Row gap={6}>
-                            <T size={type.headline} weight="600" numberOfLines={1} style={{ flex: 1 }}>
-                              {c.title}
-                            </T>
-                            {active ? <Tag label="当前" tone="working" /> : null}
-                          </Row>
-                          <T size={type.caption} color={t.ink3} style={{ marginTop: 3 }} numberOfLines={1}>
-                            {names.length} 位成员
-                            {names.length ? ` · ${names.slice(0, 3).join('、')}` : ''}
-                          </T>
-                        </View>
-                      </Row>
-                      {/* 英雄卡多一行：成员头像 + 进入提示 */}
-                      <Row style={{ justifyContent: 'space-between', marginTop: 12 }}>
-                        <AvatarStack names={names.slice(0, 4)} size={24} max={4} />
-                        <Row gap={4}>
-                          <T size={type.caption} color={t.accent} weight="600">
-                            进入
-                          </T>
-                          <Icon name="arrow-forward" size={13} color={t.accent} />
-                        </Row>
-                      </Row>
-                    </View>
-                  </Surface>
-                ) : (
-                  <Surface
-                    onPress={() => onOpen(c.id)}
-                    shell={4}
-                    outerRadius={22}
-                    style={active ? { borderColor: t.accent, borderWidth: 1 } : undefined}
-                  >
-                    <Row gap={12} style={{ padding: CARD_PAD }}>
-                      <IconTile name={sc.icon} colors={sc.colors} size={30} iconSize={18} radius={12} />
-                      <View style={{ flex: 1 }}>
-                        <T size={type.body} weight="600" numberOfLines={1}>
-                          {c.title}
-                        </T>
-                        <T size={type.caption} color={t.ink3} style={{ marginTop: 2 }}>
-                          {names.length} 位成员
-                        </T>
-                      </View>
-                      {active ? <Tag label="当前" tone="working" /> : (
-                        <Icon name="chevron-forward" size={15} color={t.ink4} />
-                      )}
-                    </Row>
-                  </Surface>
-                )}
-              </FadeInUp>
-            );
-          })}
+      {/* A3：英文微标签塞进大标题上方 */}
+      <View style={s.titleRow}>
+        <View style={{ flex: 1 }}>
+          <T size={10.5} weight="700" color={t.ink3} tracking={2.2} style={s.eyebrow}>
+            MY TEAMS
+          </T>
+          <T size={ts.display} weight="750" lh={34} tracking={-0.6} style={{ marginTop: 6 }}>
+            团队
+          </T>
+          <T size={ts.sub} color={t.ink3} style={{ marginTop: 6 }}>
+            {convs.length} 个团队 · 本周共完成 {doneThisWeek} 个目标
+          </T>
         </View>
+        {/* 品牌渐变只做「主操作」这一件事 */}
+        <BrandPlusFab onPress={onNew} />
+      </View>
+
+      {convs.length === 0 ? (
+        <View style={[s.emptyCard, { backgroundColor: t.card, borderColor: t.line }]}>
+          <T size={ts.title} weight="650">
+            还没有团队
+          </T>
+          <T size={ts.caption} color={t.ink3} align="center" style={{ marginTop: 4 }}>
+            从模板开始，一句话就能派活
+          </T>
+          <TextButton label="新建团队" onPress={onNew} fontWeight="600" />
+        </View>
+      ) : (
+        <>
+          {/* A4：主视觉占整行 */}
+          {hero ? (
+            <HeroTeamCard
+              conv={hero}
+              tone={states[hero.id] ?? 'idle'}
+              goal={goalFor(hero)}
+              onOpen={() => onOpen(hero.id)}
+              onEdit={() => onEdit(hero)}
+              onCopy={() => onCopy(hero)}
+              onMore={() => onMore(hero)}
+            />
+          ) : null}
+
+          {/* 其余两列小卡 */}
+          <View style={s.bentoRow}>
+            {others.map((c) => (
+              <View key={c.id} style={s.bentoCell}>
+                <SmallTeamCard
+                  conv={c}
+                  tone={states[c.id] ?? 'idle'}
+                  onOpen={() => onOpen(c.id)}
+                  onEdit={() => onEdit(c)}
+                  onCopy={() => onCopy(c)}
+                  onMore={() => onMore(c)}
+                />
+              </View>
+            ))}
+            {others.length % 2 === 1 ? <View style={s.bentoCell} /> : null}
+          </View>
+        </>
       )}
 
-      {/* 团队模板 */}
-      <T size={type.headline} weight="600" style={{ marginTop: gap.xl, marginBottom: gap.xs }}>
-        团队模板
-      </T>
-      <View style={{ gap: gap.xs }}>
-        {presets.map((sc, i) => {
-          const scene = SCENE[sc.key] ?? DEFAULT_SCENE;
-          return (
-            <FadeInUp key={sc.key} delay={i * 40}>
-              <Surface onPress={() => onNew()} shell={4} outerRadius={22}>
-                <Row gap={12} style={{ padding: CARD_PAD }}>
-                  <IconTile name={scene.icon} colors={scene.colors} size={30} iconSize={18} radius={12} />
-                  <View style={{ flex: 1 }}>
-                    <T size={type.body} weight="600">
-                      {sc.name}
-                    </T>
-                    <T size={type.caption} color={t.ink3} numberOfLines={1} style={{ marginTop: 2 }}>
-                      {sc.tagline}
-                    </T>
-                  </View>
-                  <AvatarStack
-                    names={(sc.agents ?? []).map((a) => a.name)}
-                    tints={(sc.agents ?? []).map((a) => a.color)}
-                    size={20}
-                    max={2}
-                  />
-                </Row>
-              </Surface>
-            </FadeInUp>
-          );
-        })}
-      </View>
-    </Animated.ScrollView>
+      {convs.length ? (
+        <T
+          size={ts.caption}
+          color={t.ink4}
+          align="center"
+          lh={19}
+          style={{ marginTop: 26, paddingHorizontal: 12 }}
+        >
+          「复制」= 连成员人设与权限级别一起复制，改个名就是一支新队
+        </T>
+      ) : null}
+    </ScrollView>
   );
 }
 
-/**
- * 入场时的轻微倾斜。
- *
- * 前几张卡带极小的旋转（1.2°）从下方浮入，看起来像"一叠纸被放下"，
- * 而不是整齐地同时出现。旋转只在入场瞬间，落位后是正的——
- * 长期保持倾斜会影响阅读。
- */
-function TiltIn({
-  children,
-  delay = 0,
-  depth = 0,
-}: {
-  children: React.ReactNode;
-  delay?: number;
-  depth?: number;
-}) {
-  const v = useRef(new Animated.Value(0)).current;
+/** 右上角圆形品牌渐变「+」。 */
+function BrandPlusFab({ onPress }: { onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <PressableScale onPress={onPress} scaleTo={0.92} accessibilityLabel="新建团队">
+      <LinearGradient
+        colors={grad(t.gradient)}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[s.fab, { shadowColor: t.brandShadow }]}
+      >
+        <Icon name="add" size={24} color="#FFFFFF" />
+      </LinearGradient>
+    </PressableScale>
+  );
+}
 
-  useEffect(() => {
-    Animated.timing(v, {
-      toValue: 1,
-      duration: 480,
-      delay,
-      easing: Easing.bezier(0.22, 1, 0.36, 1),
-      useNativeDriver: true,
-    }).start();
-  }, [v, delay]);
+const TONE_META: Record<TeamTone, { label: string; tone: 'blocked' | 'done' | 'neutral' }> = {
+  blocked: { label: '等你审批', tone: 'blocked' },
+  working: { label: '干活中', tone: 'neutral' },
+  done: { label: '刚完成', tone: 'done' },
+  // 设计图 13 里「进行中」是绿色胶囊；语义色只在这里和「刚完成」共用
+  idle: { label: '进行中', tone: 'done' },
+};
+
+/** 整行团队卡：成员头像组 + 团队名 + 状态标 + 目标进度 + 操作行。 */
+function HeroTeamCard({
+  conv,
+  tone,
+  goal,
+  onOpen,
+  onEdit,
+  onCopy,
+  onMore,
+}: {
+  conv: Conversation;
+  tone: TeamTone;
+  goal?: Goal;
+  onOpen: () => void;
+  onEdit: () => void;
+  onCopy: () => void;
+  onMore: () => void;
+}) {
+  const t = useTheme();
+  const names = memberNames(conv);
+  const meta = TONE_META[tone];
+  // 目标进度：后端带了步骤清单就显示「3 / 5 步」，否则退回百分比
+  const steps = (goal as (Goal & { steps?: unknown[] }) | undefined)?.steps;
+  const totalSteps = Array.isArray(steps) ? steps.length : 0;
+  const doneSteps = Array.isArray(steps)
+    ? steps.filter((x) => (x as { status?: string })?.status === 'done').length
+    : 0;
+  const pct = goal ? Math.round(Math.max(0, Math.min(100, goal.progress))) : 0;
+  const label = goal ? goal.title : '还没有目标';
+  const progressText = totalSteps ? `目标 ${doneSteps} / ${totalSteps}` : `目标进度 ${pct}%`;
 
   return (
-    <Animated.View
-      style={{
-        opacity: v,
-        transform: [
-          { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) },
-          { rotate: v.interpolate({ inputRange: [0, 1], outputRange: [`${(depth ? 1.4 : 0.8)}deg`, '0deg'] }) },
-          { scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) },
-        ],
-      }}
-    >
-      {children}
-    </Animated.View>
+    <Surface outerRadius={26} style={{ marginTop: 20 }}>
+      <Pressable
+        onPress={onOpen}
+        style={{ paddingTop: 16, paddingHorizontal: 16 }}
+        accessibilityRole="button"
+      >
+        <Row gap={12} align="flex-start">
+          <View style={{ flexDirection: 'row' }}>
+            <MemberStack
+              names={names.slice(0, 4)}
+              tints={memberTints(conv).slice(0, 4)}
+              size={40}
+            />
+          </View>
+          <View style={{ flex: 1, marginLeft: 2 }}>
+            <T size={ts.title} weight="750" numberOfLines={1}>
+              {conv.title}
+            </T>
+            <T size={ts.caption} color={t.ink3} numberOfLines={1} style={{ marginTop: 3 }}>
+              {names.length} 位成员 · {meta.label}
+            </T>
+          </View>
+          <Tag label={meta.label} tone={meta.tone} />
+        </Row>
+
+        <View style={{ marginTop: 16 }}>
+          <Row style={{ justifyContent: 'space-between', marginBottom: 7 }}>
+            <T size={ts.caption} color={t.ink2} weight="600" numberOfLines={1} style={{ flex: 1 }}>
+              {progressText}
+            </T>
+            <T
+              size={ts.caption}
+              color={t.ink3}
+              weight="600"
+              numberOfLines={1}
+              style={{ maxWidth: 118 }}
+            >
+              {label}
+            </T>
+          </Row>
+          {/* A1：进度填充可以用品牌渐变 */}
+          <View style={[s.track, { backgroundColor: t.track }]}>
+            <LinearGradient
+              colors={grad(t.gradient)}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={{
+                width: `${totalSteps ? (doneSteps / totalSteps) * 100 : pct}%`,
+                height: 5,
+                borderRadius: 99,
+              }}
+            />
+          </View>
+        </View>
+      </Pressable>
+
+      <View style={[s.heroActions, { borderTopColor: t.line }]}>
+        <PressableScale onPress={onOpen} scaleTo={0.96}>
+          <Row gap={6}>
+            <Icon name="chatbubble-outline" size={15} color={t.ink} />
+            <T size={ts.sub} weight="600">
+              进入群聊
+            </T>
+          </Row>
+        </PressableScale>
+        <Row gap={22}>
+          <TextButton label="编辑" onPress={onEdit} size={ts.caption} />
+          <TextButton label="复制" onPress={onCopy} size={ts.caption} />
+          <Pressable onPress={onMore} hitSlop={10} accessibilityLabel="更多操作">
+            <Icon name="ellipsis-horizontal" size={18} color={t.ink3} />
+          </Pressable>
+        </Row>
+      </View>
+    </Surface>
   );
 }
 
-function QuickTile({
-  icon,
-  colors,
-  label,
+/** 两列小卡：只保留编辑 / 复制。 */
+function SmallTeamCard({
+  conv,
+  tone,
+  onOpen,
+  onEdit,
+  onCopy,
+  onMore,
+}: {
+  conv: Conversation;
+  tone: TeamTone;
+  onOpen: () => void;
+  onEdit: () => void;
+  onCopy: () => void;
+  onMore: () => void;
+}) {
+  const t = useTheme();
+  const names = memberNames(conv);
+  const meta = TONE_META[tone];
+  const tint = memberTints(conv)[0] ?? MEMBER_COLORS[0];
+
+  return (
+    <Surface outerRadius={26} style={{ flex: 1 }}>
+      <Pressable onPress={onOpen} style={{ padding: 15 }} accessibilityRole="button">
+        <Row style={{ justifyContent: 'space-between' }}>
+          <InitialTile name={conv.title} tint={tint} size={40} />
+          <Pressable onPress={onMore} hitSlop={12} accessibilityLabel="更多操作">
+            <Icon name="ellipsis-horizontal" size={16} color={t.ink4} />
+          </Pressable>
+        </Row>
+        <T size={ts.body} weight="700" numberOfLines={1} style={{ marginTop: 12 }}>
+          {conv.title}
+        </T>
+        <T size={ts.caption} color={t.ink3} numberOfLines={1} style={{ marginTop: 3 }}>
+          {names.length} 位成员 · {meta.label}
+        </T>
+      </Pressable>
+      <View style={[s.smallActions, { borderTopColor: t.line }]}>
+        <TextButton label="编辑" onPress={onEdit} size={ts.micro} />
+        <TextButton label="复制" onPress={onCopy} size={ts.micro} />
+      </View>
+    </Surface>
+  );
+}
+
+/** 团队图标砖：首字落在低饱和身份色上（A5 的静默版，不抢英雄卡）。 */
+function InitialTile({ name, tint, size = 40 }: { name: string; tint: string; size?: number }) {
+  return (
+    <LinearGradient
+      colors={grad([withAlpha(tint, 0.85), tint])}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 13,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View pointerEvents="none" style={s.tileHighlight} />
+      <T size={size * 0.4} weight="700" color="#FFFFFF">
+        {initialOf(name)}
+      </T>
+    </LinearGradient>
+  );
+}
+
+/** 头像重叠组。与 AvatarStack 的区别：尺寸更大、环色跟卡片底一致。 */
+function MemberStack({ names, tints, size }: { names: string[]; tints: string[]; size: number }) {
+  return <AvatarStack names={names} tints={tints} size={size} max={4} />;
+}
+
+/* ============================================================
+   页 2：对话（中，极简版 · 附录 B3）
+   ============================================================ */
+
+function ChatPage({
+  convs,
+  recent,
+  states,
+  pending,
+  onOpen,
+  onNew,
+}: {
+  convs: Conversation[];
+  recent: Record<string, Message>;
+  states: Record<string, TeamTone>;
+  pending: { conv: Conversation; count: number } | null;
+  onOpen: (id: string) => void;
+  onNew: () => void;
+}) {
+  const t = useTheme();
+  const now = new Date();
+  const hello = now.getHours() < 12 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好';
+
+  return (
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        contentContainerStyle={[s.page, { paddingBottom: 150 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <T
+          size={10.5}
+          weight="700"
+          color={t.ink3}
+          tracking={2.2}
+          style={[s.eyebrow, { marginTop: 22 }]}
+        >
+          {`TODAY · ${now.getMonth() + 1} 月 ${now.getDate()} 日`}
+        </T>
+        <T size={ts.display} weight="750" lh={34} tracking={-0.6} style={{ marginTop: 7 }}>
+          {hello}，纸团
+        </T>
+        <T size={ts.sub} color={t.ink3} style={{ marginTop: 7 }}>
+          你的团队正在替你干活。
+        </T>
+
+        {/* 唯一允许的统计类信息：一条待审批提醒 */}
+        {pending ? (
+          <Surface outerRadius={22} style={{ marginTop: 20 }}>
+            <Pressable
+              onPress={() => onOpen(pending.conv.id)}
+              style={s.approvalRow}
+              accessibilityRole="button"
+            >
+              <View style={[s.warnDot, { backgroundColor: t.warn }]} />
+              <T size={ts.sub} weight="650" numberOfLines={1} style={{ flex: 1 }}>
+                {pending.conv.title} · 等你审批 {pending.count} 件
+              </T>
+              <Row gap={2}>
+                <T size={ts.caption} color={t.accentText} weight="650">
+                  去处理
+                </T>
+                <Icon name="chevron-forward" size={13} color={t.accentText} />
+              </Row>
+            </Pressable>
+          </Surface>
+        ) : null}
+
+        <Row
+          style={{
+            justifyContent: 'space-between',
+            marginTop: 24,
+            marginBottom: 10,
+          }}
+        >
+          <T size={ts.caption} color={t.ink3} weight="650">
+            最近对话
+          </T>
+          <T size={10} color={t.ink4} weight="700" tracking={1.4}>
+            RECENT
+          </T>
+        </Row>
+
+        {convs.length === 0 ? (
+          <View style={[s.emptyCard, { backgroundColor: t.card, borderColor: t.line }]}>
+            <T size={ts.title} weight="650">
+              还没有对话
+            </T>
+            <T size={ts.caption} color={t.ink3} style={{ marginTop: 4 }}>
+              建一个团队，或者去新手村看看
+            </T>
+          </View>
+        ) : (
+          <Surface outerRadius={24}>
+            {convs.map((c, i) => (
+              <View key={c.id}>
+                {i > 0 ? <Divider inset={72} /> : null}
+                <ConversationRow
+                  conv={c}
+                  msg={recent[c.id]}
+                  tone={states[c.id] ?? 'idle'}
+                  onPress={() => onOpen(c.id)}
+                />
+              </View>
+            ))}
+          </Surface>
+        )}
+      </ScrollView>
+
+      {/* 底部：品牌渐变主按钮 + 从模板开始（B3 的最后两样） */}
+      <View style={[s.chatFooter, { backgroundColor: t.canvas[1] }]}>
+        <PressableScale onPress={onNew} scaleTo={0.97} accessibilityLabel="新建团队">
+          <LinearGradient
+            colors={grad(t.gradient)}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[s.primaryBtn, { shadowColor: t.brandShadow }]}
+          >
+            <Icon name="add" size={18} color="#FFFFFF" />
+            <T size={ts.body} weight="700" color="#FFFFFF">
+              新建团队
+            </T>
+          </LinearGradient>
+        </PressableScale>
+        <Pressable onPress={onNew} hitSlop={10} style={{ marginTop: 10 }}>
+          <T size={ts.caption} color={t.ink4}>
+            从模板开始 ›
+          </T>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function ConversationRow({
+  conv,
+  msg,
+  tone,
   onPress,
 }: {
-  icon: any;
-  colors: [string, string];
-  label: string;
+  conv: Conversation;
+  msg?: Message;
+  tone: TeamTone;
   onPress: () => void;
 }) {
   const t = useTheme();
+  const official = conv.studio === OFFICIAL_STUDIO;
+  const names = memberNames(conv);
+  const tints = memberTints(conv);
+  const preview = msg ? summarize(msg) : '还没有消息';
+  const time = msg ? relativeTime(msg.createdAt) : '';
+
   return (
-    <View style={{ flex: 1 }}>
-      <Surface onPress={onPress} shell={4} outerRadius={20}>
-        <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-          <IconTile name={icon} colors={colors} size={34} iconSize={17} radius={12} />
-          <T size={type.caption} weight="600" color={t.ink2} style={{ marginTop: 8 }}>
-            {label}
+    <Pressable onPress={onPress} style={s.convRow} accessibilityRole="button">
+      {official ? (
+        <OfficialAvatar size={46} />
+      ) : names.length > 1 ? (
+        <MiniStack names={names.slice(0, 4)} tints={tints.slice(0, 4)} />
+      ) : (
+        <InitialTile name={conv.title} tint={tints[0] ?? MEMBER_COLORS[0]} size={46} />
+      )}
+
+      <View style={{ flex: 1 }}>
+        <Row gap={6}>
+          <T size={ts.body} weight="700" numberOfLines={1} style={{ flexShrink: 1 }}>
+            {conv.title}
           </T>
-        </View>
-      </Surface>
-    </View>
-  );
-}
-
-/* ============================================================
-   @ 成员选择
-   ============================================================ */
-
-function MentionPicker({
-  members,
-  onPick,
-  onClose,
-}: {
-  members: { key: string; name: string; title?: string; color?: string }[];
-  onPick: (name: string) => void;
-  onClose: () => void;
-}) {
-  const t = useTheme();
-  if (members.length === 0) return null;
-  return (
-    <View style={[s.mention, { backgroundColor: t.card, borderColor: t.cardBorder }]}>
-      <Row style={{ justifyContent: 'space-between', marginBottom: gap.xs }}>
-        <T size={type.caption} color={t.ink3} weight="600">
-          指定成员
+          {official ? <MiniTag label="官方" fg={t.goldFg} bg={t.goldBg} /> : null}
+          {tone === 'blocked' ? <MiniTag label="等你审批" fg={t.warn} bg={t.warnSoft} /> : null}
+        </Row>
+        <T size={ts.caption} color={t.ink3} numberOfLines={1} style={{ marginTop: 3 }}>
+          {preview}
         </T>
-        <T size={type.caption} color={t.ink3} onPress={onClose}>
-          关闭
+      </View>
+
+      <View style={{ alignItems: 'flex-end', gap: 7, minWidth: 44 }}>
+        <T size={ts.micro} color={t.ink4}>
+          {time}
         </T>
-      </Row>
-      <ScrollView style={{ maxHeight: 180 }}>
-        {members.map((m) => (
-          <Pressable key={m.key} onPress={() => onPick(m.name)} style={{ paddingVertical: 8 }}>
-            <Row gap={gap.xs}>
-              <Avatar name={m.name} size={30} tint={m.color} />
-              <View style={{ flex: 1 }}>
-                <T size={type.sub} weight="600">
-                  {m.name}
-                </T>
-                {m.title ? (
-                  <T size={type.caption} color={t.ink3}>
-                    {m.title}
-                  </T>
-                ) : null}
-              </View>
-            </Row>
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
-/* ============================================================
-   更多菜单
-   ============================================================ */
-
-function MoreMenu({
-  items,
-  onClose,
-}: {
-  items: { icon: any; label: string; onPress: () => void }[];
-  onClose: () => void;
-}) {
-  const t = useTheme();
-  return (
-    <Pressable style={s.menuScrim} onPress={onClose}>
-      <FadeInUp distance={-10}>
-        <View style={[s.menu, { backgroundColor: t.card, borderColor: t.cardBorder }]}>
-          {items.map((it, i) => (
-            <Pressable
-              key={it.label}
-              onPress={() => {
-                onClose();
-                it.onPress();
-              }}
-              style={{
-                paddingVertical: 13,
-                borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth,
-                borderTopColor: t.line,
-              }}
-            >
-              <Row gap={gap.xs}>
-                <Icon name={it.icon} size={16} color={t.ink2} />
-                <T size={type.body} weight="500">
-                  {it.label}
-                </T>
-              </Row>
-            </Pressable>
-          ))}
-        </View>
-      </FadeInUp>
+        {official ? (
+          <View style={[s.unread, { backgroundColor: t.accent }]} />
+        ) : tone === 'blocked' ? (
+          <View style={[s.unread, { backgroundColor: t.dangerDot }]} />
+        ) : (
+          <View style={{ width: 8, height: 8 }} />
+        )}
+      </View>
     </Pressable>
   );
 }
 
+/** 官方群头像：与设计图 v19 一致的官方蓝砖 + 白字（身份色，不是渐变）。 */
+function OfficialAvatar({ size = 46 }: { size?: number }) {
+  const t = useTheme();
+  return (
+    <LinearGradient
+      colors={grad([lightenHex(t.meBlue, 0.16), t.meBlue])}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+      }}
+    >
+      <View pointerEvents="none" style={s.tileHighlight} />
+      <T size={size * 0.42} weight="750" color="#FFFFFF">
+        {OFFICIAL_GLYPH}
+      </T>
+    </LinearGradient>
+  );
+}
+
+/** 4 人 2x2 小头像组（设计图里团队头像就是这种拼贴）。 */
+function MiniStack({ names, tints }: { names: string[]; tints: string[] }) {
+  const t = useTheme();
+  return (
+    <View style={[s.miniStack, { backgroundColor: t.cardSunken }]}>
+      <View style={{ flexDirection: 'row' }}>
+        {names.slice(0, 2).map((n, i) => (
+          <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
+            <Avatar name={n} tint={tints[i]} size={24} />
+          </View>
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row', marginTop: 2 }}>
+        {names.slice(2, 4).map((n, i) => (
+          <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
+            <Avatar name={n} tint={tints[i + 2]} size={24} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function MiniTag({ label, fg, bg }: { label: string; fg: string; bg: string }) {
+  return (
+    <View
+      style={{
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 5,
+        backgroundColor: bg,
+      }}
+    >
+      <T size={10} weight="700" color={fg}>
+        {label}
+      </T>
+    </View>
+  );
+}
+
+/* ============================================================
+   页 3：我（右，§9 第 7 屏 + 附录 A2）
+   ============================================================ */
+
+function MePage({
+  user,
+  convs,
+  goals,
+  doing,
+  artifacts,
+  connectors,
+  connected,
+  devices,
+  onOpenGoals,
+  onOpenLibrary,
+  onOpenConnect,
+  onOpenDevices,
+  onOpenSettings,
+}: {
+  user: any;
+  convs: Conversation[];
+  goals: Goal[];
+  doing: number;
+  artifacts: Artifact[];
+  connectors: Connector[];
+  connected?: Connector;
+  devices: Device[];
+  onOpenGoals: () => void;
+  onOpenLibrary: () => void;
+  onOpenConnect: () => void;
+  onOpenDevices: () => void;
+  onOpenSettings: () => void;
+}) {
+  const t = useTheme();
+  const quota = Math.max(1, user?.quota ?? 100);
+  const used = Math.max(0, user?.used ?? 0);
+  const remainPct = Math.max(0, Math.min(100, Math.round(((quota - used) / quota) * 100)));
+  const myDevice = devices.find((d) => !d.revokedAt);
+  const online = hasDeviceToken() || !!myDevice;
+  const prefLevel = (user as { preferences?: Record<string, string> } | null)?.preferences
+    ?.defaultPermission;
+  const defaultLevel = prefLevel ?? convs.find((c) => c.defaultPermission)?.defaultPermission;
+  const reset = nextResetLabel();
+
+  return (
+    <ScrollView
+      contentContainerStyle={[s.page, { paddingBottom: 40 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* A2 深色英雄卡 */}
+      <View
+        style={[s.heroShadow, { shadowColor: t.shadowColor, shadowOpacity: t.dark ? 0.5 : 0.28 }]}
+      >
+        <View style={[s.hero, { backgroundColor: t.heroBg }]}>
+          {/* 两团蓝紫径向光晕：半透明大圆 + 低透明度，溢出裁切 */}
+          <View
+            pointerEvents="none"
+            style={[s.glow, s.glowA, { backgroundColor: withAlpha(t.accent, 0.55) }]}
+          />
+          <View
+            pointerEvents="none"
+            style={[s.glow, s.glowB, { backgroundColor: withAlpha(t.accentDeep, 0.45) }]}
+          />
+
+          <View style={s.heroInner}>
+            <Row gap={13} align="center">
+              <LinearGradient
+                colors={grad([lightenHex(t.meBlue, 0.18), t.meBlue])}
+                start={{ x: 0.2, y: 0 }}
+                end={{ x: 0.8, y: 1 }}
+                style={s.meAvatar}
+              >
+                <T size={22} weight="750" color="#FFFFFF">
+                  {initialOf(user?.name ?? '我')}
+                </T>
+              </LinearGradient>
+              <View style={{ flex: 1 }}>
+                <T size={ts.page} weight="750" color="#FFFFFF" numberOfLines={1}>
+                  {user?.name?.trim() || '纸团'}
+                </T>
+                <T
+                  size={ts.caption}
+                  color="rgba(255,255,255,0.65)"
+                  numberOfLines={1}
+                  style={{ marginTop: 3 }}
+                >
+                  纸团号 {shortId(user?.id)} · {online ? '电脑在线' : '电脑离线'}
+                </T>
+              </View>
+              <Pressable onPress={onOpenSettings} hitSlop={12} accessibilityLabel="账号设置">
+                <Icon name="chevron-forward" size={16} color="rgba(255,255,255,0.45)" />
+              </Pressable>
+            </Row>
+
+            {/* 三列统计：英雄卡上的数字 */}
+            <Row style={{ marginTop: 20 }} align="flex-start">
+              <HeroStat label="团队" value={String(convs.length)} />
+              <HeroStat label="进行中目标" value={String(doing)} />
+              <HeroStat label="资料库文件" value={String(artifacts.length)} />
+            </Row>
+
+            {/* 内嵌额度卡：rgba(255,255,255,.09) 底 + .10 描边 */}
+            <View style={s.quotaCard}>
+              <Row style={{ justifyContent: 'space-between' }}>
+                <T size={ts.caption} color="rgba(255,255,255,0.55)">
+                  本周额度
+                </T>
+                <T size={ts.caption} color="rgba(255,255,255,0.55)">
+                  {reset} 重置
+                </T>
+              </Row>
+              <Row gap={8} align="flex-end" style={{ marginTop: 6 }}>
+                <T size={34} weight="750" color="#FFFFFF" lh={38}>
+                  {remainPct}%
+                </T>
+                <T size={ts.caption} color="rgba(255,255,255,0.65)" style={{ marginBottom: 6 }}>
+                  剩余可用
+                </T>
+              </Row>
+              <View style={[s.quotaTrack, { backgroundColor: 'rgba(255,255,255,0.14)' }]}>
+                <LinearGradient
+                  colors={grad(t.gradient)}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{
+                    width: `${remainPct}%`,
+                    height: 6,
+                    borderRadius: 99,
+                  }}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* A5 图标砖菜单 */}
+      <Surface outerRadius={24} style={{ marginTop: 14 }}>
+        <MenuRow
+          icon="flag"
+          colors={['#6A6AF2', '#4E7BFB']}
+          label="我的目标"
+          value={`进行中 ${doing} 个`}
+          onPress={onOpenGoals}
+        />
+        <Divider inset={60} />
+        <MenuRow
+          icon="folder-open"
+          colors={['#7C93A8', '#5F7E99']}
+          label="资料库"
+          value={`${artifacts.length} 个文件`}
+          onPress={onOpenLibrary}
+        />
+        <Divider inset={60} />
+        <MenuRow
+          icon="git-network"
+          colors={['#8B7EC8', '#6C5DAE']}
+          label="连接器"
+          value={connected ? `${connected.name} 已连接` : connectors.length ? '未连接' : '未设置'}
+          onPress={onOpenConnect}
+        />
+        <Divider inset={60} />
+        <MenuRow
+          icon="laptop"
+          colors={['#64766B', '#4C6154']}
+          label="我的设备"
+          value={online ? `${myDevice?.name ?? '这台电脑'} · 在线` : '未连接'}
+          onPress={onOpenDevices}
+        />
+        <Divider inset={60} />
+        <MenuRow
+          icon="shield-checkmark"
+          colors={['#B98A5E', '#9A6E45']}
+          label="默认权限级别"
+          value={levelLabel(defaultLevel)}
+          onPress={onOpenDevices}
+        />
+      </Surface>
+
+      <Surface outerRadius={24} style={{ marginTop: 12 }}>
+        <MenuRow
+          icon="settings"
+          colors={['#9AA0B4', '#6E7488']}
+          label="设置"
+          onPress={onOpenSettings}
+          last
+        />
+      </Surface>
+
+      <T size={ts.caption} color={t.ink4} align="center" style={{ marginTop: 24 }}>
+        纸团 v1.1.1 · teamwise.cn
+      </T>
+    </ScrollView>
+  );
+}
+
+function HeroStat({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={{ flex: 1, alignItems: 'center' }}>
+      {/* 深色卡上的数字用纯白：渐变字在 RN 里没法裁切文字，
+          真正的渐变留给进度条和按钮（A1 的四种用法之一）。 */}
+      <T size={28} weight="750" color="#FFFFFF" lh={32}>
+        {value}
+      </T>
+      <T size={ts.caption} color="rgba(255,255,255,0.55)" style={{ marginTop: 2 }}>
+        {label}
+      </T>
+    </View>
+  );
+}
+
+/** 菜单行：44px 圆角 13 双色渐变砖 + 顶部内高光（A5）。 */
+function MenuRow({
+  icon,
+  colors,
+  label,
+  value,
+  onPress,
+  last,
+}: {
+  icon: IoniconName;
+  colors: [string, string];
+  label: string;
+  value?: string;
+  onPress: () => void;
+  last?: boolean;
+}) {
+  const t = useTheme();
+  return (
+    <PressableScale onPress={onPress} scaleTo={0.99}>
+      <Row gap={14} style={[s.menuRow, last ? { paddingBottom: 14 } : null]}>
+        <LinearGradient
+          colors={grad(colors)}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={s.iconBrick}
+        >
+          <View pointerEvents="none" style={s.tileHighlight} />
+          <Ionicons name={icon} size={20} color="#FFFFFF" />
+        </LinearGradient>
+        <T size={ts.body} weight="650" style={{ flex: 1 }} numberOfLines={1}>
+          {label}
+        </T>
+        {value ? (
+          <T size={ts.caption} color={t.ink4} numberOfLines={1}>
+            {value}
+          </T>
+        ) : null}
+        <Icon name="chevron-forward" size={14} color={t.ink4} />
+      </Row>
+    </PressableScale>
+  );
+}
+
+/* ============================================================
+   团队操作菜单（bottom sheet · 附录 C 第 5 屏）
+   ============================================================ */
+
+function TeamMenu({
+  conv,
+  pinned,
+  onClose,
+  onEdit,
+  onCopy,
+  onMembers,
+  onPermission,
+  onPin,
+  onDelete,
+}: {
+  conv: Conversation | null;
+  pinned: string[];
+  onClose: () => void;
+  onEdit: (c: Conversation) => void;
+  onCopy: (c: Conversation) => void;
+  onMembers: (c: Conversation) => void;
+  onPermission: (c: Conversation) => void;
+  onPin: (c: Conversation) => void;
+  onDelete: (c: Conversation) => void;
+}) {
+  const t = useTheme();
+  if (!conv) return null;
+  const names = memberNames(conv);
+  const tints = memberTints(conv);
+
+  const items: {
+    icon: IoniconName;
+    label: string;
+    value?: string;
+    danger?: boolean;
+    onPress: () => void;
+  }[] = [
+    {
+      icon: 'pencil',
+      label: '编辑团队',
+      value: '改名、公告与成员',
+      onPress: () => onEdit(conv),
+    },
+    {
+      icon: 'copy-outline',
+      label: '复制团队',
+      value: '连人设与权限一起复制',
+      onPress: () => onCopy(conv),
+    },
+    {
+      icon: 'people-outline',
+      label: '成员管理',
+      onPress: () => onMembers(conv),
+    },
+    {
+      icon: 'shield-checkmark-outline',
+      label: '权限设置',
+      value: `当前：${levelLabel(conv.defaultPermission)}`,
+      onPress: () => onPermission(conv),
+    },
+    {
+      icon: 'pin-outline',
+      label: pinned.includes(conv.id) ? '取消置顶' : '置顶团队',
+      onPress: () => onPin(conv),
+    },
+    {
+      icon: 'trash-outline',
+      label: '删除团队',
+      danger: true,
+      onPress: () => onDelete(conv),
+    },
+  ];
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={[s.scrim, { backgroundColor: t.scrim }]} onPress={onClose}>
+        <Pressable
+          style={[s.sheet, { backgroundColor: t.card }]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View style={[s.grabber, { backgroundColor: t.line }]} />
+          <Row gap={11} style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
+            <AvatarStack names={names.slice(0, 4)} tints={tints.slice(0, 4)} size={34} max={4} />
+            <View style={{ flex: 1 }}>
+              <T size={ts.title} weight="750" numberOfLines={1}>
+                {conv.title}
+              </T>
+              <T size={ts.caption} color={t.ink3} style={{ marginTop: 2 }}>
+                {names.length} 位成员 · 创建于 {monthDay(conv.createdAt)}
+              </T>
+            </View>
+          </Row>
+
+          {items.map((it, i) => (
+            <View key={it.label}>
+              {i === 0 ? <Divider /> : <Divider inset={18} />}
+              <Pressable onPress={it.onPress} style={s.sheetRow} accessibilityRole="button">
+                <Icon
+                  name={it.icon}
+                  size={19}
+                  color={it.danger ? t.bad : t.ink}
+                  style={{ width: 24 }}
+                />
+                <T
+                  size={ts.body}
+                  weight="600"
+                  color={it.danger ? t.bad : t.ink}
+                  style={{ flex: 1 }}
+                >
+                  {it.label}
+                </T>
+                {it.value ? (
+                  <T size={ts.caption} color={it.danger ? t.bad : t.ink4} numberOfLines={1}>
+                    {it.value}
+                  </T>
+                ) : null}
+              </Pressable>
+            </View>
+          ))}
+
+          <View style={{ padding: 14 }}>
+            <Pressable onPress={onClose} style={[s.cancel, { backgroundColor: t.cardSunken }]}>
+              <T size={ts.body} weight="650">
+                取消
+              </T>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/* ============================================================
+   工具
+   ============================================================ */
+
+function memberNames(c: Conversation): string[] {
+  if (c.agents?.length) return c.agents.map((a) => a.name);
+  if (c.members?.length) return c.members;
+  // 内置场景的群存在库里没有成员——后端列表接口会把解析结果
+  // 放在 memberNames 里（见 handleListConvs）。
+  const extra = c as Conversation & { memberNames?: string[] };
+  return extra.memberNames ?? [];
+}
+
+function memberTints(c: Conversation): string[] {
+  return memberNames(c).map(
+    (_, i) => c.agents?.[i]?.color ?? MEMBER_COLORS[i % MEMBER_COLORS.length],
+  );
+}
+
+/** 群状态：任何成员卡在审批 → blocked；有任何人在干活 → working。 */
+function toneOfActivity(acts: { state: string }[]): TeamTone {
+  if (acts.some((a) => a.state === 'blocked')) return 'blocked';
+  if (acts.some((a) => a.state === 'working')) return 'working';
+  if (acts.some((a) => a.state === 'done')) return 'done';
+  return 'idle';
+}
+
+function levelLabel(level?: string): string {
+  if (!level) return '跟随角色';
+  if (level === 'ask') return '需要审批';
+  if (level === 'full') return '完全访问权限';
+  if (level === 'approval') return '工作区内修改';
+  if (level === 'readonly') return '只读';
+  return level;
+}
+
+/** 最近消息摘要：带发言人前缀，去掉换行。 */
+function summarize(m: Message): string {
+  const text = (m.content ?? '').replace(/\s+/g, ' ').trim();
+  const who = m.role === 'user' ? '我' : (m.agent ?? '');
+  const body = text.length > 34 ? `${text.slice(0, 34)}…` : text;
+  return who ? `${who}：${body || '（附件）'}` : body || '（附件）';
+}
+
+function stampOf(m: Message | undefined, c: Conversation): number {
+  const s = m?.createdAt ?? c.updatedAt;
+  const v = new Date(s).getTime();
+  return Number.isFinite(v) ? v : 0;
+}
+
+/** 侧栏时间：「9:41」「昨天」「10/21」 */
+function relativeTime(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  if (sameDay) {
+    return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  const yest = new Date(now.getTime() - 86400000);
+  if (
+    d.getFullYear() === yest.getFullYear() &&
+    d.getMonth() === yest.getMonth() &&
+    d.getDate() === yest.getDate()
+  ) {
+    return '昨天';
+  }
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function monthDay(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
+}
+
+/** 额度重置日：本自然月最后一天的次日（下月 1 日）。 */
+function nextResetLabel(): string {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return `${next.getMonth() + 1} 月 ${next.getDate()} 日`;
+}
+
+/** 纸团号：从用户 ID 里取后四位，稳定、可读。 */
+function shortId(id?: string): string {
+  const raw = (id ?? '').replace(/[^a-zA-Z0-9]/g, '');
+  const tail = raw.slice(-4).toLowerCase();
+  return tail ? `zt-${tail}` : 'zt-1024';
+}
+
+function lightenHex(hex: string, amount: number): string {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  return `#${[mix(r), mix(g), mix(b)].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/* ============================================================
+   样式
+   ============================================================ */
+
+const PAGE_X = 20;
+
 const s = StyleSheet.create({
-  page: { paddingHorizontal: gap.lg, paddingBottom: 100 },
-  topbarFloat: { paddingHorizontal: gap.md, paddingTop: 6, paddingBottom: 6 },
-  topbarGlass: { height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6 },
-  pillBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  members: { paddingHorizontal: gap.md, gap: 6, alignItems: 'center', paddingVertical: 6 },
-  chipMember: {
-    flexDirection: 'row',
+  /* 顶部分段 */
+  navFloat: {
     alignItems: 'center',
-    gap: 6,
-    paddingLeft: 3,
-    paddingRight: 9,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    maxWidth: 124,
+    paddingTop: 4,
+    paddingBottom: 6,
+    zIndex: 10,
   },
-  banner: {
+
+  /* 通用页容器 */
+  page: {
+    paddingHorizontal: PAGE_X,
+    paddingBottom: 110,
+  },
+
+  /* 标题区（A3） */
+  titleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: gap.xs,
-    marginHorizontal: gap.md,
-    marginBottom: gap.xs,
-    paddingVertical: 10,
-    paddingHorizontal: gap.sm,
-    borderRadius: radius.md,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginTop: 18,
+    minHeight: 78,
   },
-  msgList: { paddingHorizontal: gap.md, paddingTop: gap.xs, paddingBottom: gap.lg },
-  userBubble: {
-    borderRadius: 20,
-    borderBottomRightRadius: 7,
-    paddingHorizontal: 15,
-    paddingVertical: 11,
-    maxWidth: '84%',
-    shadowColor: '#4E7BFB',
-    shadowOpacity: 0.22,
+  eyebrow: {
+    textTransform: 'uppercase',
+  },
+  fab: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    shadowOpacity: 0.38,
     shadowRadius: 14,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 4,
-  },
-  agentHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pill: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  ideaInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: gap.sm,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-  },
-  arrowDot: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  actionBtn: { width: 28, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  agentBubble: {
-    borderRadius: 20,
-    borderTopLeftRadius: 7,
-    paddingHorizontal: 15,
-    paddingVertical: 11,
-    alignSelf: 'flex-start',
-    borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#2B3A77',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  composerWrap: { paddingHorizontal: gap.md, paddingTop: gap.xs, paddingBottom: gap.xs },
-  // 双层输入区：外围是极淡的托盘，内部输入区是白色
-  // 输入区：单层白色胶囊。双层在这里不成立——
-  // 内芯会被外层圆角切掉一块，看起来像坏掉。
-  composer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
-    borderRadius: 26,
-    padding: 5,
-    borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#2B3A77',
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
-  input: {
-    flex: 1,
-    minHeight: 42,
-    maxHeight: 120,
-    paddingHorizontal: 14,
-    paddingTop: 11,
-    paddingBottom: 11,
-    fontSize: 15,
-    backgroundColor: 'transparent',
+
+  /* Bento */
+  heroActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    marginTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  atBtn: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  send: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-  stopSquare: { width: 11, height: 11, borderRadius: 3, backgroundColor: '#FFFFFF' },
-  mention: {
-    marginTop: gap.xs,
-    borderRadius: radius.md,
-    padding: gap.sm,
+  bentoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 12,
+  },
+  // 两列：flexBasis 47% 而不是 flex:1——flex:1 不换行时会把三个卡挤成一排
+  bentoCell: {
+    flexBasis: '47%',
+    flexGrow: 1,
+    maxWidth: '48.5%',
+  },
+  smallActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  track: {
+    height: 5,
+    borderRadius: 99,
+    overflow: 'hidden',
+  },
+  emptyCard: {
+    marginTop: 22,
+    borderRadius: 26,
+    padding: 24,
+    alignItems: 'center',
+    gap: 6,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  menuScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  menu: {
+  tileHighlight: {
     position: 'absolute',
-    top: 104,
-    right: gap.md,
-    width: 190,
-    borderRadius: radius.md,
-    paddingHorizontal: gap.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    shadowColor: '#14163A',
-    shadowOpacity: 0.18,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 12,
+    top: 0,
+    left: '12%',
+    right: '12%',
+    height: 1.5,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.40)',
   },
-  meAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
+
+  /* 对话页 */
+  approvalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+  },
+  warnDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  convRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  miniStack: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    padding: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickTile: {
+  unread: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  chatFooter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: PAGE_X,
+    paddingTop: 12,
+    paddingBottom: 12,
     alignItems: 'center',
-    paddingVertical: gap.sm,
-    borderRadius: radius.md,
+  },
+  primaryBtn: {
+    height: 54,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 32,
+    minWidth: 220,
+    shadowOpacity: 0.38,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+
+  /* 我页 · 英雄卡（A2）
+     阴影放在外层：卡本身要 overflow:hidden 才能裁掉光晕 */
+  heroShadow: {
+    marginTop: 18,
+    borderRadius: 28,
+    shadowRadius: 19,
+    shadowOffset: { width: 0, height: 18 },
+    elevation: 10,
+  },
+  hero: {
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
+  heroInner: {
+    padding: 20,
+  },
+  glow: {
+    position: 'absolute',
+    borderRadius: 999,
+  },
+  glowA: {
+    width: 230,
+    height: 230,
+    top: -120,
+    left: -60,
+    opacity: 0.3,
+  },
+  glowB: {
+    width: 260,
+    height: 260,
+    top: -40,
+    right: -110,
+    opacity: 0.26,
+  },
+  meAvatar: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quotaCard: {
+    marginTop: 18,
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: 'rgba(255,255,255,0.09)',
     borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  quotaTrack: {
+    height: 6,
+    borderRadius: 99,
+    overflow: 'hidden',
+    marginTop: 10,
+  },
+
+  /* 我页 · 菜单（A5） */
+  menuRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  iconBrick: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+
+  /* 操作菜单 */
+  scrim: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  grabber: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  sheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 15,
+  },
+  cancel: {
+    height: 50,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* 错误条 */
+  banner: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 16,
   },
 });

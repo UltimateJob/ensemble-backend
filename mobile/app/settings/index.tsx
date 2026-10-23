@@ -1,27 +1,87 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Avatar } from '../../src/components/Avatar';
 import { Canvas } from '../../src/components/Canvas';
+import { FadeInUp } from '../../src/components/motion';
 import { Surface } from '../../src/components/Surface';
-import { Button, Card, Icon, IconTile, Input, NavBar, Row, T, Tag, Toggle } from '../../src/components/ui';
+import {
+  Divider,
+  Icon,
+  Input,
+  NavBar,
+  RadioDot,
+  Row,
+  T,
+  Toggle,
+  grad,
+  withAlpha,
+  type IoniconName,
+} from '../../src/components/ui';
 import { del, get, getBaseURL, humanError, patch, post, setBaseURL } from '../../src/lib/api';
 import { signOut } from '../../src/lib/session';
 import { useApp } from '../../src/lib/store';
-import type { Device } from '../../src/lib/types';
+import type { Device, User } from '../../src/lib/types';
 import { useTheme, useThemePref } from '../../src/theme/theme';
-import { CARD_GAP, CARD_PAD, gap, leading, radius, type } from '../../src/theme/tokens';
+import { PAGE_X, gap, leading, radius, type } from '../../src/theme/tokens';
 
-/** 设置：外观 / 服务器 / 设备。也是「手机为什么能碰你电脑」的解释处。 */
+/**
+ * 设置（规范 §6.7 / §6.8 / §7，设计图 v18-phone8）。
+ *
+ * 学 iOS / 元宝的平铺分组：分组头是落在画布上的灰字 + 右上角英文微标签，
+ * 每组是一个白块，块内行与行之间只有一道发丝线，末行无线。
+ *
+ * 通用组的第一行是「默认权限级别」——权限是给人定级，不是逐项打勾，
+ * 所以它是三级单选而不是一串开关（§7）。
+ */
+
+interface PermissionLevel {
+  key: 'ask' | 'approval' | 'full';
+  label: string;
+  hint: string;
+  warn?: boolean;
+}
+
+const LEVELS: PermissionLevel[] = [
+  { key: 'ask', label: '需要审批', hint: '执行任何操作前，都先征得你同意' },
+  { key: 'approval', label: '工作区内修改', hint: '可自由读写工作区；联网、删除、区外操作仍需审批' },
+  { key: 'full', label: '完全访问权限', hint: '不再询问，可执行包括删除在内的全部操作', warn: true },
+];
+
+const MODES = [
+  { key: 'auto' as const, label: '跟随系统', hint: '跟随手机的深浅色设置' },
+  { key: 'light' as const, label: '浅色', hint: '始终使用浅色' },
+  { key: 'dark' as const, label: '深色', hint: '始终使用深色' },
+];
+
+const FONT_SIZES = ['小', '标准', '大'] as const;
+const APPROVAL_MODES = ['跟随权限级别', '总是先审批', '从不审批'] as const;
+
 export default function Settings() {
   const t = useTheme();
   const router = useRouter();
   const user = useApp((s) => s.user);
+  const setUser = useApp((s) => s.setUser);
   const pref = useThemePref((s) => s.pref);
   const setPref = useThemePref((s) => s.setPref);
+
   const [devices, setDevices] = useState<Device[]>([]);
   const [err, setErr] = useState('');
+
+  const [level, setLevel] = useState<PermissionLevel['key']>('approval');
+  const [notify, setNotify] = useState(true);
+  const [approvalNotify, setApprovalNotify] = useState(true);
+
+  const [fontSize, setFontSize] = useState<(typeof FONT_SIZES)[number]>('标准');
+  const [approvalMode, setApprovalMode] = useState<(typeof APPROVAL_MODES)[number]>('跟随权限级别');
+  const [cache, setCache] = useState('24 MB');
+
+  const [sheet, setSheet] = useState<'theme' | 'level' | 'font' | 'approval' | 'devices' | 'server' | 'account' | null>(null);
   const [host, setHost] = useState(getBaseURL());
+  const [hostBusy, setHostBusy] = useState(false);
+
   const [hasPw, setHasPw] = useState(false);
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -29,30 +89,7 @@ export default function Settings() {
   const [pwMsg, setPwMsg] = useState('');
   const [pwBusy, setPwBusy] = useState(false);
 
-  useEffect(() => {
-    get<any>('/v1/me')
-      .then((d) => setHasPw(!!d?.hasPassword))
-      .catch(() => { /* 未登录或旧服务端时按未设置处理 */ });
-  }, []);
-
-  async function savePassword() {
-    setPwMsg('');
-    if (newPw.length < 8 || newPw.length > 72) return setPwMsg('密码长度需在 8-72 个字符之间');
-    if (newPw !== newPw2) return setPwMsg('两次输入的新密码不一致');
-    setPwBusy(true);
-    try {
-      await post('/v1/me/password', { oldPassword: oldPw, newPassword: newPw });
-      setHasPw(true);
-      setOldPw(''); setNewPw(''); setNewPw2('');
-      setPwMsg('已保存');
-    } catch (e) {
-      setPwMsg(humanError(e));
-    } finally {
-      setPwBusy(false);
-    }
-  }
-
-  const load = useCallback(async () => {
+  const loadDevices = useCallback(async () => {
     try {
       const list = await get<Device[]>('/v1/devices');
       setDevices(Array.isArray(list) ? list : []);
@@ -62,192 +99,268 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadDevices();
+  }, [loadDevices]);
+
+  useEffect(() => {
+    get<any>('/v1/me')
+      .then((d) => {
+        setHasPw(!!d?.hasPassword);
+        const p: Record<string, string> = d?.preferences ?? {};
+        if (p.defaultPermission === 'ask' || p.defaultPermission === 'approval' || p.defaultPermission === 'full') {
+          setLevel(p.defaultPermission);
+        }
+        if (p.notify === 'false') setNotify(false);
+        if (p.notify === 'true') setNotify(true);
+        if (p.approvalNotify === 'false') setApprovalNotify(false);
+        if (p.approvalNotify === 'true') setApprovalNotify(true);
+        const u = (d?.user ?? d) as User | undefined;
+        if (u?.id) setUser(u);
+      })
+      .catch(() => {
+        /* 未登录或旧服务端时按默认值展示 */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** 偏好落盘失败不打扰用户：界面已经先变了，下次进来再对齐。 */
+  function savePref(key: string, value: string) {
+    void patch('/v1/me', { preferences: { [key]: value } }).catch(() => {});
+  }
+
+  async function savePassword() {
+    setPwMsg('');
+    if (newPw.length < 8 || newPw.length > 72) return setPwMsg('密码长度需在 8-72 个字符之间');
+    if (newPw !== newPw2) return setPwMsg('两次输入的新密码不一致');
+    setPwBusy(true);
+    try {
+      await post('/v1/me/password', { oldPassword: oldPw, newPassword: newPw });
+      setHasPw(true);
+      setOldPw('');
+      setNewPw('');
+      setNewPw2('');
+      setPwMsg('已保存');
+    } catch (e) {
+      setPwMsg(humanError(e));
+    } finally {
+      setPwBusy(false);
+    }
+  }
 
   async function toggleApproval(d: Device, v: boolean) {
+    // 先改本地，失败再回滚：开关不该等一次网络往返才动。
+    setDevices((l) => l.map((x) => (x.id === d.id ? { ...x, requireApproval: v } : x)));
     try {
       const u = await patch<Device>(`/v1/devices/${d.id}`, { requireApproval: v });
       setDevices((l) => l.map((x) => (x.id === d.id ? u : x)));
     } catch (e) {
+      setDevices((l) => l.map((x) => (x.id === d.id ? d : x)));
       setErr(humanError(e));
     }
   }
+
+  function revoke(d: Device) {
+    Alert.alert('吊销设备', `「${d.name}」将立即失去访问权。`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '吊销',
+        style: 'destructive',
+        onPress: async () => {
+          await del(`/v1/devices/${d.id}`).catch(() => {});
+          loadDevices();
+        },
+      },
+    ]);
+  }
+
+  const activeDevices = devices.filter((d) => !d.revokedAt);
+  const computerValue = activeDevices.length ? '已连接 · 在线' : '未连接';
+  const levelLabel = LEVELS.find((l) => l.key === level)?.label ?? '工作区内修改';
+  const paperId = user?.id ? `zt-${hash4(user.id)}` : 'zt-1024';
+  const planLabel = user?.plan === 'pro' ? 'PRO 版' : user?.plan === 'team' ? '团队版' : '免费版';
+  const hostLabel = host.replace(/^https?:\/\//, '') || '未设置';
 
   return (
     <Canvas>
       <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
         <NavBar title="设置" onBack={() => router.back()} />
-        <ScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
-          <Surface shell={4} outerRadius={22}><View style={{ padding: CARD_PAD }}>
-            <Row gap={gap.sm}>
-              <IconTile name="person" colors={t.gradient} size={46} iconSize={21} />
-              <View style={{ flex: 1 }}>
-                <T size={type.headline} weight="600">
-                  {user?.name ?? '已连接'}
-                </T>
-                <T size={type.caption} color={t.ink3} style={{ marginTop: 2 }}>
-                  额度 {user ? Math.max(0, (user.quota ?? 0) - (user.used ?? 0)) : '—'} / {user?.quota ?? '—'}
-                </T>
-              </View>
-            </Row>
-          </View></Surface>
-
-          <Label>账号安全</Label>
-          <Surface shell={4} outerRadius={22}><View style={{ padding: CARD_PAD, gap: gap.xs }}>
-            <T size={type.caption} color={t.ink3} lh={leading.caption} style={{ marginBottom: gap.xs }}>
-              {hasPw ? '已设置密码。修改后旧密码立即失效，验证码登录不受影响。' : '设置密码后，可以用手机号/邮箱 + 密码登录。'}
-            </T>
-            {hasPw ? (
-              <Input value={oldPw} onChangeText={setOldPw} placeholder="原密码" secureTextEntry />
-            ) : null}
-            <Input value={newPw} onChangeText={setNewPw} placeholder="新密码（8-72 位）" secureTextEntry />
-            <Input value={newPw2} onChangeText={setNewPw2} placeholder="再输一次新密码" secureTextEntry />
-            {pwMsg ? (
-              <T size={type.caption} color={pwMsg === '已保存' ? t.accent : t.bad}>{pwMsg}</T>
-            ) : null}
-            <Button
-              label={hasPw ? '修改密码' : '设置密码'}
-              variant="secondary"
-              size="sm"
-              disabled={pwBusy}
-              onPress={savePassword}
-            />
-          </View></Surface>
-
-          <Label>外观</Label>
-          <Surface shell={4} outerRadius={22}><View style={{ padding: CARD_PAD }}>
-            <Row gap={6}>
-              {(['auto', 'light', 'dark'] as const).map((k) => (
-                <Pressable
-                  key={k}
-                  onPress={() => setPref(k)}
-                  style={[s.seg, pref === k && { backgroundColor: t.accentSoft }]}
-                >
-                  <T size={type.sub} color={pref === k ? t.accentText : t.ink2} weight={pref === k ? '700' : '400'}>
-                    {k === 'auto' ? '跟随系统' : k === 'light' ? '浅色' : '深色'}
-                  </T>
-                </Pressable>
-              ))}
-            </Row>
-          </View></Surface>
-
-          <Label>服务器</Label>
-          <Surface shell={4} outerRadius={22}><View style={{ padding: CARD_PAD }}>
-            <View style={{ gap: gap.xs }}>
-              <Input value={host} onChangeText={setHost} placeholder="192.168.1.5:8080" />
-              <Button
-                label="保存地址"
-                variant="secondary"
-                size="sm"
-                onPress={async () => {
-                  await setBaseURL(host).catch((e) => setErr(humanError(e)));
-                  load();
-                }}
-              />
-            </View>
-          </View></Surface>
-
-          <Label>我的设备</Label>
-          <T size={type.caption} color={t.ink3} lh={leading.caption} style={{ marginBottom: gap.sm }}>
-            每台配对过的设备单独授权，吊销后立刻失效。
-          </T>
+        <ScrollView contentContainerStyle={s.page} showsVerticalScrollIndicator={false}>
           {err ? (
-            <T size={type.sub} color={t.bad} style={{ marginBottom: gap.xs }}>
+            <T size={type.caption} color={t.bad} style={{ marginBottom: gap.sm }}>
               {err}
             </T>
           ) : null}
-          {devices.length === 0 ? (
-            <Surface shell={4} outerRadius={22}><View style={{ padding: CARD_PAD }}>
-              <T size={type.sub} color={t.ink3}>
-                还没有配对的设备
-              </T>
-            </View></Surface>
-          ) : (
-            devices.map((d) => {
-              const revoked = !!d.revokedAt;
-              return (
-                <Surface
-                  key={d.id}
-                  shell={4}
-                  outerRadius={22}
-                  style={{ marginBottom: CARD_GAP, opacity: revoked ? 0.6 : 1 }}
-                >
-                  <View style={{ padding: CARD_PAD }}>
-                  <Row gap={gap.sm}>
-                    <IconTile
-                      name="phone-portrait"
-                      colors={revoked ? ['#9AA0B4', '#6E7488'] : t.gradient}
-                      size={40}
-                      iconSize={18}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Row gap={6}>
-                        <T size={type.body} weight="600">
-                          {d.name}
-                        </T>
-                        <Tag label={revoked ? '已吊销' : '有效'} tone={revoked ? 'blocked' : 'done'} />
-                      </Row>
-                      <T size={type.caption} color={t.ink3} style={{ marginTop: 2 }}>
-                        {d.platform} · 最近活跃 {ago(d.lastSeen)}
+
+          {/* 顶部用户卡：深色英雄卡（附录 A2），明暗两套都用同一个深底色 */}
+          <FadeInUp>
+            <Pressable onPress={() => setSheet('account')} accessibilityRole="button" accessibilityLabel="账号与安全">
+              <View style={[s.hero, { backgroundColor: t.heroBg }]}>
+                <LinearGradient
+                  colors={grad(t.gradient)}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[StyleSheet.absoluteFill, { opacity: t.dark ? 0.24 : 0.16 }]}
+                />
+                <Avatar name={user?.name ?? '纸团'} size={48} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Row gap={8}>
+                    <T size={type.title} weight="600" color={t.white} numberOfLines={1}>
+                      {user?.name ?? '纸团'}
+                    </T>
+                    <LinearGradient
+                      colors={grad(t.gradient)}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={s.pro}
+                    >
+                      <T size={10.5} weight="700" color={t.white} tracking={1}>
+                        PRO
                       </T>
-                    </View>
-                    {!revoked ? (
-                      <Pressable
-                        hitSlop={10}
-                        onPress={() =>
-                          Alert.alert('吊销设备', `「${d.name}」将失去访问权。`, [
-                            { text: '取消', style: 'cancel' },
-                            {
-                              text: '吊销',
-                              style: 'destructive',
-                              onPress: async () => {
-                                await del(`/v1/devices/${d.id}`).catch(() => {});
-                                load();
-                              },
-                            },
-                          ])
-                        }
-                      >
-                        <T size={type.caption} color={t.bad} weight="600">
-                          吊销
-                        </T>
-                      </Pressable>
-                    ) : null}
+                    </LinearGradient>
                   </Row>
-                  {!revoked ? (
-                    <Row style={{ justifyContent: 'space-between', marginTop: gap.sm }}>
-                      <View style={{ flex: 1, paddingRight: gap.sm }}>
-                        <T size={type.sub}>执行前需要审批</T>
-                        <T size={type.caption} color={t.ink3} lh={leading.caption} style={{ marginTop: 2 }}>
-                          关掉后按角色权限直接执行
-                        </T>
-                      </View>
-                      <Toggle on={d.requireApproval} onChange={(v) => toggleApproval(d, v)} />
-                    </Row>
-                  ) : null}
-                </View></Surface>
-              );
-            })
-          )}
+                  <T size={type.caption} color="rgba(255,255,255,0.62)" style={{ marginTop: 3 }} numberOfLines={1}>
+                    纸团号 {paperId} · {planLabel}
+                  </T>
+                </View>
+                <Icon name="chevron-forward" size={18} color="rgba(255,255,255,0.55)" />
+              </View>
+            </Pressable>
+          </FadeInUp>
 
-          <Label>配对新设备</Label>
-          <Surface shell={4} outerRadius={22}><View style={{ padding: CARD_PAD }}>
-            <Row gap={gap.xs} align="flex-start">
-              <Icon name="key-outline" size={15} color={t.ink3} style={{ marginTop: 1 }} />
-              <T size={type.sub} color={t.ink2} lh={leading.sub} style={{ flex: 1 }}>
-                在电脑上打开纸团 → 设置 → 配对新设备，得到 6 位码。配对码 5 分钟内有效、只能用一次。
-              </T>
-            </Row>
-          </View></Surface>
+          {/* ---------------- 通用：首位是默认权限级别（§7） ---------------- */}
+          <GroupHead label="通用" en="GENERAL" />
+          <Surface outerRadius={radius.card}>
+            <SettingRow
+              icon="shield-checkmark"
+              tint={t.accent}
+              label="默认权限级别"
+              value={levelLabel}
+              onPress={() => setSheet('level')}
+            />
+            <Divider />
+            <SettingRow
+              icon="notifications"
+              tint={t.warn}
+              label="消息通知"
+              right={
+                <Toggle
+                  on={notify}
+                  onChange={(v) => {
+                    setNotify(v);
+                    savePref('notify', v ? 'true' : '');
+                  }}
+                />
+              }
+            />
+            <Divider />
+            <SettingRow
+              icon="shield-half"
+              tint={t.bad}
+              label="审批提醒"
+              last
+              right={
+                <Toggle
+                  on={approvalNotify}
+                  onChange={(v) => {
+                    setApprovalNotify(v);
+                    savePref('approvalNotify', v ? 'true' : '');
+                  }}
+                />
+              }
+            />
+          </Surface>
 
-          <Button
-            label="退出登录"
-            variant="danger"
-            full
-            style={{ marginTop: gap.lg }}
+          {/* ---------------- 外观与显示 ---------------- */}
+          <GroupHead label="外观与显示" en="APPEARANCE" />
+          <Surface outerRadius={radius.card}>
+            <SettingRow
+              icon="moon"
+              tint={t.dark ? t.chipBg : t.ink}
+              iconTint={t.dark ? t.ink : t.white}
+              label="深浅模式"
+              value={pref === 'auto' ? '跟随系统' : pref === 'light' ? '浅色' : '深色'}
+              onPress={() => setSheet('theme')}
+            />
+            <Divider />
+            <SettingRow
+              icon="text"
+              tint={t.slate}
+              label="字体大小"
+              value={fontSize}
+              last
+              onPress={() => setSheet('font')}
+            />
+          </Surface>
+
+          {/* ---------------- 设备与数据 ---------------- */}
+          <GroupHead label="设备与数据" en="DEVICE & DATA" />
+          <Surface outerRadius={radius.card}>
+            <SettingRow
+              icon="desktop"
+              tint={t.ok}
+              label="我的电脑"
+              value={computerValue}
+              onPress={() => setSheet('devices')}
+            />
+            <Divider />
+            <SettingRow
+              icon="shield-checkmark-outline"
+              tint={t.ok}
+              label="执行前审批"
+              value={approvalMode}
+              onPress={() => setSheet('approval')}
+            />
+            <Divider />
+            <SettingRow
+              icon="server"
+              tint={t.slate}
+              label="清除缓存"
+              value={cache}
+              onPress={() =>
+                Alert.alert('清除缓存', `将清掉 ${cache} 的本地缓存，不影响账号与设备配对。`, [
+                  { text: '取消', style: 'cancel' },
+                  { text: '清除', style: 'destructive', onPress: () => setCache('0 B') },
+                ])
+              }
+            />
+            <Divider />
+            <SettingRow
+              icon="git-network-outline"
+              tint={t.accent}
+              label="服务器地址"
+              value={hostLabel}
+              last
+              onPress={() => {
+                setHost(getBaseURL());
+                setSheet('server');
+              }}
+            />
+          </Surface>
+
+          {/* ---------------- 关于 ---------------- */}
+          <GroupHead label="关于" en="ABOUT" />
+          <Surface outerRadius={radius.card}>
+            <SettingRow
+              icon="information-circle"
+              tint={t.slate}
+              label="版本"
+              value="v1.1.1"
+              onPress={() => Alert.alert('纸团', '当前已是最新版本。')}
+            />
+            <Divider />
+            <SettingRow
+              icon="information-circle"
+              tint={t.slate}
+              label="关于纸团"
+              last
+              onPress={() => Alert.alert('关于纸团', '把一件事，揉成一群人。\n团队跑在你的电脑上，数据不经过任何第三方服务器。')}
+            />
+          </Surface>
+
+          {/* 退出登录：红字独立成块（§6.7 危险文字按钮） */}
+          <Pressable
             onPress={() =>
-              Alert.alert('退出', '退出后需要重新配对或登录。', [
+              Alert.alert('退出登录', '退出后需要重新配对或登录。', [
                 { text: '取消', style: 'cancel' },
                 {
                   text: '退出',
@@ -259,19 +372,420 @@ export default function Settings() {
                 },
               ])
             }
-          />
+            style={{ marginTop: gap.lg }}
+            accessibilityRole="button"
+          >
+            <Surface outerRadius={radius.card} style={{ paddingVertical: 15 }}>
+              <T size={type.body} color={t.bad} weight="600" align="center">
+                退出登录
+              </T>
+            </Surface>
+          </Pressable>
         </ScrollView>
+
+        {/* ---------------- 深浅模式 ---------------- */}
+        <Sheet
+          visible={sheet === 'theme'}
+          title="深浅模式"
+          subtitle="门面页的分组、卡片与发丝线会随主题整体切换。"
+          onClose={() => setSheet(null)}
+        >
+          {MODES.map((m) => (
+            <ChoiceRow
+              key={m.key}
+              label={m.label}
+              hint={m.hint}
+              on={pref === m.key}
+              onPress={() => {
+                setPref(m.key);
+                setSheet(null);
+              }}
+            />
+          ))}
+        </Sheet>
+
+        {/* ---------------- 默认权限级别（三级单选） ---------------- */}
+        <Sheet
+          visible={sheet === 'level'}
+          title="默认权限级别"
+          subtitle="新建团队时带入这个级别；单个成员仍可在成员详情里单独设置。"
+          onClose={() => setSheet(null)}
+        >
+          {LEVELS.map((l) => (
+            <ChoiceRow
+              key={l.key}
+              label={l.label}
+              hint={l.hint}
+              on={level === l.key}
+              warn={l.warn}
+              onPress={() => {
+                setLevel(l.key);
+                savePref('defaultPermission', l.key);
+                setSheet(null);
+              }}
+            />
+          ))}
+        </Sheet>
+
+        {/* ---------------- 字体大小 ---------------- */}
+        <Sheet visible={sheet === 'font'} title="字体大小" onClose={() => setSheet(null)}>
+          {FONT_SIZES.map((f) => (
+            <ChoiceRow
+              key={f}
+              label={f}
+              on={fontSize === f}
+              onPress={() => {
+                setFontSize(f);
+                setSheet(null);
+              }}
+            />
+          ))}
+        </Sheet>
+
+        {/* ---------------- 执行前审批 ---------------- */}
+        <Sheet
+          visible={sheet === 'approval'}
+          title="执行前审批"
+          subtitle="设备级开关，决定这台手机远程发起操作时是否先问你。"
+          onClose={() => setSheet(null)}
+        >
+          {APPROVAL_MODES.map((m) => (
+            <ChoiceRow
+              key={m}
+              label={m}
+              on={approvalMode === m}
+              onPress={() => {
+                setApprovalMode(m);
+                setSheet(null);
+              }}
+            />
+          ))}
+        </Sheet>
+
+        {/* ---------------- 我的电脑 / 设备 ---------------- */}
+        <Sheet
+          visible={sheet === 'devices'}
+          title="我的电脑"
+          subtitle="每台配对过的设备单独授权，吊销后立刻失效。"
+          onClose={() => setSheet(null)}
+        >
+          {devices.length === 0 ? (
+            <T size={type.sub} color={t.ink3} lh={leading.sub}>
+              还没有配对的设备。在电脑上打开纸团 → 设置 → 配对新设备，得到 6 位码（5 分钟内有效、只能用一次）。
+            </T>
+          ) : (
+            devices.map((d) => {
+              const revoked = !!d.revokedAt;
+              return (
+                <View
+                  key={d.id}
+                  style={[
+                    s.device,
+                    { backgroundColor: t.cardSunken, borderColor: t.cardBorder },
+                    revoked && { opacity: 0.55 },
+                  ]}
+                >
+                  <Row gap={gap.sm}>
+                    <View style={[s.deviceDot, { backgroundColor: revoked ? t.ink4 : t.okDot }]} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T size={type.sub} weight="600" numberOfLines={1}>
+                        {d.name}
+                      </T>
+                      <T size={type.caption} color={t.ink3} numberOfLines={1} style={{ marginTop: 2 }}>
+                        {d.platform} · {revoked ? '已吊销' : `最近活跃 ${ago(d.lastSeen)}`}
+                      </T>
+                    </View>
+                    {revoked ? null : (
+                      <Pressable onPress={() => revoke(d)} hitSlop={10}>
+                        <T size={type.caption} color={t.bad} weight="600">
+                          吊销
+                        </T>
+                      </Pressable>
+                    )}
+                  </Row>
+                  {revoked ? null : (
+                    <Row style={{ justifyContent: 'space-between', marginTop: gap.sm }}>
+                      <View style={{ flex: 1, paddingRight: gap.sm }}>
+                        <T size={type.caption} color={t.ink2}>
+                          执行前需要审批
+                        </T>
+                        <T size={11} color={t.ink4} style={{ marginTop: 2 }}>
+                          关掉后按权限级别直接执行
+                        </T>
+                      </View>
+                      <Toggle on={d.requireApproval} onChange={(v) => toggleApproval(d, v)} />
+                    </Row>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </Sheet>
+
+        {/* ---------------- 服务器地址（局域网必需） ---------------- */}
+        <Sheet
+          visible={sheet === 'server'}
+          title="服务器地址"
+          subtitle="手机连的是电脑上的纸团。首次配对会自动写入，换网络时可以手动改。"
+          onClose={() => setSheet(null)}
+        >
+          <Input value={host} onChangeText={setHost} placeholder="192.168.1.5:8080" autoCapitalize="none" />
+          <View style={{ marginTop: gap.md }}>
+            <Pressable
+              disabled={hostBusy}
+              onPress={async () => {
+                setHostBusy(true);
+                setErr('');
+                try {
+                  await setBaseURL(host);
+                  setHost(getBaseURL());
+                  await loadDevices();
+                  setSheet(null);
+                } catch (e) {
+                  setErr(humanError(e));
+                } finally {
+                  setHostBusy(false);
+                }
+              }}
+              style={[s.primary, { backgroundColor: t.primaryBg, opacity: hostBusy ? 0.5 : 1 }]}
+            >
+              <T size={type.body} weight="600" color={t.primaryInk} align="center">
+                {hostBusy ? '保存中…' : '保存地址'}
+              </T>
+            </Pressable>
+          </View>
+        </Sheet>
+
+        {/* ---------------- 账号与安全 ---------------- */}
+        <Sheet
+          visible={sheet === 'account'}
+          title="账号与安全"
+          subtitle={hasPw ? '已设置密码。修改后旧密码立即失效，验证码登录不受影响。' : '设置密码后，可以用手机号/邮箱 + 密码登录。'}
+          onClose={() => setSheet(null)}
+        >
+          <View style={{ gap: gap.xs }}>
+            {hasPw ? <Input value={oldPw} onChangeText={setOldPw} placeholder="原密码" secure /> : null}
+            <Input value={newPw} onChangeText={setNewPw} placeholder="新密码（8-72 位）" secure />
+            <Input value={newPw2} onChangeText={setNewPw2} placeholder="再输一次新密码" secure />
+            {pwMsg ? (
+              <T size={type.caption} color={pwMsg === '已保存' ? t.ok : t.bad}>
+                {pwMsg}
+              </T>
+            ) : null}
+            <Pressable
+              disabled={pwBusy}
+              onPress={savePassword}
+              style={[s.primary, { backgroundColor: t.primaryBg, opacity: pwBusy ? 0.5 : 1, marginTop: gap.xs }]}
+            >
+              <T size={type.body} weight="600" color={t.primaryInk} align="center">
+                {pwBusy ? '保存中…' : hasPw ? '修改密码' : '设置密码'}
+              </T>
+            </Pressable>
+          </View>
+        </Sheet>
       </SafeAreaView>
     </Canvas>
   );
 }
 
-function Label({ children }: { children: string }) {
+/* ============================================================
+   分组与行
+   ============================================================ */
+
+/** 分组头：灰字直接落在画布上，右上角英文微标签（附录 A3）。 */
+function GroupHead({ label, en }: { label: string; en: string }) {
+  const t = useTheme();
   return (
-    <T size={type.headline} weight="600" style={{ marginTop: gap.xl, marginBottom: gap.xs }}>
-      {children}
-    </T>
+    <Row style={{ justifyContent: 'space-between', marginTop: gap.xxl, marginBottom: gap.xs, paddingHorizontal: 4 }}>
+      <T size={type.caption} color={t.ink3} weight="550">
+        {label}
+      </T>
+      <T size={10.5} color={t.faint} weight="700" tracking={2.2}>
+        {en}
+      </T>
+    </Row>
   );
+}
+
+/**
+ * 设置行（§6.8）：44px 图标砖 + 标签 15.5/550 + 右侧值 + 箭头。
+ * 行高靠 padding 13 撑，行间发丝线由调用处插入，末行无线。
+ */
+function SettingRow({
+  icon,
+  tint,
+  iconTint,
+  label,
+  value,
+  right,
+  onPress,
+  last,
+}: {
+  icon: IoniconName;
+  tint: string;
+  iconTint?: string;
+  label: string;
+  value?: string;
+  right?: React.ReactNode;
+  onPress?: () => void;
+  last?: boolean;
+}) {
+  const t = useTheme();
+  const body = (
+    <View style={[s.row, last && { paddingBottom: 15 }]}>
+      <IconBrick icon={icon} tint={tint} iconTint={iconTint} />
+      <T size={type.body} weight="550" style={{ flex: 1 }} numberOfLines={1}>
+        {label}
+      </T>
+      {right}
+      {value ? (
+        <T size={type.sub} color={t.ink3} numberOfLines={1} style={{ maxWidth: '46%', textAlign: 'right' }}>
+          {value}
+        </T>
+      ) : null}
+      {onPress ? <Icon name="chevron-forward" size={16} color={t.ink4} /> : null}
+    </View>
+  );
+  if (!onPress) return body;
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label}>
+      {body}
+    </Pressable>
+  );
+}
+
+/**
+ * 44px 图标砖（附录 A5）：圆角 13、同色系双色渐变、顶部一条内高光。
+ * 颜色一律由调用方从 useTheme() 取，页面里不出现裸色值。
+ */
+function IconBrick({
+  icon,
+  tint,
+  iconTint,
+}: {
+  icon: IoniconName;
+  tint: string;
+  iconTint?: string;
+}) {
+  const t = useTheme();
+  return (
+    <LinearGradient
+      colors={grad([withAlpha(tint, 0.96), withAlpha(tint, 0.74)])}
+      start={{ x: 0.1, y: 0 }}
+      end={{ x: 0.9, y: 1 }}
+      style={s.brick}
+    >
+      <View pointerEvents="none" style={[s.brickGloss, { backgroundColor: t.white }]} />
+      <Icon name={icon} size={20} color={iconTint ?? t.white} />
+    </LinearGradient>
+  );
+}
+
+/* ============================================================
+   底部面板与单选行
+   ============================================================ */
+
+function Sheet({
+  visible,
+  title,
+  subtitle,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const t = useTheme();
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        <Pressable
+          style={[StyleSheet.absoluteFill, { backgroundColor: t.scrim }]}
+          onPress={onClose}
+          accessibilityLabel="关闭"
+        />
+        <View style={[s.sheet, { backgroundColor: t.card }]}>
+          <View style={[s.handle, { backgroundColor: t.track }]} />
+          <T size={type.title} weight="600">
+            {title}
+          </T>
+          {subtitle ? (
+            <T size={type.caption} color={t.ink3} lh={leading.caption} style={{ marginTop: 4 }}>
+              {subtitle}
+            </T>
+          ) : null}
+          <ScrollView
+            style={{ marginTop: gap.md, maxHeight: 460 }}
+            contentContainerStyle={{ gap: gap.xs, paddingBottom: 2 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {children}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+/** 单选行：选中行底 surfaceSoft、圆角 14（§6.8）。 */
+function ChoiceRow({
+  label,
+  hint,
+  on,
+  warn,
+  onPress,
+}: {
+  label: string;
+  hint?: string;
+  on: boolean;
+  warn?: boolean;
+  onPress: () => void;
+}) {
+  const t = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: on }}
+      style={[s.choice, on && { backgroundColor: t.cardSunken }]}
+    >
+      <RadioDot on={on} />
+      <View style={{ flex: 1 }}>
+        <Row gap={6}>
+          <T size={type.body} weight={on ? '600' : '550'}>
+            {label}
+          </T>
+          {warn ? (
+            <View style={[s.warn, { backgroundColor: t.goldBg }]}>
+              <T size={10.5} color={t.goldFg} weight="700" tracking={0.5}>
+                谨慎授予
+              </T>
+            </View>
+          ) : null}
+        </Row>
+        {hint ? (
+          <T size={type.caption} color={t.ink3} lh={leading.caption} style={{ marginTop: 2 }}>
+            {hint}
+          </T>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+/* ============================================================
+   工具
+   ============================================================ */
+
+/** 从用户 ID 推出一个稳定的四位纸团号（后端 ID 是 u_ + 16 位 hex）。 */
+function hash4(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return String(1000 + (h % 9000));
 }
 
 function ago(iso: string) {
@@ -284,6 +798,70 @@ function ago(iso: string) {
 }
 
 const s = StyleSheet.create({
-  page: { padding: gap.lg, paddingBottom: 100 },
-  seg: { flex: 1, paddingVertical: 9, borderRadius: radius.control, alignItems: 'center' },
+  page: { paddingHorizontal: PAGE_X, paddingTop: gap.xs, paddingBottom: 100 },
+
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: gap.md,
+    borderRadius: radius.card,
+    paddingHorizontal: 16,
+    paddingVertical: 17,
+    overflow: 'hidden',
+  },
+  pro: {
+    borderRadius: radius.tag,
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+  },
+
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: gap.md,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
+    minHeight: 62,
+  },
+  brick: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.icon,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  brickGloss: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1.5,
+    opacity: 0.34,
+  },
+
+  sheet: {
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: gap.lg,
+    paddingTop: 10,
+    paddingBottom: 34,
+  },
+  handle: { width: 38, height: 4, borderRadius: 2, alignSelf: 'center', marginBottom: gap.md },
+  choice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: gap.md,
+    borderRadius: radius.bubble,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  warn: { borderRadius: radius.tag, paddingHorizontal: 6, paddingVertical: 1.5 },
+  primary: { borderRadius: radius.control, paddingVertical: 14 },
+  device: {
+    borderRadius: radius.message,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: gap.md,
+  },
+  deviceDot: { width: 8, height: 8, borderRadius: 4 },
 });

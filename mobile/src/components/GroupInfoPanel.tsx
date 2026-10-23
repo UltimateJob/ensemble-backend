@@ -1,31 +1,53 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Avatar } from './Avatar';
-import { Button, Icon, IconButton, Input, RadioDot, Row, T, Tag, Toggle, withAlpha } from './ui';
+import { Avatar, AvatarStack } from './Avatar';
+import {
+  Button,
+  Card,
+  Icon,
+  IconButton,
+  Input,
+  RadioDot,
+  Row,
+  T,
+  Tag,
+  Toggle,
+  withAlpha,
+} from './ui';
 import { humanError } from '../lib/api';
 import { useTheme } from '../theme/theme';
-import { gap, leading, radius, type } from '../theme/tokens';
-import type { AgentActivity, Conversation } from '../lib/types';
+import {
+  CARD_GAP,
+  FILE_COLORS,
+  gap,
+  leading,
+  motion,
+  radius,
+  type,
+  weight,
+} from '../theme/tokens';
+import type { AgentActivity, AgentState, Conversation } from '../lib/types';
 
 /**
- * 聊天信息（设计规范 §6.11）。
+ * 群聊信息面板（设计规范 §6.11）。
  *
- * 从右侧滑入，宽 89%，左侧露出缩小的聊天（聊天同步缩到 0.96）。
+ * 从右侧滑入，宽 89%，左侧露出一条聊天。规范要求背景聊天缩到 0.96 并
+ * 压暗 8%；本组件挂在群聊页内部，拿不到兄弟节点的 transform，
+ * 因此按规范给出的替代方案，用 8% 中性遮罩近似。
  *
- * 内容顺序按使用频率：
- *   群身份卡 → 成员网格（5 列）
- *   → 群名称 / 群公告 → 群应用 → 权限管理（群默认级别 + 成员单独设置）
- *   → 消息免打扰 / 退出（群主是解散）
+ * 内容顺序按使用频率（§6.11）：
+ *   群身份卡 → 成员网格（5 列）→ 群名称 / 群公告 → 群应用
+ *   → 权限管理（§7：群默认三级 + 成员单独设置）→ 免打扰 / 退出
  *
- * 所有行都是真数据：改名走 PATCH /v1/conversations/{id}，
- * 权限走 defaultPermission，公告取这个群正在做的目标。
+ * 所有卡片圆角 24、间距 10，与主页一致。
  */
 
 export interface PanelMember {
@@ -33,22 +55,45 @@ export interface PanelMember {
   name: string;
   title?: string;
   color?: string;
+  /** 父页面已经算好序号与状态时直接用，省一次查找。 */
+  index?: number;
+  state?: AgentState;
+}
+
+interface Level {
+  key: string;
+  label: string;
+  hint: string;
+  warn?: boolean;
 }
 
 /** 与 AgentPanel / 新建群页共用同一套级别文案，避免三处各说各话。 */
-const LEVELS = [
+const LEVELS: Level[] = [
   { key: 'ask', label: '需要审批', hint: '执行任何操作前，都先征得你同意' },
-  { key: 'approval', label: '工作区内修改', hint: '可自由读写工作区；联网、删除、区外操作仍需审批' },
-  { key: 'full', label: '完全访问权限', hint: '不再询问，可执行包括删除在内的全部操作', warn: true },
-] as const;
+  {
+    key: 'approval',
+    label: '工作区内修改',
+    hint: '可自由读写工作区内的文件；联网、删除、区外操作仍需审批',
+  },
+  {
+    key: 'full',
+    label: '完全访问权限',
+    hint: '不再询问，可执行包括删除在内的全部操作',
+    warn: true,
+  },
+];
 
 function levelLabel(level?: string): string {
-  if (!level) return '跟随角色设置';
+  if (!level) return '跟随群默认';
+  if (level === 'readonly') return '只读';
   return LEVELS.find((l) => l.key === level)?.label ?? level;
 }
 
-function statusOf(st?: AgentActivity): { text: string; tone: 'bad' | 'ok' | 'ink' | 'faint' } {
-  switch (st?.state) {
+function statusOf(st?: AgentState): {
+  text: string;
+  tone: 'ok' | 'bad' | 'ink' | 'idle';
+} {
+  switch (st) {
     case 'working':
       return { text: '干活中', tone: 'ink' };
     case 'blocked':
@@ -56,7 +101,7 @@ function statusOf(st?: AgentActivity): { text: string; tone: 'bad' | 'ok' | 'ink
     case 'done':
       return { text: '刚完成', tone: 'ok' };
     default:
-      return { text: '空闲', tone: 'faint' };
+      return { text: '空闲', tone: 'idle' };
   }
 }
 
@@ -89,7 +134,7 @@ export function GroupInfoPanel({
   isOwner: boolean;
   onClose: () => void;
   onOpenMember: (key: string) => void;
-  /** 传入才显示「添加成员」虚线圈；没有可拉的角色时不给假入口。 */
+  /** 传入才显示「添加」虚线圈；没有可拉的角色时不给假入口。 */
   onAddMember?: () => void;
   onRename: (title: string) => Promise<void>;
   onSetPermission: (level: string) => Promise<void>;
@@ -111,21 +156,26 @@ export function GroupInfoPanel({
   const [nameDraft, setNameDraft] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [nameErr, setNameErr] = useState('');
+  // 后端未及时回写标题时，先用本地值撑住界面。
+  const [titleOverride, setTitleOverride] = useState<string | null>(null);
 
-  const [savingPerm, setSavingPerm] = useState(false);
   const [permErr, setPermErr] = useState('');
   const [showOverrides, setShowOverrides] = useState(false);
   // 退出/解散用行内二次确认，而不是系统 Alert：Web 预览里 Alert 是空实现。
   const [confirmLeave, setConfirmLeave] = useState(false);
 
+  const serverLevel = conv?.defaultPermission ?? '';
+  const [draftLevel, setDraftLevel] = useState(serverLevel);
+  const [mutedLocal, setMutedLocal] = useState(muted);
+
   useEffect(() => {
     if (visible) setMounted(true);
-    Animated.spring(slide, {
+    // §8：380ms，cubic-bezier(.32,.72,.24,1) 近似弹簧。
+    Animated.timing(slide, {
       toValue: visible ? 0 : 1,
+      duration: motion.panel,
+      easing: Easing.bezier(0.32, 0.72, 0.24, 1),
       useNativeDriver: true,
-      damping: 26,
-      stiffness: 260,
-      mass: 0.8,
     }).start(({ finished }) => {
       if (finished && !visible) setMounted(false);
     });
@@ -139,25 +189,42 @@ export function GroupInfoPanel({
     setPermErr('');
     setShowOverrides(false);
     setConfirmLeave(false);
+    setTitleOverride(null);
   }, [visible]);
+
+  useEffect(() => setDraftLevel(serverLevel), [serverLevel]);
+  useEffect(() => setMutedLocal(muted), [muted]);
 
   if (!mounted) return null;
 
-  const level = conv?.defaultPermission ?? '';
+  const shownTitle = titleOverride ?? conv?.title ?? '群聊';
   const overrides = Object.entries(conv?.agentPermissions ?? {});
   const nameOf = (key: string) => members.find((m) => m.key === key)?.name ?? key;
+  const stateOf = (m: PanelMember): AgentState | undefined =>
+    m.state ?? activity.find((a) => a.key === m.key)?.state;
+
+  const ztId =
+    (conv?.id ?? '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .slice(0, 4)
+      .toLowerCase() || '----';
 
   const APPS = [
-    { icon: 'folder-outline' as const, label: '文件', tint: '#C9A227', onPress: onOpenLibrary },
-    { icon: 'image-outline' as const, label: '图片', tint: '#7A9A7E', onPress: onOpenLibrary },
-    { icon: 'cube-outline' as const, label: '产物', tint: '#8B7EC8', onPress: onOpenLibrary },
-    { icon: 'aperture-outline' as const, label: '目标', tint: '#5F9E72', onPress: onOpenGoals },
-    { icon: 'git-network-outline' as const, label: '连接器', tint: '#D96C5F', onPress: onOpenConnect },
+    { icon: 'folder-outline' as const, label: '文件', tint: FILE_COLORS.doc, onPress: onOpenLibrary },
+    { icon: 'image-outline' as const, label: '图片', tint: FILE_COLORS.image, onPress: onOpenLibrary },
+    { icon: 'cube-outline' as const, label: '产物', tint: FILE_COLORS.artifact, onPress: onOpenLibrary },
+    { icon: 'aperture-outline' as const, label: '目标', tint: FILE_COLORS.goal, onPress: onOpenGoals },
+    {
+      icon: 'git-network-outline' as const,
+      label: '连接器',
+      tint: FILE_COLORS.connector,
+      onPress: onOpenConnect,
+    },
   ];
 
   async function saveName() {
     const next = nameDraft.trim();
-    if (!next || next === conv?.title) {
+    if (!next || next === shownTitle) {
       setEditingName(false);
       return;
     }
@@ -165,6 +232,7 @@ export function GroupInfoPanel({
     setNameErr('');
     try {
       await onRename(next);
+      setTitleOverride(next);
       setEditingName(false);
     } catch (e) {
       setNameErr(humanError(e));
@@ -174,37 +242,57 @@ export function GroupInfoPanel({
   }
 
   async function pickLevel(next: string) {
-    if (savingPerm || next === level) return;
-    setSavingPerm(true);
+    if (next === draftLevel) return;
+    const prev = draftLevel;
+    // 先动 UI 再等接口，点下去就有反馈；失败再退回原级别。
+    setDraftLevel(next);
     setPermErr('');
     try {
       await onSetPermission(next);
     } catch (e) {
+      setDraftLevel(prev);
       setPermErr(humanError(e));
-    } finally {
-      setSavingPerm(false);
     }
   }
 
+  const overrideSummary =
+    overrides.length === 1
+      ? `${nameOf(overrides[0][0])}：${levelLabel(overrides[0][1])}`
+      : overrides.length
+        ? `${overrides.length} 位已设置`
+        : '未设置';
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="关闭聊天信息" />
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onClose}
+        accessibilityLabel="关闭聊天信息"
+      />
+
+      {/* §6.11 / §8：背景压暗 8%。t.scrim 本身带透明度，用低 opacity 叠出 8%。 */}
       <Animated.View
         pointerEvents="none"
         style={[
           StyleSheet.absoluteFill,
           {
             backgroundColor: t.scrim,
-            opacity: slide.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+            opacity: slide.interpolate({
+              inputRange: [0, 1],
+              outputRange: [t.dark ? 0.14 : 0.21, 0],
+            }),
           },
         ]}
       />
+
       <Animated.View
+        pointerEvents="auto"
         style={[
           s.panel,
           {
             width: panelW,
-            backgroundColor: t.canvas[1],
+            backgroundColor: t.canvas[0],
+            shadowColor: t.shadowColor,
             transform: [
               { translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [0, panelW] }) },
             ],
@@ -213,36 +301,40 @@ export function GroupInfoPanel({
       >
         <View style={[s.header, { borderBottomColor: t.hairline }]}>
           <View style={{ width: 36 }} />
-          <T size={type.headline} weight="600" style={s.headerTitle} numberOfLines={1}>
+          <T size={type.title} weight={weight.strong} style={s.headerTitle} numberOfLines={1}>
             聊天信息
           </T>
           <IconButton name="close" onPress={onClose} accessibilityLabel="关闭" />
         </View>
 
         <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-          {/* 群身份卡 */}
-          <View style={[s.card, { backgroundColor: t.card }]}>
-            <Row gap={gap.sm}>
-              <View style={[s.groupIcon, { backgroundColor: withAlpha('#64766B', 0.14) }]}>
-                <Icon name="people" size={26} color="#64766B" />
+          {/* 群身份卡：头像组 + 群名 + 纸团号 / 建群日 */}
+          <Card padded={false} style={s.card}>
+            <Row gap={gap.md}>
+              <View style={[s.groupTile, { backgroundColor: t.cardSunken }]}>
+                <AvatarStack
+                  names={members.slice(0, 3).map((m) => m.name)}
+                  tints={members.slice(0, 3).map((m) => m.color ?? '')}
+                  size={26}
+                  max={3}
+                />
               </View>
               <View style={{ flex: 1 }}>
-                <T size={type.title} weight="600" numberOfLines={1}>
-                  {conv?.title ?? '群聊'}
+                <T size={type.title} weight={weight.strong} numberOfLines={1}>
+                  {shownTitle}
                 </T>
-                <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 3 }}>
-                  纸团号：zt-{(conv?.id ?? '').slice(0, 4) || '----'}
+                <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 4 }}>
+                  纸团号 zt-{ztId}
                   {conv?.createdAt ? ` · 建于 ${fmtDate(conv.createdAt)}` : ''}
                 </T>
               </View>
-              <Icon name="chevron-forward" size={14} color={t.ink4} />
             </Row>
-          </View>
+          </Card>
 
-          {/* 群成员：5 列网格 */}
-          <View style={[s.card, { backgroundColor: t.card }]}>
+          {/* 群成员：5 列网格，46 头像 + 状态点 + 状态文案 */}
+          <Card padded={false} style={s.card}>
             <Row style={{ justifyContent: 'space-between', marginBottom: gap.sm }}>
-              <T size={type.cardTitle} weight="600">
+              <T size={type.cardTitle} weight={weight.strong}>
                 群成员
               </T>
               <T size={type.caption} color={t.ink4}>
@@ -251,8 +343,8 @@ export function GroupInfoPanel({
             </Row>
             <View style={s.grid}>
               {members.map((m, i) => {
-                const st = activity.find((x) => x.key === m.key);
-                const stt = statusOf(st);
+                const state = stateOf(m);
+                const stt = statusOf(state);
                 const tone =
                   stt.tone === 'bad'
                     ? t.bad
@@ -260,7 +352,15 @@ export function GroupInfoPanel({
                       ? t.ok
                       : stt.tone === 'ink'
                         ? t.ink
-                        : t.faint;
+                        : t.ink4;
+                const dot =
+                  state === 'blocked'
+                    ? t.dangerDot
+                    : state === 'done'
+                      ? t.okDot
+                      : state === 'working'
+                        ? t.ink
+                        : null;
                 return (
                   <Pressable
                     key={m.key}
@@ -269,7 +369,17 @@ export function GroupInfoPanel({
                     accessibilityLabel={`${m.name}，${stt.text}`}
                     style={({ pressed }) => [s.memberCell, pressed && { opacity: 0.6 }]}
                   >
-                    <Avatar name={m.name} tint={m.color} index={i} size={46} state={st?.state} />
+                    <View style={{ width: 46, height: 46 }}>
+                      <Avatar name={m.name} tint={m.color} index={m.index ?? i} size={46} />
+                      {dot ? (
+                        <View
+                          style={[
+                            s.stateDot,
+                            { backgroundColor: dot, borderColor: t.card },
+                          ]}
+                        />
+                      ) : null}
+                    </View>
                     <T size={10.5} color={t.ink2} numberOfLines={1} style={{ marginTop: 6 }}>
                       {m.name}
                     </T>
@@ -289,24 +399,28 @@ export function GroupInfoPanel({
                   <View
                     style={[
                       s.addCircle,
-                      { borderColor: t.dark ? 'rgba(255,255,255,0.24)' : 'rgba(20,24,40,0.18)' },
+                      {
+                        borderColor: t.dark
+                          ? withAlpha(t.white, 0.24)
+                          : withAlpha(t.ink, 0.18),
+                      },
                     ]}
                   >
                     <Icon name="add" size={20} color={t.ink4} />
                   </View>
                   <T size={10.5} color={t.ink3} numberOfLines={1} style={{ marginTop: 6 }}>
-                    添加成员
+                    添加
                   </T>
                 </Pressable>
               ) : null}
             </View>
-          </View>
+          </Card>
 
           {/* 群名称 / 群公告 */}
-          <View style={[s.card, { backgroundColor: t.card, paddingVertical: 0 }]}>
+          <Card padded={false} style={[s.card, s.cardLines]}>
             {editingName ? (
               <View style={{ paddingVertical: gap.sm, gap: gap.xs }}>
-                <T size={type.sub} weight="550">
+                <T size={type.sub} weight={weight.medium}>
                   群名称
                 </T>
                 <Input
@@ -322,13 +436,7 @@ export function GroupInfoPanel({
                   </T>
                 ) : null}
                 <Row gap={gap.xs}>
-                  <Button
-                    label="保存"
-                    size="sm"
-                    loading={savingName}
-                    onPress={saveName}
-                    style={{ flex: 1 }}
-                  />
+                  <Button label="保存" size="sm" loading={savingName} onPress={saveName} style={{ flex: 1 }} />
                   <Button
                     label="取消"
                     variant="secondary"
@@ -344,7 +452,7 @@ export function GroupInfoPanel({
             ) : (
               <Pressable
                 onPress={() => {
-                  setNameDraft(conv?.title ?? '');
+                  setNameDraft(shownTitle);
                   setEditingName(true);
                 }}
                 accessibilityRole="button"
@@ -354,11 +462,11 @@ export function GroupInfoPanel({
                   { borderBottomColor: t.hairline, opacity: pressed ? 0.6 : 1 },
                 ]}
               >
-                <T size={type.sub} weight="550" style={{ flex: 1 }}>
+                <T size={type.sub} weight={weight.medium} style={{ flex: 1 }}>
                   群名称
                 </T>
                 <T size={type.caption} color={t.ink4} numberOfLines={1} style={{ maxWidth: '55%' }}>
-                  {conv?.title ?? '—'}
+                  {shownTitle}
                 </T>
                 <Icon name="chevron-forward" size={13} color={t.ink4} />
               </Pressable>
@@ -370,7 +478,7 @@ export function GroupInfoPanel({
               accessibilityLabel="查看群公告（目标）"
               style={({ pressed }) => [s.line, s.lineLast, { opacity: pressed ? 0.6 : 1 }]}
             >
-              <T size={type.sub} weight="550" style={{ flex: 1 }}>
+              <T size={type.sub} weight={weight.medium} style={{ flex: 1 }}>
                 群公告
               </T>
               <T size={type.caption} color={t.ink4} numberOfLines={1} style={{ maxWidth: '55%' }}>
@@ -378,11 +486,11 @@ export function GroupInfoPanel({
               </T>
               <Icon name="chevron-forward" size={13} color={t.ink4} />
             </Pressable>
-          </View>
+          </Card>
 
-          {/* 群应用 */}
-          <View style={[s.card, { backgroundColor: t.card }]}>
-            <T size={type.cardTitle} weight="600" style={{ marginBottom: gap.sm }}>
+          {/* 群应用：46 圆角 14 低饱和图标底（FILE_COLORS） */}
+          <Card padded={false} style={s.card}>
+            <T size={type.cardTitle} weight={weight.strong} style={{ marginBottom: gap.sm }}>
               群应用
             </T>
             <Row style={{ justifyContent: 'space-between' }}>
@@ -403,45 +511,44 @@ export function GroupInfoPanel({
                 </Pressable>
               ))}
             </Row>
-          </View>
+          </Card>
 
-          {/* 权限管理：群默认级别 */}
-          <View style={[s.card, { backgroundColor: t.card }]}>
+          {/* 权限管理（§7）：群默认三级 + 成员单独设置入口 */}
+          <Card padded={false} style={s.card}>
             <Row style={{ justifyContent: 'space-between' }}>
-              <T size={type.cardTitle} weight="600">
+              <T size={type.cardTitle} weight={weight.strong}>
                 权限管理
               </T>
               <T size={type.micro} color={t.ink4}>
                 由你给每个成员分配
               </T>
             </Row>
-            <T size={type.micro} color={t.ink4} style={{ marginTop: 2 }}>
+            <T size={type.micro} color={t.ink4} style={{ marginTop: 3 }}>
               本群默认级别（成员可单独设置）
             </T>
 
             <View style={{ marginTop: gap.sm, gap: 4 }}>
               {LEVELS.map((l) => {
-                const on = level === l.key;
+                const on = draftLevel === l.key;
                 return (
                   <Pressable
                     key={l.key}
                     onPress={() => pickLevel(l.key)}
-                    disabled={savingPerm}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: on }}
-                    style={[
+                    style={({ pressed }) => [
                       s.levelRow,
                       { backgroundColor: on ? t.cardSunken : 'transparent' },
-                      savingPerm && { opacity: 0.6 },
+                      pressed && { opacity: 0.7 },
                     ]}
                   >
                     <RadioDot on={on} />
                     <View style={{ flex: 1 }}>
                       <Row gap={6}>
-                        <T size={type.sub} weight={on ? '600' : '400'}>
+                        <T size={type.sub} weight={on ? weight.semibold : weight.regular}>
                           {l.label}
                         </T>
-                        {'warn' in l && l.warn ? <Tag label="谨慎授予" tone="gold" /> : null}
+                        {l.warn ? <Tag label="谨慎授予" tone="gold" /> : null}
                       </Row>
                       <T size={type.micro} color={t.ink3} lh={leading.micro} style={{ marginTop: 2 }}>
                         {l.hint}
@@ -451,7 +558,8 @@ export function GroupInfoPanel({
                 );
               })}
             </View>
-            {!level ? (
+
+            {!serverLevel && !draftLevel ? (
               <T size={type.micro} color={t.ink4} style={{ marginTop: 6 }}>
                 当前跟随各角色自己的设置。
               </T>
@@ -465,20 +573,22 @@ export function GroupInfoPanel({
             <Pressable
               onPress={() => setShowOverrides((v) => !v)}
               accessibilityRole="button"
+              accessibilityState={{ expanded: showOverrides }}
               style={({ pressed }) => [
                 s.line,
-                { borderTopColor: t.hairline, borderBottomWidth: 0, opacity: pressed ? 0.6 : 1 },
+                {
+                  borderTopColor: t.hairline,
+                  borderBottomWidth: 0,
+                  marginTop: gap.sm,
+                  opacity: pressed ? 0.6 : 1,
+                },
               ]}
             >
-              <T size={type.sub} weight="550" style={{ flex: 1 }}>
+              <T size={type.sub} weight={weight.medium} style={{ flex: 1 }}>
                 成员单独设置
               </T>
               <T size={type.caption} color={t.ink4} numberOfLines={1} style={{ maxWidth: '50%' }}>
-                {overrides.length === 1
-                  ? `${nameOf(overrides[0][0])}：${levelLabel(overrides[0][1])}`
-                  : overrides.length
-                    ? `${overrides.length} 位已设置`
-                    : '未设置'}
+                {overrideSummary}
               </T>
               <Icon
                 name={showOverrides ? 'chevron-down' : 'chevron-forward'}
@@ -495,6 +605,8 @@ export function GroupInfoPanel({
                     <Pressable
                       key={m.key}
                       onPress={() => onOpenMember(m.key)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${m.name}，${own ? levelLabel(own) : '跟随群默认'}`}
                       style={({ pressed }) => [s.overrideRow, pressed && { opacity: 0.6 }]}
                     >
                       <Avatar name={m.name} tint={m.color} size={26} showDot={false} />
@@ -510,23 +622,29 @@ export function GroupInfoPanel({
                 })}
               </View>
             ) : null}
-          </View>
+          </Card>
 
-          {/* 免打扰 / 退出 */}
-          <View style={[s.card, { backgroundColor: t.card, paddingVertical: 0 }]}>
+          {/* 消息免打扰 / 退出群聊 */}
+          <Card padded={false} style={[s.card, s.cardLines]}>
             <Row style={[s.line, { borderBottomColor: t.hairline }]}>
-              <T size={type.sub} weight="550" style={{ flex: 1 }}>
+              <T size={type.sub} weight={weight.medium} style={{ flex: 1 }}>
                 消息免打扰
               </T>
-              <Toggle on={muted} onChange={onToggleMute} />
+              <Toggle
+                on={mutedLocal}
+                onChange={(v) => {
+                  setMutedLocal(v);
+                  onToggleMute(v);
+                }}
+              />
             </Row>
 
             {confirmLeave ? (
               <View style={{ paddingVertical: gap.sm, gap: gap.xs }}>
                 <T size={type.micro} color={t.ink3} lh={leading.micro}>
                   {isOwner
-                    ? `「${conv?.title ?? '这个群'}」的消息和记忆会一起删除，无法恢复。`
-                    : `退出后不再收到「${conv?.title ?? '这个群'}」的消息，可以再被邀请回来。`}
+                    ? `「${shownTitle}」的消息和记忆会一起删除，无法恢复。`
+                    : `退出后不再收到「${shownTitle}」的消息，可以再被邀请回来。`}
                 </T>
                 <Row gap={gap.xs}>
                   <Button
@@ -551,16 +669,12 @@ export function GroupInfoPanel({
                 accessibilityRole="button"
                 style={({ pressed }) => [s.line, s.lineLast, pressed && { opacity: 0.6 }]}
               >
-                <T size={type.sub} color={t.bad} weight="550" style={{ flex: 1 }}>
+                <T size={type.sub} color={t.bad} weight={weight.medium} style={{ flex: 1 }}>
                   {isOwner ? '解散群聊' : '退出群聊'}
                 </T>
               </Pressable>
             )}
-          </View>
-
-          <T size={type.micro} color={t.faint} align="center" style={{ marginTop: gap.xs }}>
-            {isOwner ? '你是群主，可以解散这个群' : '群主可以删除这个群'}
-          </T>
+          </Card>
         </ScrollView>
       </Animated.View>
     </View>
@@ -581,7 +695,6 @@ const s = StyleSheet.create({
     right: 0,
     borderTopLeftRadius: 24,
     borderBottomLeftRadius: 24,
-    shadowColor: '#101214',
     shadowOpacity: 0.2,
     shadowRadius: 34,
     shadowOffset: { width: -12, height: 0 },
@@ -596,17 +709,27 @@ const s = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerTitle: { flex: 1, textAlign: 'center' },
-  body: { padding: gap.sm, gap: 10, paddingBottom: 40 },
+  body: { padding: gap.sm, gap: CARD_GAP, paddingBottom: 40 },
   card: { borderRadius: radius.card, padding: 14 },
-  groupIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
+  cardLines: { paddingTop: 0, paddingBottom: 0 },
+  groupTile: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 12 },
   memberCell: { width: '20%', alignItems: 'center' },
+  stateDot: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    borderWidth: 2,
+  },
   addCircle: {
     width: 46,
     height: 46,
@@ -630,6 +753,7 @@ const s = StyleSheet.create({
     gap: gap.xs,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    minHeight: 48,
   },
   lineLast: { borderBottomWidth: 0 },
   levelRow: {

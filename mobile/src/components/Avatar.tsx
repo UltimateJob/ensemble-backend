@@ -57,14 +57,16 @@ interface Props {
   index?: number;
   /** 是否显示右下角状态点（规范 §5.3） */
   showDot?: boolean;
+  /** 外层额外样式（用于动画） */
+  style?: any;
 }
 
-export function Avatar({ name, size = 44, state, tint, index, showDot }: Props) {
+export function Avatar({ name, size = 44, state, tint, index, showDot, style }: Props) {
   const [c1, c2] = pairFor(name, tint ?? (index != null ? MEMBER_COLORS[index % MEMBER_COLORS.length] : undefined));
   const r = Math.round(size * 0.36);
 
   return (
-    <View style={{ width: size, height: size }}>
+    <View style={[{ width: size, height: size }, style]}>
       {state ? <StateRing state={state} size={size} /> : null}
       <View
         style={{

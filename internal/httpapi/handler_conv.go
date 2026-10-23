@@ -14,7 +14,45 @@ import (
 
 func (s *Server) handleListConvs(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
-	ok(w, s.chat.List(u.ID))
+	list := s.chat.List(u.ID)
+
+	// 内置场景的群在存储里没有 members/agents——角色是运行时由场景解析的。
+	// 列表页要显示「N 位成员」，所以这里补上解析结果。
+	// 只在为空时补，不覆盖用户自定义的角色。
+	type convWithMembers struct {
+		*domain.Conversation
+		MemberCount int      `json:"memberCount"`
+		MemberNames []string `json:"memberNames,omitempty"`
+		// ResolvedAgents 内置场景解析后的角色（含 key/name/color）。
+		// 前端要靠 key→name 映射把 goal.steps[].owner 翻成人名。
+		ResolvedAgents []domain.ConvAgent `json:"resolvedAgents,omitempty"`
+	}
+	out := make([]convWithMembers, 0, len(list))
+	for _, c := range list {
+		names := c.Members
+		agents := c.Agents
+		if len(agents) == 0 {
+			_, sc := service.ResolveAgents(c)
+			for _, a := range sc {
+				agents = append(agents, domain.ConvAgent{
+					Key: a.Key, Name: a.Name, Title: a.Title,
+					Emoji: a.Emoji, Color: a.Color,
+				})
+			}
+		}
+		if len(names) == 0 {
+			for _, a := range agents {
+				names = append(names, a.Name)
+			}
+		}
+		out = append(out, convWithMembers{
+			Conversation:   c,
+			MemberCount:    len(names),
+			MemberNames:    names,
+			ResolvedAgents: agents,
+		})
+	}
+	ok(w, out)
 }
 
 func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
