@@ -181,11 +181,30 @@ func (s *Server) authMiddleware() Middleware {
 				tooManyRequests(w)
 				return
 			}
+			// 套餐级限流与并发上限。服务默认限流是地板，
+			// 套餐可以更严；套餐没配（0）时只受默认值约束。
+			if !s.allowPlan(u) {
+				tooManyRequests(w)
+				return
+			}
+			if !s.enterConcurrency(u) {
+				tooManyRequests(w)
+				return
+			}
+			defer s.exitConcurrency(u)
+			if s.balanceBlocked(u, r) {
+				fail(w, 402, "insufficient_balance", "余额不足，请充值后再试")
+				return
+			}
 			s.touchLastSeen(u)
 			ctx := context.WithValue(r.Context(), userKey, u)
 			if dev != nil {
 				ctx = context.WithValue(ctx, deviceKey, dev)
 			}
+			// 成本归因与模型白名单都放上下文：网关选路、编排、
+			// 任务执行等所有入口共用一份，客户端也无法伪造。
+			ctx = domain.WithUserID(ctx, u.ID)
+			ctx = domain.WithAllowedModels(ctx, s.allowedModels(u))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

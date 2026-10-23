@@ -61,6 +61,12 @@ func (d *DeepSeek) WithName(name string) *DeepSeek {
 
 func (d *DeepSeek) Name() string { return d.name }
 
+// BaseURL / DefaultModel / HasKey 给管理台的「上游渠道」列表用。
+// 不暴露密钥本身，只说明配没配。
+func (d *DeepSeek) BaseURL() string      { return d.base }
+func (d *DeepSeek) DefaultModel() string { return d.model }
+func (d *DeepSeek) HasKey() bool         { return d.key != "" }
+
 type dsRequest struct {
 	Model       string      `json:"model"`
 	Messages    []dsMessage `json:"messages"`
@@ -198,12 +204,12 @@ func (d *DeepSeek) Chat(ctx context.Context, req domain.ChatRequest) (<-chan dom
 
 	resp, err := d.client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("deepseek: %w", err)
+		return nil, fmt.Errorf("%s: %w", d.name, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		resp.Body.Close()
-		return nil, fmt.Errorf("deepseek: status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("%s: status %d: %s", d.name, resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 
 	ch := make(chan domain.Chunk, 32)

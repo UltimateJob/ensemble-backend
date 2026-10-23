@@ -30,6 +30,9 @@ type Gateway struct {
 	latCount atomic.Int64
 	usageMu  sync.RWMutex
 	modelUse map[string]int64
+	// onUsage 成本观察者。由 main 注入，网关只负责在拿到 usage 时上报，
+	// 不直接依赖存储层，避免 gateway → service 的反向依赖。
+	onUsage func(domain.UsageEvent)
 
 	latency *latWindow
 }
@@ -234,6 +237,11 @@ func (t *ModelTable) Pick(prefer string) (domain.ModelInfo, bool) {
 	return candidates[0], true
 }
 
+// SetUsageObserver 注册成本观察者。必须在开始接请求前调用。
+func (g *Gateway) SetUsageObserver(fn func(domain.UsageEvent)) {
+	g.onUsage = fn
+}
+
 // Stream 执行一次网关调用。返回的 channel 已合并重试与降级。
 func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
 	g.requests.Add(1)
@@ -245,7 +253,9 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 	// 用户原始点名的模型要在改写前记下来：改写后是上游模型名，
 	// 拿它去找备选渠道只会找到同一个渠道。
 	prefer := req.Model
-	model, providerName, ok := g.pickModel(req)
+	// 套餐白名单在选路与故障转移两处都要生效，取一次共用。
+	allowed := domain.AllowedModelsFromContext(ctx)
+	model, providerName, ok := g.pickModel(req, allowed)
 	if !ok {
 		g.inFlight.Add(-1)
 		g.errors.Add(1)
@@ -255,6 +265,12 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 	req.Model = model.Upstream
 	if req.Model == "" {
 		req.Model = model.Key
+	}
+	// 成本归因：handler 显式带的 UserID 优先，其次从认证中间件写入的
+	// context 里取。这样聊天、编排、任务执行等所有入口都能复用。
+	userID := req.UserID
+	if userID == "" {
+		userID = domain.UserIDFromContext(ctx)
 	}
 
 	out := make(chan domain.Chunk, 32)
@@ -274,7 +290,7 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 			if !g.registry.Allow(curProvider, g.threshold, g.openFor) {
 				lastErr = errors.New("provider circuit open: " + curProvider)
 				// 熔断不代表没有别的渠道：换一个继续。
-				if next, nm, ok := g.failoverModel(prefer, req.Task, tried); ok {
+				if next, nm, ok := g.failoverModel(prefer, req.Task, tried, allowed); ok {
 					tried[curProvider] = true
 					curProvider, curModel = next, nm
 					continue
@@ -307,7 +323,7 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 				lastErr = err
 				logx.Req(ctx).Warn("provider call failed", "provider", curProvider, "attempt", attempt, "err", err.Error())
 				// 换渠道：同一上游已经明确失败，重试它只会再失败一次。
-				if next, nm, ok := g.failoverModel(prefer, req.Task, tried); ok {
+				if next, nm, ok := g.failoverModel(prefer, req.Task, tried, allowed); ok {
 					tried[curProvider] = true
 					curProvider, curModel = next, nm
 				}
@@ -332,10 +348,27 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 					first = false
 				}
 				if chunk.Usage != nil {
-					g.tokens.Add(int64(chunk.Usage.TotalTokens))
+					u := chunk.Usage
+					total := u.TotalTokens
+					if total == 0 {
+						total = u.PromptTokens + u.CompletionTokens
+					}
+					g.tokens.Add(int64(total))
 					g.usageMu.Lock()
-					g.modelUse[model.Key] += int64(chunk.Usage.TotalTokens)
+					g.modelUse[model.Key] += int64(total)
 					g.usageMu.Unlock()
+					if g.onUsage != nil {
+						g.onUsage(domain.UsageEvent{
+							UserID:           userID,
+							Model:            model.Key,
+							Provider:         providerName,
+							PromptTokens:     u.PromptTokens,
+							CompletionTokens: u.CompletionTokens,
+							TotalTokens:      total,
+							CostCNY:          modelCostCNY(model, u.PromptTokens, u.CompletionTokens, total),
+							At:               time.Now(),
+						})
+					}
 				}
 				select {
 				case out <- chunk:
@@ -365,7 +398,7 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 				return
 			}
 			g.registry.Report(curProvider, false, time.Since(start), lastErr.Error(), g.threshold, g.openFor)
-			if next, nm, ok := g.failoverModel(prefer, req.Task, tried); ok {
+			if next, nm, ok := g.failoverModel(prefer, req.Task, tried, allowed); ok {
 				tried[curProvider] = true
 				curProvider, curModel = next, nm
 			}
@@ -389,10 +422,23 @@ func (g *Gateway) Stream(ctx context.Context, req domain.ChatRequest) (<-chan do
 //
 // 与 pickModel 的区别：它排除本次已经试过的 provider，并且优先选
 // 在途最少、未熔断的渠道。没有别的渠道时返回 false，调用方如实报错。
-func (g *Gateway) failoverModel(prefer string, task bool, tried map[string]bool) (string, domain.ModelInfo, bool) {
+func (g *Gateway) failoverModel(prefer string, task bool, tried map[string]bool, allowed []string) (string, domain.ModelInfo, bool) {
 	cands, ok := g.models.Candidates(prefer, task)
 	if !ok {
 		return "", domain.ModelInfo{}, false
+	}
+	// 套餐白名单：故障转移也不能转到用户无权使用的模型。
+	if len(allowed) > 0 {
+		filtered := cands[:0]
+		for _, m := range cands {
+			if containsModel(allowed, m.Key) {
+				filtered = append(filtered, m)
+			}
+		}
+		cands = filtered
+		if len(cands) == 0 {
+			return "", domain.ModelInfo{}, false
+		}
 	}
 	// 用户点名了某个模型时 Candidates 只返回它。点名的渠道挂了仍然
 	// 应该走保底：把整个启用池作为后备候选。用户的选择表达的是偏好，
@@ -436,10 +482,28 @@ func (g *Gateway) failoverModel(prefer string, task bool, tried map[string]bool)
 //     （capacity = max(1, weight)）时，自动溢出到下一档——
 //     高并发时不会把请求全堆在一个渠道上等排队。
 //  4. 熔断渠道不接新流量；全部熔断时退回全量候选，让 Allow 给出明确错误。
-func (g *Gateway) pickModel(req domain.ChatRequest) (domain.ModelInfo, string, bool) {
+func (g *Gateway) pickModel(req domain.ChatRequest, allowed []string) (domain.ModelInfo, string, bool) {
 	cands, ok := g.models.Candidates(req.Model, req.Task)
 	if !ok {
 		return domain.ModelInfo{}, "", false
+	}
+	if len(allowed) > 0 {
+		if req.Model != "" && !containsModel(allowed, req.Model) {
+			cands, ok = g.models.Candidates("", req.Task)
+			if !ok {
+				return domain.ModelInfo{}, "", false
+			}
+		}
+		filtered := cands[:0]
+		for _, m := range cands {
+			if containsModel(allowed, m.Key) {
+				filtered = append(filtered, m)
+			}
+		}
+		cands = filtered
+		if len(cands) == 0 {
+			return domain.ModelInfo{}, "", false
+		}
 	}
 	prov := func(m domain.ModelInfo) string {
 		if req.Provider != "" {
@@ -551,6 +615,40 @@ func (g *Gateway) callProvider(ctx context.Context, name string, req domain.Chat
 	return p.Chat(ctx, req)
 }
 
+func containsModel(list []string, key string) bool {
+	for _, v := range list {
+		if v == key {
+			return true
+		}
+	}
+	return false
+}
+
+// modelCostCNY 按模型的输入/输出单价估算一次调用成本（人民币）。
+//
+// 优先用 inputCostPer1M / outputCostPer1M；两者都没配时回退到旧的
+// costPer1k（同时作为输入和输出价），保证升级前配置的模型也有成本数据。
+func modelCostCNY(m domain.ModelInfo, prompt, completion, total int) float64 {
+	inRate, outRate := m.InputCostPer1M, m.OutputCostPer1M
+	if inRate == 0 && outRate == 0 {
+		if m.CostPer1K <= 0 {
+			return 0
+		}
+		inRate, outRate = m.CostPer1K*1000, m.CostPer1K*1000
+	}
+	if inRate == 0 {
+		inRate = outRate
+	}
+	if outRate == 0 {
+		outRate = inRate
+	}
+	if prompt == 0 && completion == 0 {
+		// 少数上游只给 total。按混合价计，避免漏记成本。
+		return float64(total) / 1e6 * (inRate + outRate) / 2
+	}
+	return float64(prompt)/1e6*inRate + float64(completion)/1e6*outRate
+}
+
 // Metrics 汇总指标。
 func (g *Gateway) Metrics() domain.Metrics {
 	var avg float64
@@ -575,6 +673,13 @@ func (g *Gateway) Metrics() domain.Metrics {
 		Providers:    g.registry.Stats(),
 		ModelUsage:   usage,
 	}
+}
+
+// LatencyTotals 累计延迟样本（毫秒总和、样本数）。
+// 管理台用它算「这一分钟的平均延迟」：两次采样相减即可，
+// 不必依赖进程启动以来的累计平均。
+func (g *Gateway) LatencyTotals() (sumMS, count int64) {
+	return g.latSum.Load(), g.latCount.Load()
 }
 
 // Registry 暴露给管理接口。

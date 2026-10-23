@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/subtle"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
+	"github.com/UltimateJob/ensemble-backend/internal/service"
 )
 
 // adminTokenOK 常数时间比较管理员令牌。
@@ -113,8 +115,140 @@ func (s *Server) handleAdminModelDelete(w http.ResponseWriter, r *http.Request) 
 	ok(w, s.admin.Models())
 }
 
+// adminUserRow 用户列表行：在用户本体上附带成本摘要。
+type adminUserRow struct {
+	*domain.User
+	CostMonth   float64 `json:"costMonth"`
+	CostTotal   float64 `json:"costTotal"`
+	TokensMonth int64   `json:"tokensMonth"`
+	BalanceCNY  float64 `json:"balanceCny"`
+}
+
+// handleAdminUsers 用户列表。默认分页返回，避免几万用户时
+// 每次打开页面都传一份全量 JSON；q/status/plan 在服务端过滤。
 func (s *Server) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
-	ok(w, s.admin.Users())
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	plan := strings.TrimSpace(r.URL.Query().Get("plan"))
+	sortBy := strings.TrimSpace(r.URL.Query().Get("sort"))
+	page := queryInt(r, "page", 1)
+	if page < 1 {
+		page = 1
+	}
+	size := queryInt(r, "pageSize", 50)
+	if size <= 0 {
+		size = 50
+	}
+	if size > 200 {
+		size = 200
+	}
+
+	all := s.admin.Users()
+	plans := map[string]bool{}
+	planOptions := s.admin.Plans()
+	planByID := make(map[string]domain.PlanConfig, len(planOptions))
+	for _, p := range planOptions {
+		plans[p.ID] = true
+		planByID[p.ID] = p
+	}
+	summary := struct {
+		Total       int     `json:"total"`
+		Active      int     `json:"active"`
+		Disabled    int     `json:"disabled"`
+		Paid        int     `json:"paid"`
+		MRR         float64 `json:"mrr"`
+		CostMonth   float64 `json:"costMonth"`
+		TokensMonth int64   `json:"tokensMonth"`
+	}{Total: len(all)}
+	costs := make(map[string]service.UserUsage, len(all))
+	filtered := make([]*domain.User, 0, len(all))
+	for _, u := range all {
+		if u.Plan != "" {
+			plans[u.Plan] = true
+		}
+		if u.Status == "active" {
+			summary.Active++
+		} else {
+			summary.Disabled++
+		}
+		bu := s.admin.UserBilling(u.ID)
+		costs[u.ID] = bu
+		summary.CostMonth += bu.Month.CostCNY
+		summary.TokensMonth += bu.Month.TotalTokens()
+		if u.Status == "active" {
+			if p, ok := planByID[u.Plan]; ok {
+				summary.MRR += p.PriceMonthly
+				if p.PriceMonthly > 0 {
+					summary.Paid++
+				}
+			}
+		}
+		if status != "" && u.Status != status {
+			continue
+		}
+		if plan != "" && u.Plan != plan {
+			continue
+		}
+		if q != "" {
+			hay := strings.ToLower(strings.Join([]string{u.ID, u.Name, u.Phone, u.Email}, " "))
+			if !strings.Contains(hay, q) {
+				continue
+			}
+		}
+		filtered = append(filtered, u)
+	}
+
+	switch sortBy {
+	case "name":
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return strings.ToLower(filtered[i].Name) < strings.ToLower(filtered[j].Name)
+		})
+	case "used":
+		sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].Used > filtered[j].Used })
+	case "quota":
+		sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].Quota > filtered[j].Quota })
+	case "lastSeen":
+		sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].LastSeen.After(filtered[j].LastSeen) })
+	case "cost":
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return costs[filtered[i].ID].Month.CostCNY > costs[filtered[j].ID].Month.CostCNY
+		})
+	}
+
+	total := len(filtered)
+	start := (page - 1) * size
+	if start > total {
+		start = total
+	}
+	end := start + size
+	if end > total {
+		end = total
+	}
+	pageItems := filtered[start:end]
+	rows := make([]adminUserRow, 0, len(pageItems))
+	for _, u := range pageItems {
+		bu := costs[u.ID]
+		rows = append(rows, adminUserRow{
+			User: u, CostMonth: bu.Month.CostCNY,
+			CostTotal: bu.CostCNY, TokensMonth: bu.Month.TotalTokens(),
+			BalanceCNY: s.admin.Wallet().Balance(u.ID),
+		})
+	}
+	planList := make([]string, 0, len(plans))
+	for p := range plans {
+		planList = append(planList, p)
+	}
+	sort.Strings(planList)
+
+	ok(w, map[string]interface{}{
+		"items":       rows,
+		"total":       total,
+		"page":        page,
+		"pageSize":    size,
+		"plans":       planList,
+		"planOptions": planOptions,
+		"summary":     summary,
+	})
 }
 
 func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
@@ -161,17 +295,6 @@ func (s *Server) handleAdminResetProvider(w http.ResponseWriter, r *http.Request
 	ok(w, map[string]string{"reset": name})
 }
 
-func (s *Server) handleAdminLogs(w http.ResponseWriter, r *http.Request) {
-	ok(w, s.admin.Logs(queryInt(r, "limit", 200)))
-}
-
-func (s *Server) handleAdminEvents(w http.ResponseWriter, r *http.Request) {
-	ok(w, s.admin.Events(r.URL.Query().Get("kind"), queryInt(r, "limit", 200)))
-}
-
-// handleAdminProviderCheck 渠道体检：真发一次小流式请求，
-// 量连通性、首字延迟、吐字量，顺带查剩余额度（best-effort）。
-// 可选 query 参数 model 指定用哪个模型测，默认用渠道的默认模型。
 func (s *Server) handleAdminProviderCheck(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	p, found := s.gw.Registry().Get(name)

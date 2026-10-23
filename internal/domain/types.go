@@ -240,8 +240,11 @@ type ChatRequest struct {
 	// 部分上游会把 required 当成 auto，模型于是写一长段正文而不调工具
 	// （基准里规划阶段因此被 5000 token 截断）。
 	ToolChoiceName string `json:"toolChoiceName,omitempty"`
-	// UserID 发起请求的用户，用于配额归因（团队规划阶段等非 Run 调用）。
+	// UserID 发起请求的用户，用于配额与成本归因。只由服务端填充，
+	// 不接受客户端 JSON 注入（json:"-"）。
 	UserID string `json:"-"`
+	// ConversationID 可选，便于后续做会话级成本归因。
+	ConversationID string `json:"-"`
 }
 
 // Chunk 流式返回的一段。
@@ -292,10 +295,102 @@ type ModelInfo struct {
 	Rank int `json:"rank,omitempty"`
 	// Concurrency 该渠道允许的同时在途请求数。0 用默认值（8）。
 	// 达到上限后新请求会溢出到同档其他渠道或下一档，而不是排队。
-	Concurrency int     `json:"concurrency,omitempty"`
-	Weight      int     `json:"weight"`    // 同排名内的加权轮询权重
-	CostPer1K   float64 `json:"costPer1k"` // 参考单价，用于用量统计
-	Note        string  `json:"note,omitempty"`
+	Concurrency int `json:"concurrency,omitempty"`
+	// 同排名内的加权轮询权重。
+	Weight int `json:"weight"`
+	// 成本按人民币计，单位是「每 1M Token」。
+	// 输入/输出分开计价，才能算准真实毛利；旧字段 CostPer1K 仅作兼容回退。
+	CostPer1K       float64 `json:"costPer1k,omitempty"`
+	InputCostPer1M  float64 `json:"inputCostPer1M,omitempty"`
+	OutputCostPer1M float64 `json:"outputCostPer1M,omitempty"`
+	Note            string  `json:"note,omitempty"`
+}
+
+// UpstreamInfo 管理台展示的一个模型上游。不含密钥，只有「是否已配置」。
+type UpstreamInfo struct {
+	Name     string `json:"name"`
+	BaseURL  string `json:"baseUrl,omitempty"`
+	Model    string `json:"model,omitempty"` // 该上游的默认模型（可空）
+	HasKey   bool   `json:"hasKey"`
+	Managed  bool   `json:"managed"`  // 在管理台可编辑/删除（存于 data/upstreams.json）
+	Reserved bool   `json:"reserved"` // 由服务器环境变量 EXTRA_PROVIDERS 提供
+	State    string `json:"state"`    // 熔断状态 closed | open | half-open
+}
+
+// QuotaWindow 一个滚动额度窗口（例如 5 小时 / 7 天）。
+// Used/Limit 为同一单位；Percent 是已用百分比，方便直接画进度条。
+type QuotaWindow struct {
+	Label     string    `json:"label"` // 5 小时 | 7 天
+	Unit      string    `json:"unit"`  // USD | CNY | %
+	Used      float64   `json:"used"`
+	Limit     float64   `json:"limit"`
+	Remaining float64   `json:"remaining"`
+	Percent   float64   `json:"percent"`
+	ResetAt   time.Time `json:"resetAt,omitempty"`
+}
+
+// ChannelQuota 一个上游渠道当前的额度状态。
+//
+// 不同渠道能拿到的东西不一样：
+//   - DeepSeek 官方：账户余额（CNY）
+//   - Command Code：月度额度 + 5h/7d 窗口 + 套餐
+//   - OpenDesign：钱包余额 + 5h/7d 窗口（需要 Control Key + 工作区 ID）
+//   - GLM / Z.ai：5h/7d 窗口百分比
+//
+// 查询失败时保留 Provider/Kind，Err 里给出可读原因，不影响页面其它渠道。
+type ChannelQuota struct {
+	Provider   string        `json:"provider"`
+	Kind       string        `json:"kind"` // deepseek | commandcode | opendesign | glm
+	Configured bool          `json:"configured"`
+	Currency   string        `json:"currency,omitempty"` // CNY | USD | %
+	Remaining  *float64      `json:"remaining,omitempty"`
+	Total      *float64      `json:"total,omitempty"`
+	Plan       string        `json:"plan,omitempty"`
+	Windows    []QuotaWindow `json:"windows,omitempty"`
+	Source     string        `json:"source,omitempty"`
+	FetchedAt  time.Time     `json:"fetchedAt"`
+	Err        string        `json:"err,omitempty"`
+}
+
+// PlanConfig 套餐配置。价格与成本统一按人民币计。
+//
+// 套餐是「售卖维度」，额度是「用量维度」：PriceMonthly 用来算 MRR，
+// MonthlyQuota 是每月可调用次数（沿用现有 User.Quota 的计量方式）。
+type PlanConfig struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	PriceMonthly float64  `json:"priceMonthly"`
+	MonthlyQuota int      `json:"monthlyQuota"`
+	Description  string   `json:"description,omitempty"`
+	Features     []string `json:"features,omitempty"`
+	Color        string   `json:"color,omitempty"`
+	Enabled      bool     `json:"enabled"`
+	Sort         int      `json:"sort,omitempty"`
+
+	// ---- 权限 ----
+	// AllowedModels 可用模型白名单；空表示全部启用模型都可用。
+	// 超出套餐的模型请求会退回白名单内的自动选路，而不是直接报错。
+	AllowedModels []string `json:"allowedModels,omitempty"`
+	// RatePerMinute 每用户每分钟请求数；0 表示使用服务默认值。
+	RatePerMinute int `json:"ratePerMinute,omitempty"`
+	// MaxConcurrency 每用户同时在途请求数上限；0 表示不限。
+	MaxConcurrency int `json:"maxConcurrency,omitempty"`
+
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// UsageEvent 一次上游调用的实际用量，用于成本核算。
+// 由网关在拿到上游 usage 后发出，服务层负责聚合与落盘。
+type UsageEvent struct {
+	UserID           string    `json:"userId,omitempty"`
+	Model            string    `json:"model"`
+	Provider         string    `json:"provider,omitempty"`
+	PromptTokens     int       `json:"promptTokens"`
+	CompletionTokens int       `json:"completionTokens"`
+	TotalTokens      int       `json:"totalTokens"`
+	CostCNY          float64   `json:"cost"`
+	At               time.Time `json:"at"`
 }
 
 // AuditLog 管理员操作审计。

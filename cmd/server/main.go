@@ -87,6 +87,33 @@ func main() {
 	}
 	st := store.Store(fs)
 
+	// 套餐与成本账本。套餐损坏拒绝启动（影响权益），成本账本损坏
+	// 由 NewBilling 隔离坏文件后继续，不阻断对话服务。
+	plans, err := service.NewPlanStore(filepath.Join(dataDir, "plans.json"))
+	if err != nil {
+		log.Error("套餐配置加载失败，拒绝启动", "err", err.Error())
+		os.Exit(1)
+	}
+	billing, err := service.NewBilling(filepath.Join(dataDir, "billing.json"))
+	if err != nil {
+		log.Error("成本账本初始化失败，拒绝启动", "err", err.Error())
+		os.Exit(1)
+	}
+	billing.Start()
+
+	// 运营开关与用户钱包。设置坏文件回退默认值，钱包坏文件隔离后从空账本起，
+	// 两者都不阻断对话服务；真正的资金流水每次变更同步落盘。
+	settings, err := service.OpenSettings(filepath.Join(dataDir, "settings.json"))
+	if err != nil {
+		log.Error("运营设置初始化失败", "err", err.Error())
+		os.Exit(1)
+	}
+	wallet, err := service.OpenWallet(filepath.Join(dataDir, "wallet.json"))
+	if err != nil {
+		log.Error("钱包账本初始化失败", "err", err.Error())
+		os.Exit(1)
+	}
+
 	// ---- 上游注册 ----
 	reg := gateway.NewRegistry()
 	ds := gateway.NewDeepSeek(cfg.DeepSeekBaseURL, cfg.DeepSeekAPIKey, cfg.DeepSeekModel, cfg.UpstreamTimeout)
@@ -96,6 +123,50 @@ func main() {
 		reg.Add(gateway.NewDeepSeek(ep.BaseURL, ep.APIKey, ep.Model, cfg.UpstreamTimeout).WithName(ep.Name))
 		log.Info("已注册中转上游", "name", ep.Name, "base", ep.BaseURL)
 	}
+
+	// ---- 可编辑的上游渠道 ----
+	// 环境变量里的渠道作为初始种子写入渠道表（只在文件里没有同名渠道时），
+	// 之后全部在管理台维护。渠道表是启动时的最终事实：管理台改过的地址/
+	// Key/启停状态要覆盖环境变量，否则重启后停用的渠道会「复活」。
+	upstreams, uerr := store.NewUpstreams(filepath.Join(dataDir, "upstreams.json"))
+	if uerr != nil {
+		log.Warn("加载上游渠道表失败，管理台渠道编辑暂不可用", "err", uerr.Error())
+		upstreams = nil
+	} else {
+		seedUpstreams(upstreams, cfg)
+		for _, rec := range upstreams.List() {
+			if !rec.Enabled {
+				reg.Remove(rec.Name)
+				continue
+			}
+			key, _ := upstreams.Key(rec.Name)
+			if key == "" {
+				// 没 Key 的渠道注册上去只会 401，不如不注册。
+				reg.Remove(rec.Name)
+				continue
+			}
+			reg.Add(gateway.NewDeepSeek(rec.BaseURL, key, rec.Model, cfg.UpstreamTimeout).WithName(rec.Name))
+		}
+		log.Info("已从渠道表同步上游", "数量", len(upstreams.List()))
+	}
+	// routableUpstreams 渠道表里真正能接流量的数量。管理台加过渠道后，
+	// 即使没有环境变量也不该再降级到 mock。
+	routableUpstreams := 0
+	if upstreams != nil {
+		for _, rec := range upstreams.List() {
+			if rec.Enabled && rec.KeyHint != "" {
+				routableUpstreams++
+			}
+		}
+	}
+
+	// 渠道额度查询：DeepSeek 余额、Command Code / OpenDesign / GLM 的 5h、7d 窗口。
+	// 配置单独落 data/quota.json（0600），不触碰上游密钥。
+	quotaStore, err := gateway.OpenQuotaStore(filepath.Join(dataDir, "quota.json"))
+	if err != nil {
+		log.Warn("额度配置加载失败，从空配置开始", "err", err.Error())
+	}
+	quotaSvc := gateway.NewQuotaService(reg, quotaStore)
 
 	models := []domain.ModelInfo{
 		// Rank 决定路由优先级：官方渠道排最前，中转作为保底。
@@ -116,7 +187,8 @@ func main() {
 		log.Info("生产模式：自检通过")
 	}
 
-	if !cfg.UpstreamConfigured() {
+	// 渠道表里已有可用渠道时不再降级 mock：管理台加过渠道就不该被演示台词顶掉。
+	if routableUpstreams == 0 {
 		if !cfg.AllowMock {
 			log.Error("未配置 DEEPSEEK_API_KEY，且 ALLOW_MOCK=false，无法启动")
 			os.Exit(1)
@@ -157,6 +229,14 @@ func main() {
 		_ = os.Rename(tmp, modelsFile)
 	})
 	gw := gateway.New(reg, table, cfg.MaxRetries, cfg.BreakerError, cfg.BreakerOpen)
+	// 成本归因：每次拿到上游 usage 就记一笔；开启「自动扣费」时
+	// 同一笔成本再从用户钱包扣一次。默认只记账不扣钱。
+	gw.SetUsageObserver(func(ev domain.UsageEvent) {
+		billing.Record(ev)
+		if ev.UserID != "" && settings.Get().AutoDeduct {
+			wallet.Spend(ev.UserID, ev.CostCNY, ev.Model)
+		}
+	})
 
 	// ---- 业务 ----
 	sender := service.NewSender(cfg.SmsProvider, cfg.SmsSign, cfg.SmsTemplate, cfg.SmsKeyID, cfg.SmsSecret)
@@ -172,6 +252,17 @@ func main() {
 	if err := auth.SetCredentialsPath(filepath.Join(dataDir, "credentials.json")); err != nil {
 		log.Warn("加载密码凭据失败，密码登录暂不可用", "err", err.Error())
 	}
+	// 注册策略由运营设置驱动：关闭注册后，未注册的手机号/邮箱不能自动建号。
+	auth.SetSignupPolicy(func() service.SignupPolicy {
+		s := settings.Get()
+		quota := s.TrialQuota
+		if quota <= 0 {
+			if p, ok := plans.Get(s.DefaultPlan); ok {
+				quota = p.MonthlyQuota
+			}
+		}
+		return service.SignupPolicy{Open: s.RegistrationOpen, Plan: s.DefaultPlan, Quota: quota}
+	})
 	chat := service.NewChat(st, gw)
 	slow := service.NewSlowLog(200, int64(cfg.SlowThresholdMS))
 
@@ -196,6 +287,8 @@ func main() {
 		Version: version,
 	}
 	admin := service.NewAdmin(st, gw, shared)
+	admin.SetCommercial(plans, billing)
+	admin.SetControl(settings, wallet)
 
 	// ---- HTTP ----
 	// 工作层：本地工作区、Run、审批、回滚。
@@ -229,16 +322,12 @@ func main() {
 	})
 	srv := httpapi.NewServer(cfg, st, auth, chat, admin, gw, orch, drafter, memSvc, shared.Limiter)
 	srv.SetTeamManager(teamMgr)
+	srv.SetQuotas(quotaSvc)
 
-	// ---- 可编辑的上游渠道 ----
-	// 环境变量里的渠道作为初始种子写入渠道表（只在文件里没有同名渠道时），
-	// 之后全部在管理台维护。这样「填官方 Key 顶上」不需要改 .env 重启。
-	upstreams, uerr := store.NewUpstreams(filepath.Join(dataDir, "upstreams.json"))
-	if uerr != nil {
-		log.Warn("加载上游渠道表失败，管理台渠道编辑暂不可用", "err", uerr.Error())
-	} else {
-		seedUpstreams(upstreams, cfg)
-		srv.SetUpstreams(upstreams, cfg.UpstreamTimeout)
+	// 上游渠道表在启动早期已加载并同步到注册表（见上方），
+	// 这里只把同一份表注入 HTTP 层，供管理台增删改。
+	if upstreams != nil {
+		srv.SetUpstreams(upstreams)
 		srv.SetProviderDeleteGuard(func(name string) string {
 			for _, m := range admin.Models() {
 				if m.Provider == name && m.Enabled {
@@ -247,21 +336,6 @@ func main() {
 			}
 			return ""
 		})
-		// 热注册：文件里存在但当前注册表没有的渠道，启动时补上。
-		for _, rec := range upstreams.List() {
-			if !rec.Enabled {
-				continue
-			}
-			key, _ := upstreams.Key(rec.Name)
-			if key == "" {
-				continue
-			}
-			if _, exists := reg.Get(rec.Name); exists {
-				continue
-			}
-			reg.Add(gateway.NewDeepSeek(rec.BaseURL, key, rec.Model, cfg.UpstreamTimeout).WithName(rec.Name))
-			log.Info("已从渠道表注册上游", "name", rec.Name, "base", rec.BaseURL)
-		}
 	}
 
 	// ---- 手机端 ----
@@ -314,7 +388,7 @@ func main() {
 		"addr", cfg.Addr,
 		"version", version,
 		"admin", fmt.Sprintf("http://localhost%s/admin/", cfg.Addr),
-		"mock", !cfg.UpstreamConfigured(),
+		"mock", routableUpstreams == 0,
 	)
 
 	if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

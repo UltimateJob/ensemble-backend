@@ -74,6 +74,18 @@ func (r *Registry) Get(name string) (Provider, bool) {
 	return e.p, true
 }
 
+// Remove 注销一个上游（管理台删除）。在途请求持有的是 Provider 实例本身，
+// 不受影响；后续选路不会再选中它。
+func (r *Registry) Remove(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.providers[name]; !ok {
+		return false
+	}
+	delete(r.providers, name)
+	return true
+}
+
 // admitProbe 半开状态下放出一个探测，并占用探测名额直到 Report 上报结果。
 // 探测在途中（且没超时）时其他调用一律拒绝——否则一个还没恢复的上游
 // 会在半开窗口里吃进全部流量，半开就失去意义了。

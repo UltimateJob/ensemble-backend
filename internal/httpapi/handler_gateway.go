@@ -99,13 +99,27 @@ func (s *Server) handleUserModels(w http.ResponseWriter, r *http.Request) {
 		Key  string `json:"key"`
 		Note string `json:"note,omitempty"`
 	}
+	allowed := domain.AllowedModelsFromContext(r.Context())
 	out := []userModel{}
 	for _, m := range s.gw.Models().List() {
 		// 任务专用模型不进用户选择器——那是执行器的池子
 		if !m.Enabled || m.TaskOnly {
 			continue
 		}
+		// 套餐白名单之外的模型不展示，避免用户选了发不出去。
+		if len(allowed) > 0 && !containsString(allowed, m.Key) {
+			continue
+		}
 		out = append(out, userModel{Key: m.Key, Note: m.Note})
 	}
 	ok(w, out)
+}
+
+func containsString(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
