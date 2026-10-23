@@ -106,6 +106,7 @@ export function MemberBar({
           <SpeakerAvatar
             key={m.key}
             member={m}
+            i={i}
             isSpeaker={m.key === speakerKey}
             zIndex={m.key === speakerKey ? 10 : 4 - i}
           />
@@ -130,10 +131,12 @@ export function MemberBar({
 
 function SpeakerAvatar({
   member,
+  i,
   isSpeaker,
   zIndex,
 }: {
   member: BarMember;
+  i: number;
   isSpeaker: boolean;
   zIndex: number;
 }) {
@@ -151,6 +154,8 @@ function SpeakerAvatar({
     }).start();
   }, [isSpeaker, scale]);
 
+  // 容器尺寸跟着动，Avatar 始终填满容器——固定 39px 再缩放会让
+  // 未发言的头像也占 39px 的宽度，重叠时压住别人的字。
   const size = scale.interpolate({ inputRange: [0, 1], outputRange: [30, 39] });
   const dotColor =
     member.state === 'done'
@@ -166,20 +171,18 @@ function SpeakerAvatar({
       style={{
         width: size,
         height: size,
-        marginLeft: -8,
+        marginLeft: i === 0 ? 0 : -5,
         zIndex,
         borderRadius: 999,
         borderWidth: 2,
         borderColor: t.card,
+        backgroundColor: t.card,
       }}
     >
-      <Avatar
-        name={member.name}
-        size={39}
-        index={member.index}
-        tint={member.color}
-        style={{ transform: [{ scale }] }}
-      />
+      {/* 不裁切：Animated 尺寸可能滞后一帧，overflow hidden 会把头像切掉一条 */}
+      <Animated.View style={{ width: size, height: size, borderRadius: 999, overflow: 'hidden' }}>
+        <Avatar name={member.name} size={39} index={member.index} tint={member.color} />
+      </Animated.View>
       {member.state !== 'idle' ? (
         <View
           style={{
@@ -390,13 +393,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 12,
     marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingLeft: 10,
+    paddingRight: 12,
+    paddingVertical: 8,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     ...shadow.slab,
   },
-  memberStack: { flexDirection: 'row', alignItems: 'center' },
+  // 左侧留 2px：容器有圆角 + overflow hidden，第一个头像贴边会被裁
+  memberStack: { flexDirection: 'row', alignItems: 'center', paddingLeft: 2 },
 
   memberBubble: {
     borderRadius: radius.bubble,
