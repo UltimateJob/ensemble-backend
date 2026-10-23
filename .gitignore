@@ -16,3 +16,19 @@ data.bak/
 
 # 本地密钥配置（API Key），不入库
 .env
+
+# 手机端（Expo）
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/*.jks
+mobile/*.p12
+
+# Claude Code 工作副本
+.claude/worktrees/
+
+# 桌面端构建产物
+desktop/build/
+
+# 手机端 Web 构建产物（含运行时注入的演示令牌，绝不入库）
+web/m/
