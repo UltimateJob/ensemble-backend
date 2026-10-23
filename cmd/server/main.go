@@ -34,6 +34,14 @@ import (
 // 多实例）。所以标 RC——候选版本，功能冻结，等基础设施补齐。
 const version = "1.3.1"
 
+// portOf 从监听地址里取端口：":8080" 和 "127.0.0.1:8080" 都返回 "8080"。
+func portOf(addr string) string {
+	if i := strings.LastIndex(addr, ":"); i >= 0 && i+1 < len(addr) {
+		return addr[i+1:]
+	}
+	return addr
+}
+
 // seedDemoDir 找演示数据目录。
 //
 // 三个位置，按优先级：
@@ -387,7 +395,9 @@ func main() {
 	log.Info("纸团后端已启动",
 		"addr", cfg.Addr,
 		"version", version,
-		"admin", fmt.Sprintf("http://localhost%s/admin/", strings.TrimPrefix(cfg.Addr, ":")),
+		// cfg.Addr 可能是 ":8080"（默认）或 "127.0.0.1:8080"（线上 systemd）。
+		// 只取端口，避免拼成 localhost127.0.0.1:8080。
+		"admin", "http://localhost:"+portOf(cfg.Addr)+"/admin/",
 		"mock", routableUpstreams == 0,
 	)
 
