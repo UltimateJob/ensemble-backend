@@ -34,6 +34,32 @@ import (
 // 多实例）。所以标 RC——候选版本，功能冻结，等基础设施补齐。
 const version = "1.1.1"
 
+// seedDemoDir 找演示数据目录。
+//
+// 三个位置，按优先级：
+//  1. 可执行文件旁边（.app 包里是 Contents/Resources/seed/demo）
+//  2. 可执行文件上一级的 Resources
+//  3. 当前工作目录下的 seed/demo（go run / 本地开发）
+//
+// 都没有就返回空串——裁剪过的部署不带演示数据是正常的。
+func seedDemoDir() string {
+	var candidates []string
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		candidates = append(candidates,
+			filepath.Join(dir, "seed", "demo"),
+			filepath.Join(dir, "..", "Resources", "seed", "demo"),
+		)
+	}
+	candidates = append(candidates, filepath.Join("seed", "demo"))
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && st.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
+
 func main() {
 	cfg := config.Load()
 	log := logx.L()
@@ -51,6 +77,13 @@ func main() {
 	if err != nil {
 		log.Error("存储初始化失败", "err", err.Error())
 		os.Exit(1)
+	}
+	// 首次启动装一份演示内容：产品打开就该是有东西的，
+	// 而不是让用户先去读 README 找 `make demo`。
+	if seedDir := seedDemoDir(); seedDir != "" {
+		if err := fs.SeedDemo(seedDir); err != nil {
+			log.Warn("装载演示内容失败（不影响使用）", "err", err.Error())
+		}
 	}
 	st := store.Store(fs)
 

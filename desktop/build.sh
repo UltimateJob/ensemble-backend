@@ -34,6 +34,13 @@ swiftc -O -swift-version 5 \
 echo "==> 打包资源"
 cp bin/ensemble "$APP/Contents/MacOS/ensemble"
 cp -R web/app web/admin web/site "$APP/Contents/Resources/web/"
+
+# 演示内容随包分发：第一次打开就有三个群、真实对话、现成的产出，
+# 而不是一片空大厅。后端启动时自己判断要不要装（见 store.SeedDemo）。
+if [ -d seed/demo ]; then
+  mkdir -p "$APP/Contents/Resources/seed"
+  cp -R seed/demo "$APP/Contents/Resources/seed/"
+fi
 cp desktop/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # 后端按可执行文件旁找 web/，找不到再看 Contents/Resources/web（见 webDir）。
