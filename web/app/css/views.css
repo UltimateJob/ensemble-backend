@@ -643,7 +643,22 @@
   font-size:10.5px;font-weight:600;color:var(--pri-deep);
   background:var(--sheet);border-radius:5px;padding:2px 7px;flex:0 0 auto;
 }
+/* 三条边界说明：让用户在动手前一眼看清风险边界 */
+.ws-facts{
+  list-style:none;margin:0 0 20px;padding:0;
+  display:flex;flex-direction:column;gap:8px;
+}
+.ws-facts li{
+  display:flex;align-items:flex-start;gap:9px;
+  font-size:12.5px;line-height:1.55;color:var(--ink-3);
+}
+.ws-facts svg{flex:0 0 15px;margin-top:1px;color:var(--ink-4)}
+
 .ws-pick-row{
   display:flex;flex-direction:column;gap:10px;
   padding-top:16px;border-top:.5px solid var(--hair);
+}
+.ws-pick-h{
+  font-size:11.5px;font-weight:620;color:var(--ink-4);
+  letter-spacing:.04em;margin:0 2px;
 }

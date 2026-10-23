@@ -73,6 +73,8 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{
 }
 .btn:active:not(:disabled){transform:scale(.96)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
+/* 撑满一行：落在表单/面板里时，比一排小按钮更好按 */
+.btn-block{display:flex;width:100%}
 
 .btn-primary{
   background:var(--pri-deep);color:#fff;

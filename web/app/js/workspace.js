@@ -63,6 +63,11 @@ export async function openWorkspacePicker(opt = {}) {
 
   const body = `
     <p class="ws-lead">Agent 只能读写这个目录里的文件，不会碰其他地方。随时可以换。</p>
+    <ul class="ws-facts">
+      <li>${icon('lock', 15)}目录只留在本机，不上传云端</li>
+      <li>${icon('shield-alert', 15)}写文件和执行命令按你选的权限逐项确认</li>
+      <li>${icon('refresh-cw', 15)}改动有快照，可以整轮回滚</li>
+    </ul>
 
     ${list.length ? `
       <div class="ws-recent">
@@ -80,13 +85,13 @@ export async function openWorkspacePicker(opt = {}) {
 
     <div class="ws-pick-row">
       ${nativePick()
-        ? `<button class="btn btn-primary" id="wsNative">${icon('folder', 16)}选择目录…</button>
-           <span class="hint">也可以用菜单「文件 → 选择工作区目录」（⌘O）</span>`
+        ? `<button class="btn btn-primary btn-block" id="wsNative">${icon('folder', 16)}选择目录…</button>
+           <span class="hint">也可以按 ⌘O，或从菜单「文件 → 选择工作区目录」</span>`
         : `<label class="field" style="margin:0">
              <span>本机绝对路径</span>
              <input id="wsManual" placeholder="/Users/you/project" spellcheck="false">
            </label>
-           <button class="btn btn-primary" id="wsManualOk">使用这个目录</button>`}
+           <button class="btn btn-primary btn-block" id="wsManualOk">使用这个目录</button>`}
     </div>
   `;
 
