@@ -37,37 +37,73 @@ export function normalizeBase(url: string): string {
 
 /* ---------------- 令牌 ---------------- */
 
+/**
+ * 两套令牌可以同时存在，这是新模型的核心：
+ *
+ *   账号令牌  —— 登录后就有。PC 和手机看到同一份会话 / 团队。
+ *   设备令牌  —— 在「个人页 → 连接电脑」配对后才有。带它请求才代表
+ *                「这台设备被授权操作那台电脑上的工作区」。
+ *
+ * 请求头只带一个，优先设备令牌：配对了就说明用户想让这台设备去动电脑，
+ * 服务端也能据此套用「远程设备需要审批」的策略（DeviceFrom）。
+ * 之前两个令牌互相删除，导致配对了就没账号数据、登录了就不能控制电脑。
+ */
 type TokenKind = 'device' | 'account';
 
 let token: { kind: TokenKind; value: string } | null = null;
+/** 分开保存，避免「当前用哪个」和「有没有哪个」混在一起。 */
+let deviceToken: string | null = null;
+let accountToken: string | null = null;
+
+function pickToken() {
+  if (deviceToken) token = { kind: 'device', value: deviceToken };
+  else if (accountToken) token = { kind: 'account', value: accountToken };
+  else token = null;
+}
 
 export async function loadToken(): Promise<void> {
-  const d = await getItem(KEY_DEVICE_TOKEN);
-  if (d) {
-    token = { kind: 'device', value: d };
-    return;
-  }
-  const a = await getItem(KEY_ACCOUNT_TOKEN);
-  if (a) token = { kind: 'account', value: a };
+  deviceToken = await getItem(KEY_DEVICE_TOKEN);
+  accountToken = await getItem(KEY_ACCOUNT_TOKEN);
+  pickToken();
 }
 
 export function getToken(): { kind: TokenKind; value: string } | null {
   return token;
 }
 
+/** 这台设备是否已经连接过电脑（能不能控制工作区）。 */
+export function hasDeviceToken(): boolean {
+  return !!deviceToken;
+}
+
+/** 是否已登录账号（PC 与手机数据同步的前提）。 */
+export function hasAccountToken(): boolean {
+  return !!accountToken;
+}
+
 export async function saveDeviceToken(t: string): Promise<void> {
-  token = { kind: 'device', value: t };
+  deviceToken = t;
   await setItem(KEY_DEVICE_TOKEN, t);
-  await deleteItem(KEY_ACCOUNT_TOKEN);
+  pickToken();
 }
 
 export async function saveAccountToken(t: string): Promise<void> {
-  token = { kind: 'account', value: t };
+  accountToken = t;
   await setItem(KEY_ACCOUNT_TOKEN, t);
-  await deleteItem(KEY_DEVICE_TOKEN);
+  pickToken();
 }
 
+/** 只断开电脑配对，保留账号登录。 */
+export async function clearDeviceToken(): Promise<void> {
+  deviceToken = null;
+  await deleteItem(KEY_DEVICE_TOKEN);
+  pickToken();
+}
+
+/** 退出登录：两套都清。 */
 export async function clearToken(): Promise<void> {
+  deviceToken = null;
+  accountToken = null;
   token = null;
   await deleteItem(KEY_DEVICE_TOKEN);
   await deleteItem(KEY_ACCOUNT_TOKEN);

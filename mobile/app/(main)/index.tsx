@@ -912,6 +912,7 @@ function TeamsPage({
   onGoals: () => void;
 }) {
   const t = useTheme();
+  const router = useRouter();
   const presets = scenarios.filter((s) => !s.random && (s.agents?.length ?? 0) > 0);
   const scrollY = useRef(new Animated.Value(0)).current;
 

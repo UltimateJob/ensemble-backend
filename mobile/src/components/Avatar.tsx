@@ -2,6 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '../theme/theme';
+import { MEMBER_COLORS } from '../theme/tokens';
 import type { AgentState } from '../lib/types';
 
 /**
@@ -52,10 +53,14 @@ interface Props {
   size?: number;
   state?: AgentState;
   tint?: string;
+  /** 成员序号：用于按规范 §2.3 循环取大地色身份色 */
+  index?: number;
+  /** 是否显示右下角状态点（规范 §5.3） */
+  showDot?: boolean;
 }
 
-export function Avatar({ name, size = 44, state, tint }: Props) {
-  const [c1, c2] = pairFor(name, tint);
+export function Avatar({ name, size = 44, state, tint, index, showDot }: Props) {
+  const [c1, c2] = pairFor(name, tint ?? (index != null ? MEMBER_COLORS[index % MEMBER_COLORS.length] : undefined));
   const r = Math.round(size * 0.36);
 
   return (

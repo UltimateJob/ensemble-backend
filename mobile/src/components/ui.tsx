@@ -91,17 +91,20 @@ export function T({
   numberOfLines,
   align,
   onPress,
+  tracking,
 }: {
   children: React.ReactNode;
   size?: number;
   color?: string;
-  weight?: TextStyle['fontWeight'];
+  weight?: TextStyle['fontWeight'] | string;
   lh?: number;
   style?: StyleProp<TextStyle>;
   numberOfLines?: number;
   align?: TextStyle['textAlign'];
   /** 少数场景把文字当链接用（跳过、关闭），省一层 Pressable */
   onPress?: () => void;
+  /** 字距（px）。规范 §3：过线小字用 1.2 */
+  tracking?: number;
 }) {
   const t = useTheme();
   return (
@@ -112,11 +115,11 @@ export function T({
         {
           fontSize: size,
           color: color ?? t.ink,
-          fontWeight: weight,
+          fontWeight: weight as any,
           fontFamily: fontFamily(weight),
           lineHeight: lh ?? Math.round(size * 1.45),
           textAlign: align,
-          letterSpacing: size >= type.title ? -0.45 : 0,
+          letterSpacing: tracking ?? (size >= type.title ? -0.45 : 0),
         },
         style,
       ]}
@@ -454,6 +457,7 @@ export function Input({
   style,
   editable = true,
   autoFocus,
+  secureTextEntry,
 }: {
   value: string;
   onChangeText: (v: string) => void;
@@ -465,6 +469,8 @@ export function Input({
   style?: StyleProp<ViewStyle>;
   editable?: boolean;
   autoFocus?: boolean;
+  /** 兼容旧调用 */
+  secureTextEntry?: boolean;
 }) {
   const t = useTheme();
   return (
@@ -473,7 +479,7 @@ export function Input({
       onChangeText={onChangeText}
       placeholder={placeholder}
       placeholderTextColor={t.ink4}
-      secureTextEntry={secure}
+      secureTextEntry={secure ?? secureTextEntry}
       multiline={multiline}
       keyboardType={keyboardType}
       autoCapitalize={autoCapitalize ?? 'none'}
@@ -525,7 +531,7 @@ export function Tag({
   icon: ic,
 }: {
   label: string;
-  tone?: 'neutral' | 'working' | 'done' | 'blocked' | 'accent';
+  tone?: 'neutral' | 'working' | 'done' | 'blocked' | 'accent' | 'gold';
   icon?: IoniconName;
 }) {
   const t = useTheme();
@@ -535,6 +541,7 @@ export function Tag({
     accent: { bg: t.accentSoft, fg: t.accentText },
     done: { bg: t.okSoft, fg: t.ok },
     blocked: { bg: t.badSoft, fg: t.bad },
+    gold: { bg: t.goldBg, fg: t.goldFg },
   } as const;
   const c = map[tone];
   return (
@@ -686,17 +693,143 @@ export function SectionHead({
 }
 
 /** 呼吸点。 */
-export function PulseDot({ active = true, tone }: { active?: boolean; tone?: string }) {
+export function PulseDot({
+  active = true,
+  tone,
+  size = 9,
+}: {
+  active?: boolean;
+  tone?: string;
+  size?: number;
+}) {
   const t = useTheme();
   const c = tone ?? t.accent;
   return (
-    <View style={{ width: 9, height: 9, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       {active ? (
-        <Breathe active min={0.3} duration={1400}>
-          <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: withAlpha(c, 0.3), position: 'absolute' }} />
+        <Breathe active min={0.45} duration={1600}>
+          <View
+            style={{
+              width: size,
+              height: size,
+              borderRadius: size / 2,
+              backgroundColor: withAlpha(c, 0.3),
+              position: 'absolute',
+            }}
+          />
         </Breathe>
       ) : null}
-      <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: c }} />
+      <View style={{ width: size * 0.55, height: size * 0.55, borderRadius: size * 0.28, backgroundColor: c }} />
+    </View>
+  );
+}
+
+/** 文字按钮（规范 §6.7）：无底无框，灰字。 */
+export function TextButton({
+  label,
+  onPress,
+  tone = 'default',
+  size = type.caption,
+  disabled,
+  fontWeight,
+}: {
+  label: string;
+  onPress?: () => void;
+  tone?: 'default' | 'danger';
+  size?: number;
+  disabled?: boolean;
+  fontWeight?: string;
+}) {
+  const t = useTheme();
+  const c = tone === 'danger' ? t.bad : t.slate;
+  return (
+    <Pressable onPress={onPress} disabled={disabled} hitSlop={8} style={{ opacity: disabled ? 0.4 : 1 }}>
+      <Text style={{ fontSize: size, color: c, fontWeight: (fontWeight ?? '500') as any }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** 单选圆点（规范 §6.8）：未选描边 2px，选中墨黑描边 + 内点。 */
+export function RadioDot({ on, size = 20 }: { on: boolean; size?: number }) {
+  const t = useTheme();
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 2,
+        borderColor: on ? t.primaryBg : t.radioOff,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {on ? (
+        <View
+          style={{
+            width: size * 0.48,
+            height: size * 0.48,
+            borderRadius: size * 0.24,
+            backgroundColor: t.primaryBg,
+          }}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/** 分段切换（规范 §6.10）：玻璃胶囊，选中墨黑底白字。 */
+export function Segmented({
+  items,
+  index,
+  onChange,
+  style,
+}: {
+  items: string[];
+  index: number;
+  onChange: (i: number) => void;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const t = useTheme();
+  return (
+    <View
+      style={[
+        {
+          flexDirection: 'row',
+          backgroundColor: t.slab,
+          borderRadius: radius.pill,
+          padding: 3,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: t.hairline,
+        },
+        style,
+      ]}
+    >
+      {items.map((label, i) => {
+        const on = i === index;
+        return (
+          <Pressable
+            key={label}
+            onPress={() => onChange(i)}
+            style={{
+              paddingHorizontal: 20,
+              paddingVertical: 6,
+              borderRadius: radius.pill,
+              backgroundColor: on ? t.primaryBg : 'transparent',
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 13.5,
+                fontWeight: on ? '600' : '500',
+                color: on ? t.primaryInk : t.ink3,
+              }}
+            >
+              {label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
