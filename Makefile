@@ -1,4 +1,4 @@
-.PHONY: run build clean test a11y contrast resilience-ui keyboard-ui ui-check shots
+.PHONY: run build clean test a11y contrast resilience-ui keyboard-ui ui-check fresh-install shots
 
 # 本地启动：没有 Key 也能跑（自动降级 mock）
 run:
@@ -75,6 +75,10 @@ resilience-ui:
 # 键盘操作：⌘1–6 切页、⌘0 面板、Enter 发送、Shift+Enter 换行
 keyboard-ui:
 	@node scripts/check-keyboard.mjs
+
+# 模拟用户第一次打开：全新数据目录 + 包内后端，验证演示内容自动装载
+fresh-install:
+	@./scripts/test-fresh-install.sh
 
 # 逐屏验收截图（25 屏 × 3 宽度）
 qa-shots:
