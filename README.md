@@ -2,7 +2,7 @@
 
 > 五个 Agent，一个纸团。
 
-**1.1.1** · 功能冻结，等运营基础设施补齐。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
+**1.3.1** · 单聊、团队流水线、账号中心、渠道排名路由与运维台。见 [CHANGELOG](CHANGELOG.md) 和「[已知缺口](docs/handoff.md)」。
 
 一个多角色群聊的 Agent 工作台。每个群是一组角色，它们自己判断要不要说话、可以互相接话、缺信息时直接问你。真跑了 DeepSeek。
 
