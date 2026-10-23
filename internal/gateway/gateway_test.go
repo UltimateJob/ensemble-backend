@@ -517,7 +517,7 @@ func TestOpenCircuitExcludedFromPick(t *testing.T) {
 	if st := reg.State("a"); st != "open" {
 		t.Fatalf("a 应已熔断，状态 %q", st)
 	}
-	m, p, ok := gw.pickModel(domain.ChatRequest{})
+	m, p, ok := gw.pickModel(domain.ChatRequest{}, nil)
 	if !ok {
 		t.Fatal("应能选出模型")
 	}
@@ -540,13 +540,13 @@ func TestTaskModelRoutingPools(t *testing.T) {
 	gw := New(reg, mt, 0, 100, time.Minute)
 
 	for i := 0; i < 6; i++ {
-		m, p, ok := gw.pickModel(domain.ChatRequest{})
+		m, p, ok := gw.pickModel(domain.ChatRequest{}, nil)
 		if !ok || m.Key != "chat-model" {
 			t.Fatalf("聊天自动选路应始终落在 chat-model，得到 %s/%s (ok=%v)", m.Key, p, ok)
 		}
 	}
 	for i := 0; i < 6; i++ {
-		m, _, ok := gw.pickModel(domain.ChatRequest{Task: true})
+		m, _, ok := gw.pickModel(domain.ChatRequest{Task: true}, nil)
 		if !ok || m.Key != "task-model" {
 			t.Fatalf("任务选路应始终落在 task-model，得到 %s (ok=%v)", m.Key, ok)
 		}
@@ -556,7 +556,7 @@ func TestTaskModelRoutingPools(t *testing.T) {
 		{Key: "only-task", Provider: "p1", Enabled: true, TaskOnly: true},
 	})
 	gw2 := New(reg, mt2, 0, 100, time.Minute)
-	if m, _, ok := gw2.pickModel(domain.ChatRequest{}); !ok || m.Key != "only-task" {
+	if m, _, ok := gw2.pickModel(domain.ChatRequest{}, nil); !ok || m.Key != "only-task" {
 		t.Fatalf("池空回退失败：%v %v", m.Key, ok)
 	}
 }
@@ -667,7 +667,7 @@ func TestPickPrefersLowerRank(t *testing.T) {
 	reg.Add(&namedProvider{name: "b"})
 	gw := New(reg, table, 0, 100, time.Second)
 	for i := 0; i < 50; i++ {
-		m, _, ok := gw.pickModel(domain.ChatRequest{})
+		m, _, ok := gw.pickModel(domain.ChatRequest{}, nil)
 		if !ok || m.Key != "official" {
 			t.Fatalf("应优先排名第 1 的官方渠道，得到 %s", m.Key)
 		}
@@ -687,7 +687,7 @@ func TestPickSpillsToNextRankWhenSaturated(t *testing.T) {
 	// 官方渠道占满默认并发上限后，应自动溢出到中转。
 	reg.BusyAdd("a", defaultChannelConcurrency)
 	for i := 0; i < 20; i++ {
-		m, _, ok := gw.pickModel(domain.ChatRequest{})
+		m, _, ok := gw.pickModel(domain.ChatRequest{}, nil)
 		if !ok || m.Key != "relay" {
 			t.Fatalf("官方饱和后应溢出到中转，得到 %s", m.Key)
 		}
@@ -705,7 +705,7 @@ func TestPickRoundRobinWithinTier(t *testing.T) {
 	gw := New(reg, table, 0, 100, time.Second)
 	count := map[string]int{}
 	for i := 0; i < 40; i++ {
-		m, _, _ := gw.pickModel(domain.ChatRequest{})
+		m, _, _ := gw.pickModel(domain.ChatRequest{}, nil)
 		count[m.Key]++
 	}
 	if count["a"] == 0 || count["b"] == 0 {
@@ -726,7 +726,7 @@ func TestPickSkipsOpenCircuit(t *testing.T) {
 	if reg.State("a") != "open" {
 		t.Fatal("阈值 1 时应熔断")
 	}
-	m, _, ok := gw.pickModel(domain.ChatRequest{})
+	m, _, ok := gw.pickModel(domain.ChatRequest{}, nil)
 	if !ok || m.Key != "relay" {
 		t.Fatalf("熔断渠道不应被选，得到 %s", m.Key)
 	}
@@ -744,12 +744,12 @@ func TestPickUsesConfiguredConcurrency(t *testing.T) {
 
 	// 未到配置的并发上限（2）：仍优先官方。
 	reg.BusyAdd("a", 1)
-	if m, _, _ := gw.pickModel(domain.ChatRequest{}); m.Key != "official" {
+	if m, _, _ := gw.pickModel(domain.ChatRequest{}, nil); m.Key != "official" {
 		t.Fatalf("未饱和时应走官方，得到 %s", m.Key)
 	}
 	// 到达上限：溢出到中转。
 	reg.BusyAdd("a", 1)
-	if m, _, _ := gw.pickModel(domain.ChatRequest{}); m.Key != "relay" {
+	if m, _, _ := gw.pickModel(domain.ChatRequest{}, nil); m.Key != "relay" {
 		t.Fatalf("达到并发上限应溢出，得到 %s", m.Key)
 	}
 }
@@ -781,5 +781,72 @@ func TestStreamReleasesBusyOnSuccess(t *testing.T) {
 		if b := reg.Busy("a"); b != 0 {
 			t.Fatalf("第 %d 次请求后 in-flight=%d，应为 0", i+1, b)
 		}
+	}
+}
+
+func TestUsageObserverCost(t *testing.T) {
+	p := &scriptedProvider{streams: [][]domain.Chunk{{
+		{Content: "ok"},
+		{Done: true, Usage: &domain.Usage{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500}},
+	}}}
+	reg := NewRegistry()
+	reg.Add(p)
+	table := NewModelTable([]domain.ModelInfo{{
+		Key: "m", Provider: "scripted", Enabled: true, Weight: 1,
+		InputCostPer1M: 10, OutputCostPer1M: 20,
+	}})
+	gw := New(reg, table, 0, 3, time.Second)
+	var events []domain.UsageEvent
+	gw.SetUsageObserver(func(ev domain.UsageEvent) { events = append(events, ev) })
+
+	out, err := gw.Stream(context.Background(), domain.ChatRequest{
+		UserID: "u1", Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range out {
+	}
+	if len(events) != 1 {
+		t.Fatalf("应上报一次用量，得到 %d", len(events))
+	}
+	ev := events[0]
+	if ev.UserID != "u1" || ev.Model != "m" || ev.Provider != "scripted" {
+		t.Fatalf("归因字段不正确：%+v", ev)
+	}
+	if ev.PromptTokens != 1000 || ev.CompletionTokens != 500 || ev.TotalTokens != 1500 {
+		t.Fatalf("token 字段不正确：%+v", ev)
+	}
+	// 1000/1e6*10 + 500/1e6*20 = 0.02
+	if ev.CostCNY < 0.0199 || ev.CostCNY > 0.0201 {
+		t.Fatalf("成本计算不正确：%v", ev.CostCNY)
+	}
+}
+
+// 套餐模型白名单：显式指定白名单外的模型时退回白名单内自动选路，
+// 白名单内没有可用模型时不选路（请求会以 no_provider 失败）。
+func TestPickModelAllowedList(t *testing.T) {
+	reg := NewRegistry()
+	reg.Add(&echoProvider{name: "p1"})
+	reg.Add(&echoProvider{name: "p2"})
+	mt := NewModelTable([]domain.ModelInfo{
+		{Key: "cheap", Provider: "p1", Enabled: true, Weight: 1},
+		{Key: "premium", Provider: "p2", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, mt, 0, 100, time.Minute)
+
+	// 会话存的是 premium，但套餐只允许 cheap：不报错，退回 cheap。
+	m, p, ok := gw.pickModel(domain.ChatRequest{Model: "premium"}, []string{"cheap"})
+	if !ok || m.Key != "cheap" || p != "p1" {
+		t.Fatalf("白名单外的显式模型应退回白名单内选路，得到 %s/%s ok=%v", m.Key, p, ok)
+	}
+	// 白名单内模型可被显式指定。
+	m, _, ok = gw.pickModel(domain.ChatRequest{Model: "cheap"}, []string{"cheap"})
+	if !ok || m.Key != "cheap" {
+		t.Fatalf("白名单内显式模型应被尊重，得到 %s ok=%v", m.Key, ok)
+	}
+	// 白名单里没有任何已启用模型：不选路。
+	if _, _, ok := gw.pickModel(domain.ChatRequest{}, []string{"missing"}); ok {
+		t.Fatal("白名单全部不可用时应返回 false")
 	}
 }

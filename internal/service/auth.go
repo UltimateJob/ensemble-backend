@@ -22,10 +22,11 @@ import (
 )
 
 var (
-	ErrInvalidCode     = errors.New("验证码不正确或已过期")
-	ErrCodeTooFrequent = errors.New("验证码发得太频繁了，稍等一分钟")
-	ErrDisabled        = errors.New("账号已被停用")
-	ErrBadToken        = errors.New("会话无效，请重新登录")
+	ErrInvalidCode        = errors.New("验证码不正确或已过期")
+	ErrCodeTooFrequent    = errors.New("验证码发得太频繁了，稍等一分钟")
+	ErrDisabled           = errors.New("账号已被停用")
+	ErrBadToken           = errors.New("会话无效，请重新登录")
+	ErrRegistrationClosed = errors.New("注册暂未开放")
 
 	// 密码登录
 	ErrAccountNotFound = errors.New("账号不存在")
@@ -34,6 +35,14 @@ var (
 	ErrOldPassword     = errors.New("原密码不正确")
 	ErrWeakPassword    = errors.New("密码长度需在 8 到 72 个字符之间")
 )
+
+// SignupPolicy 新用户注册策略。由运营设置驱动；
+// 未注入时保持历史行为：开放注册、free 套餐、默认额度。
+type SignupPolicy struct {
+	Open  bool
+	Plan  string
+	Quota int
+}
 
 const (
 	// codeTTL 验证码有效期。
@@ -68,6 +77,11 @@ type Auth struct {
 	credPath string
 	credMu   sync.Mutex
 	creds    map[string]string // userID -> 编码后的密码散列
+
+	// signup 注册策略钩子。放在 Auth 上而不是直接依赖 SettingsStore，
+	// 是为了让 service 层不反向依赖运营模块的具体存储。
+	signupMu sync.RWMutex
+	signup   func() SignupPolicy
 }
 
 type codeEntry struct {
@@ -128,6 +142,30 @@ func (a *Auth) SendCode(ctx context.Context, target string) (string, error) {
 	return devCode, nil
 }
 
+// SetSignupPolicy 注入注册策略。须在开始接请求前调用。
+func (a *Auth) SetSignupPolicy(fn func() SignupPolicy) {
+	a.signupMu.Lock()
+	a.signup = fn
+	a.signupMu.Unlock()
+}
+
+func (a *Auth) signupPolicy() SignupPolicy {
+	a.signupMu.RLock()
+	fn := a.signup
+	a.signupMu.RUnlock()
+	if fn == nil {
+		return SignupPolicy{Open: true, Plan: "free", Quota: defaultQuota()}
+	}
+	p := fn()
+	if p.Plan == "" {
+		p.Plan = "free"
+	}
+	if p.Quota <= 0 {
+		p.Quota = defaultQuota()
+	}
+	return p
+}
+
 // Login 手机号或邮箱登录，不存在则自动建号。
 func (a *Auth) Login(kind, target, code, name string) (*domain.User, string, error) {
 	// 演示账号可跳过验证码（由配置控制，生产应关掉）
@@ -152,12 +190,16 @@ func (a *Auth) Login(kind, target, code, name string) (*domain.User, string, err
 	}
 
 	if !ok2 {
+		pol := a.signupPolicy()
+		if !pol.Open {
+			return nil, "", ErrRegistrationClosed
+		}
 		u = &domain.User{
 			Phone:  ptrIf(kind == "phone", target),
 			Email:  ptrIf(kind == "email", target),
 			Name:   firstOr(name, defaultName(target)),
-			Plan:   "free",
-			Quota:  defaultQuota(),
+			Plan:   pol.Plan,
+			Quota:  pol.Quota,
 			Role:   "user",
 			Status: "active",
 		}

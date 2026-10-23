@@ -108,6 +108,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "invalid_code", err.Error())
 		case service.ErrDisabled:
 			fail(w, 403, "disabled", err.Error())
+		case service.ErrRegistrationClosed:
+			fail(w, 403, "registration_closed", err.Error())
 		default:
 			serverErr(w, err.Error())
 		}

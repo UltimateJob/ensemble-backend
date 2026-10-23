@@ -19,6 +19,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w, "未登录")
 		return
 	}
+	st := s.admin.Settings()
 	ok(w, map[string]interface{}{
 		"user":        u,
 		"remaining":   u.Remaining(),
@@ -27,6 +28,14 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		// 让前端知道现在是真模型还是演示台词
 		"demo":     !s.cfg.UpstreamConfigured(),
 		"upstream": upstreamName(s.cfg),
+		"plan":     s.planSummary(u),
+		"wallet":   s.admin.Wallet().Account(u.ID),
+		"announcement": map[string]interface{}{
+			"text":  st.Announcement,
+			"level": st.AnnouncementLevel,
+			"at":    st.AnnouncementAt,
+		},
+		"maintenance": st.MaintenanceMode,
 	})
 }
 
