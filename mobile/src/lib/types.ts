@@ -27,8 +27,16 @@ export interface ConvAgent {
   color: string;
   upgraded?: boolean;
   artifact?: string;
-  permission?: 'readonly' | 'approval' | 'full';
+  permission?: 'readonly' | 'ask' | 'approval' | 'full' | 'audit';
   scope?: string[];
+}
+
+export interface ConvWorkspace {
+  id?: string;
+  kind?: string;
+  root: string;
+  label?: string;
+  boundAt?: string;
 }
 
 export interface Conversation {
@@ -40,8 +48,27 @@ export interface Conversation {
   members: string[];
   agents?: ConvAgent[];
   collaborators: string[];
+  /** 会话绑定的本地工作区（角色执行任务的根目录）。 */
+  workspace?: ConvWorkspace | null;
+  /** ask | approval | full | readonly；空表示跟随角色设置。 */
+  defaultPermission?: string;
+  /** 按角色 key 覆盖权限。 */
+  agentPermissions?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
+}
+
+/** 消息里附带的真实产物（来自一次 Run 的改动文件）。 */
+export interface ArtifactRef {
+  id: string;
+  kind: string;
+  name: string;
+  path?: string;
+  size?: number;
+  agentKey?: string;
+  agentName?: string;
+  runId?: string;
+  createdAt?: string;
 }
 
 export interface Message {
@@ -51,6 +78,10 @@ export interface Message {
   agent?: string;
   content: string;
   artifacts?: string[];
+  attachments?: ArtifactRef[];
+  kind?: string;
+  ref?: string;
+  mentions?: string[];
   tokensIn: number;
   tokensOut: number;
   model?: string;
@@ -136,6 +167,24 @@ export interface AgentActivity {
   detail?: string;
   runId?: string;
   updatedAt?: string;
+  /** 生效的执行权限（ask / approval / full / readonly）。 */
+  permission?: string;
+  step?: number;
+  maxSteps?: number;
+  elapsedMs?: number;
+  currentTool?: { tool: string; summary?: string; startedAt?: string };
+  lastRun?: { status?: string; summary?: string; endedAt?: string };
+  tokens?: { in?: number; out?: number };
+}
+
+/* ---------------- 角色库 ---------------- */
+
+export interface Character {
+  name: string;
+  work: string;
+  tags: string[];
+  tone: string;
+  emoji?: string;
 }
 
 /* ---------------- 目标 ---------------- */
@@ -227,6 +276,7 @@ export interface Workspace {
 
 export type RunStatus =
   | 'running'
+  | 'waiting'
   | 'waiting_approval'
   | 'done'
   | 'failed'
@@ -239,7 +289,7 @@ export interface Run {
   conversationId: string;
   userId: string;
   operatorKey: string;
-  permission: 'readonly' | 'approval' | 'full' | 'audit';
+  permission: 'readonly' | 'ask' | 'approval' | 'full' | 'audit';
   scope?: string[];
   task: string;
   model?: string;

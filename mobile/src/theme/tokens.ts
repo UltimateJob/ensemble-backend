@@ -1,243 +1,360 @@
 /**
- * 设计 token · iOS 灵动版
+ * 设计 token · 纸团 v1.0
  *
- * 参照元宝这类国内一线 AI App 的视觉语言，核心是四点：
+ * 严格对应《纸团 App 设计规范 v1.0》。三条铁律：
  *
- *   1. **暖调底 + 浮起白卡**：整个 App 不是纯白，而是一层极淡的暖灰蓝渐变底；
- *      卡片是纯白，靠真实阴影"浮"在底上。层次靠光，不靠色阶。
- *   2. **活力渐变**：主色不是单色，是蓝→靛紫的渐变；关键动作、图标底、
- *      进度条都用它。渐变是这套语言的情绪来源，不是装饰。
- *   3. **大圆角 + 柔和阴影**：卡片 24，按钮/输入 18，图标底 14。
- *      阴影是"东西浮起来了"，不是描边。
- *   4. **弹性微交互**：按压回弹、入场错帧、状态环呼吸——
- *      动效让界面是"活的"，这是和静态截图最大的区别。
+ *   1. **黑白灰打底，颜色只做语义。** 界面 95% 是黑白灰。
+ *      彩色只出现在：成员头像（大地色身份色）、文件类型图标（低饱和）、
+ *      状态语义（绿=完成、红=等审批、琥珀=等待）。
+ *   2. **一个界面只有一个主操作。** 主按钮是墨黑实心胶囊。
+ *   3. **深度靠投影，不靠边框染色。** 每个表面 = 顶部 1px 高光
+ *      + 纵向微渐变 + 柔和投影，三层缺一不可。
  *
- * 所有页面只引用这里的 token，不写裸值。
+ * 例外：附录 A 允许门面页使用品牌渐变。群聊内不用。
  */
 
-export const color = {
-  /* ---- 表面 ---- */
-  /** 页面底：纯白，覆盖在上面的渐变由页面自己铺 */
-  bg: '#FFFFFF',
-  /** 底色渐变的三个端点（极淡暖灰蓝，几乎看不出颜色但让白卡浮起来） */
-  canvasTop: '#F4F6FC',
-  canvasMid: '#F7F8FC',
-  canvasBottom: '#FBFBFD',
+/* ============================================================
+   浅色
+   ============================================================ */
+export const light = {
+  /* 表面 */
+  bg: '#F6F6F4',
+  surface: '#FFFFFF',
+  surfaceSoft: '#F4F4F1',
+  chipBg: '#F4F4F1',
 
-  /** 浮起的卡片 */
-  card: '#FFFFFF',
-  /** 卡片内部的浅层块（嵌套内容） */
-  cardSunken: '#F6F7FB',
-  /** 更浅的分区底 */
-  cardTint: '#FAFBFE',
+  /* 文字 */
+  ink: '#17181C',
+  text2: '#5C5C66',
+  text3: '#8A8F98',
+  text4: '#9AA0A8',
+  faint: '#A6ABB5',
 
-  /* ---- 主色（活力渐变） ---- */
-  accent: '#3D6DF6',
-  accentDeep: '#5B4BE8',
-  /** 渐变：从左到右 */
-  gradient: ['#4E7BFB', '#6A5BF0', '#8B5CF6'] as const,
-  /** 用于小面积强调的柔和渐变（正反向） */
-  gradientSoft: ['#EEF3FF', '#F4F0FF'] as const,
-  /** 主色浅底 */
-  accentSoft: '#EDF2FF',
-  accentFaint: '#F7F9FF',
+  /* 主按钮/用户气泡的纵向微渐变 */
+  inkGrad: ['#2B2C31', '#141518'] as const,
 
-  /* ---- 文字 ---- */
-  ink: '#15151C',
-  ink2: '#5A5A68',
-  ink3: '#8E8E9C',
-  ink4: '#B9B9C6',
+  /* 线 */
+  hairline: 'rgba(20,24,40,.05)',
+  hairlineStrong: 'rgba(20,24,40,.07)',
+  track: '#ECEEF2',
+  toggleOff: '#E3E5E9',
+  radioOff: '#C9CDD4',
 
-  /* ---- 语义 ---- */
-  ok: '#12A56A',
-  okSoft: '#E6F7EF',
-  warn: '#E08A00',
-  warnSoft: '#FFF6E5',
-  bad: '#E5484D',
-  badSoft: '#FFEEEE',
+  /* 语义（全 App 唯一允许的彩色） */
+  wait: '#E8A33D',
+  danger: '#C93A2E',
+  dangerDot: '#D9534A',
+  dangerSoft: '#FDECEA',
+  ok: '#3E7C4F',
+  okDot: '#4C9A6C',
+  goldBg: '#F7F1E3',
+  goldFg: '#96762F',
+  meBlue: '#2B7CD3',
 
-  /* ---- 状态环 ---- */
-  ringIdle: '#D7D7E0',
-  ringWorking: '#4E7BFB',
-  ringDone: '#12A56A',
-  ringBlocked: '#E5484D',
+  /* 品牌渐变（附录 A，仅门面页） */
+  brandFrom: '#4E7BFB',
+  brandTo: '#8B5CF6',
 
-  /* ---- 其他 ---- */
-  line: '#EDEDF3',
+  /* 其他 */
+  scrim: 'rgba(16,18,20,.38)',
   white: '#FFFFFF',
-  scrim: 'rgba(18,18,28,0.42)',
-};
-
-/** 字号阶梯：相邻至少差 3px，层级才拉得开。 */
-/**
- * 字号阶梯：只有 6 档，全部是整数。
- *
- * 小数（15.5 / 13.5）在 Web 上会被舍入成 15.5px 但在某些渲染路径下
- * 取整成 16，导致同一档字号在不同元素上看起来不一样。
- * 整数是唯一能让全站严格一致的做法。
- */
-export const type = {
-  /** 页面级标题，一屏最多一个 */
-  display: 30,
-  /** 区块标题 */
-  title: 20,
-  /** 卡片标题 / 导航栏 */
-  headline: 16,
-  /** 正文 */
-  body: 15,
-  /** 次要说明 */
-  sub: 13,
-  /** 元信息 */
-  caption: 11,
-} as const;
-
-export const leading = {
-  display: 38,
-  title: 27,
-  headline: 22,
-  body: 23,
-  sub: 19,
-  caption: 15,
-} as const;
-
-export const weight = {
-  regular: '400',
-  medium: '500',
-  semibold: '600',
-  bold: '700',
-  heavy: '800',
-} as const;
-
-/** 4pt 间距系统。 */
-export const gap = {
-  xxs: 4,
-  xs: 8,
-  sm: 12,
-  md: 16,
-  lg: 20,
-  xl: 24,
-  xxl: 32,
-  xxxl: 44,
-} as const;
-
-export const radius = {
-  /** 大卡片 / 弹层 */
-  card: 24,
-  /** 次级块 */
-  md: 18,
-  /** 按钮、输入框 */
-  control: 16,
-  /** 图标底、小标签 */
-  sm: 14,
-  /** 头像 */
-  avatar: 16,
-  pill: 999,
-} as const;
-
-/**
- * 阴影：这是新版最重要的变化。
- *
- * iOS 上"浮起来"全靠阴影。这里给三档，越靠近用户的层越深。
- * 颜色用蓝紫色而不是纯黑——纯黑在浅色底上会显脏。
- */
-export const shadow = {
-  /** 卡片：几乎无感，只负责让边缘离开背景 */
-  card: {
-    shadowColor: '#2B3A77',
-    shadowOpacity: 0.06,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  /** 浮层卡片 / 强调卡：明显浮起 */
-  lift: {
-    shadowColor: '#2B3A77',
-    shadowOpacity: 0.11,
-    shadowRadius: 26,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
-  },
-  /** 弹层、侧滑面板 */
-  float: {
-    shadowColor: '#14163A',
-    shadowOpacity: 0.18,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 18 },
-    elevation: 16,
-  },
-  /** 主色按钮：带颜色投影，让它像发光的实体 */
-  accent: {
-    shadowColor: '#4E7BFB',
-    shadowOpacity: 0.32,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
-  },
-  /** 兼容旧名 */
-  sheet: {
-    shadowColor: '#14163A',
-    shadowOpacity: 0.18,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 18 },
-    elevation: 16,
-  },
-} as const;
-
-export const icon = { sm: 16, md: 20, lg: 24 } as const;
-export const HIT = 44;
-export const PAGE_X = 20;
-
-/** 动效时长。iOS 的默认体感：快进慢出。 */
-export const motion = {
-  fast: 160,
-  base: 240,
-  slow: 380,
-  spring: { damping: 16, stiffness: 220, mass: 0.7 },
+  slate: '#5A6B7D',
 } as const;
 
 /* ============================================================
-   兼容别名：旧页面还在用 colors / font / space / weights
+   深色
    ============================================================ */
+export const dark = {
+  bg: '#0B0B0C',
+  surface: '#242428',
+  surfaceTop: '#2B2B2F',
+  slabTop: '#26262B',
+  chipBg: '#2A2A2F',
+
+  text: '#F2F2F2',
+  text2: '#C9C9CE',
+  text3: '#9A9AA0',
+  faint: '#63636A',
+
+  hairline: 'rgba(255,255,255,.07)',
+  track: 'rgba(255,255,255,.14)',
+
+  ok: '#4CC38A',
+  danger: '#FF7166',
+  dangerSoft: 'rgba(217,83,74,.20)',
+
+  primary: '#F4F4F2',
+  primaryInk: '#141518',
+
+  scrim: 'rgba(0,0,0,.58)',
+} as const;
+
+/* ============================================================
+   成员身份色（大地色系，按成员固定分配，不用 hash）
+   ============================================================ */
+export const MEMBER_COLORS = [
+  '#A98A68', // 赭
+  '#B98A5E', // 陶
+  '#64766B', // 松绿
+  '#8A6F5C', // 褐
+  '#6B7A8A', // 岩蓝灰
+  '#7A6B8A', // 紫灰
+  '#5C7A72', // 青
+  '#8A7A5C', // 卡其
+] as const;
+
+/* ============================================================
+   文件/应用图标底色（低饱和）
+   ============================================================ */
+export const FILE_COLORS = {
+  doc: '#7C93A8',
+  image: '#7A9A7E',
+  artifact: '#8B7EC8',
+  goal: '#5F9E72',
+  connector: '#D96C5F',
+} as const;
+
+/* ============================================================
+   字体与字阶
+   ============================================================ */
+export const type = {
+  /** 页面大标题 27/750 */
+  display: 27,
+  /** 页标题 20/700 */
+  page: 20,
+  /** 栏标题 16.5/650 */
+  title: 16.5,
+  /** 卡片标题 */
+  card: 15.5,
+  /** 正文 */
+  body: 15.5,
+  /** 次要正文 */
+  sub: 14.5,
+  /** 辅助 */
+  caption: 12.5,
+  /** 微型 */
+  micro: 11,
+
+  /* 兼容旧键名 */
+  headline: 16.5,
+  cardTitle: 15.5,
+} as const;
+
+export const lead = {
+  display: 34,
+  page: 26,
+  title: 21,
+  card: 21,
+  body: 24.5,
+  sub: 22,
+  caption: 19,
+  micro: 15,
+} as const;
+
+/** 字重：只用这六档，不用 800+ */
+export const weight = {
+  regular: '400',
+  medium: '550',
+  semibold: '600',
+  strong: '650',
+  bold: '700',
+  heavy: '750',
+} as const;
+
+/* ============================================================
+   圆角
+   ============================================================ */
+export const radius = {
+  /** 卡片 */
+  card: 24,
+  /** 气泡 */
+  bubble: 15,
+  /** 卡片消息 */
+  message: 17,
+  /** 审批托盘 */
+  tray: 30,
+  /** 图标底 */
+  icon: 13,
+  /** 标签 */
+  tag: 7,
+  pill: 999,
+
+  /* 兼容旧键名 */
+  md: 20,
+  sm: 13,
+  control: 20,
+  avatar: 16,
+} as const;
+
+/* ============================================================
+   间距（4 的倍数）
+   ============================================================ */
+export const gap = {
+  xxs: 4,
+  xs: 8,
+  sm: 10,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 28,
+  xxxl: 40,
+} as const;
+
+/** 页面左右边距 */
+export const PAGE_X = 20;
+/** 卡片页的左右边距 */
+export const CARD_X = 12;
+/** 卡片内边距 */
+export const CARD_PAD = 17;
+/** 卡片间距 */
+export const CARD_GAP = 10;
+
+/* ============================================================
+   投影（统一两层）
+   ============================================================ */
+export const shadow = {
+  card: {
+    shadowColor: '#101214',
+    shadowOpacity: 0.045,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 3,
+  },
+  slab: {
+    shadowColor: '#101214',
+    shadowOpacity: 0.07,
+    shadowRadius: 34,
+    shadowOffset: { width: 0, height: 16 },
+    elevation: 6,
+  },
+  tray: {
+    shadowColor: '#101214',
+    shadowOpacity: 0.11,
+    shadowRadius: 40,
+    shadowOffset: { width: 0, height: 20 },
+    elevation: 8,
+  },
+  primary: {
+    shadowColor: '#101214',
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+  },
+} as const;
+
+/* ============================================================
+   动效
+   ============================================================ */
+export const motion = {
+  panel: 380,
+  avatarGrow: 320,
+  avatarShrink: 240,
+  tray: 300,
+  trayContent: 120,
+  toggle: 200,
+  press: 120,
+  message: 220,
+  breathe: 1600,
+  segment: 300,
+} as const;
+
+/** 头像尺寸档 */
+export const AVATAR = {
+  bar: 30,
+  header: 36,
+  message: 40,
+  grid: 46,
+  me: 58,
+  detail: 72,
+} as const;
+
+export const HIT = 44;
+
+/* ============================================================
+   兼容别名：旧组件仍在引用 color / colors / font / space / weights。
+   逐组件重写时删除。
+   ============================================================ */
+export const color = {
+  bg: light.bg,
+  canvasTop: light.bg,
+  canvasMid: light.bg,
+  canvasBottom: light.bg,
+  card: light.surface,
+  cardSunken: light.surfaceSoft,
+  cardTint: '#FAFAF8',
+  accent: light.brandFrom,
+  accentDeep: light.brandTo,
+  accentText: '#3B5BD6',
+  gradient: [light.brandFrom, '#6A6AF2', light.brandTo] as const,
+  gradientSoft: ['#EEF2FF', '#F5F0FF'] as const,
+  accentSoft: '#EDF2FF',
+  accentFaint: '#F7F9FF',
+  ink: light.ink,
+  ink2: light.text2,
+  ink3: light.text3,
+  ink4: light.text4,
+  faint: light.faint,
+  ok: light.ok,
+  okSoft: '#EAF4ED',
+  okDot: light.okDot,
+  warn: light.wait,
+  warnSoft: '#FDF3E3',
+  bad: light.danger,
+  badSoft: light.dangerSoft,
+  dangerDot: light.dangerDot,
+  goldBg: light.goldBg,
+  goldFg: light.goldFg,
+  meBlue: light.meBlue,
+  ringIdle: light.radioOff,
+  ringWorking: light.ink,
+  ringDone: light.okDot,
+  ringBlocked: light.dangerDot,
+  line: light.hairline,
+  hairline: light.hairline,
+  track: light.track,
+  toggleOff: light.toggleOff,
+  radioOff: light.radioOff,
+  scrim: light.scrim,
+  white: light.white,
+  slate: light.slate,
+  primaryBg: light.ink,
+  primaryInk: '#FFFFFF',
+  primaryGrad: light.inkGrad,
+};
+
 export const colors = {
-  bg: color.bg,
-  card: color.card,
-  accent: color.accent,
-  accentSoft: color.accentSoft,
-  accentFaint: color.accentFaint,
+  ...color,
   text: color.ink,
   text2: color.ink2,
   text3: color.ink3,
   text4: color.ink4,
-  line: color.line,
-  line2: color.line,
+  line2: light.hairlineStrong,
+  input: light.surfaceSoft,
+  accentFaint: color.accentFaint,
+  okSoft: color.okSoft,
+  warnSoft: color.warnSoft,
+  badSoft: color.badSoft,
   ringIdle: color.ringIdle,
   ringWorking: color.ringWorking,
   ringDone: color.ringDone,
   ringBlocked: color.ringBlocked,
-  ok: color.ok,
-  okSoft: color.okSoft,
-  warn: color.warn,
-  warnSoft: color.warnSoft,
-  bad: color.bad,
-  badSoft: color.badSoft,
-  input: color.cardSunken,
-  scrim: color.scrim,
 };
 export const font = {
   h1: type.display,
-  h2: type.title,
-  h3: type.headline,
+  h2: type.page,
+  h3: type.title,
   body: type.body,
   small: type.sub,
   tiny: type.caption,
 };
 export const space = gap;
 export const weights = weight;
+export const icon = { sm: 16, md: 20, lg: 24 } as const;
 
-/**
- * 卡片内边距。全站统一 —— 之前每页 11/12/13/14/15 混用，
- * 导致同样的卡片在不同页面高矮不一。
- */
-export const CARD_PAD = 14;
-/** 卡片之间的垂直间距。比内边距大，卡片才是"分开的组"而不是"一张长表"。 */
-export const CARD_GAP = 10;
+/* ============================================================
+   兼容别名（旧组件仍在用；逐组件重写后删除）
+   ============================================================ */
+export const leading = lead;
+/** 旧 type 键名 → 新键名 */
+export const typeCompat = type;

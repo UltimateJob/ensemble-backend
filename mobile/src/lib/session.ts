@@ -1,4 +1,17 @@
-import { clearToken, get, loadBaseURL, loadToken, post, saveAccountToken, saveDeviceToken, setBaseURL, getToken } from './api';
+import {
+  clearDeviceToken,
+  clearToken,
+  get,
+  getBaseURL,
+  hasDeviceToken,
+  loadBaseURL,
+  loadToken,
+  post,
+  saveAccountToken,
+  saveDeviceToken,
+  setBaseURL,
+  getToken,
+} from './api';
 import { useApp } from './store';
 import type { Scenario, User } from './types';
 
@@ -8,20 +21,23 @@ import type { Scenario, User } from './types';
  * 顺序很重要——先验令牌再拉数据。令牌失效时不要「先渲染主界面再
  * 闪回登录页」，那会让用户以为自己的数据丢了。
  */
-export async function boot(): Promise<'ok' | 'need-pair'> {
+export async function boot(): Promise<'ok' | 'need-login'> {
   const base = await loadBaseURL();
-  if (!base) return 'need-pair';
+  if (!base) return 'need-login';
   await loadToken();
-  if (!getToken()) return 'need-pair';
+  if (!getToken()) return 'need-login';
 
   try {
-    const me = await get<User>('/v1/me');
-    useApp.getState().setUser(me);
+    // /v1/me 返回的是「用户 + 套餐 + 钱包」的组合对象，不是用户本身。
+    // 直接把整个 data 当用户存，user.id 会是 undefined，
+    // 群主判断（解散群聊 / 权限编辑）就会全部失效。
+    const me = await get<User & { user?: User }>('/v1/me');
+    useApp.getState().setUser((me as any)?.user ?? me);
   } catch {
-    // 401 才清令牌。网络错误（电脑没开机）不该把配对关系抹掉——
-    // 那样用户每次换网络都要重新扫码。
+    // 401 才清令牌。网络错误（服务器没开机）不该把登录状态抹掉——
+    // 那样用户每次换网络都要重新登录。
     await clearToken();
-    return 'need-pair';
+    return 'need-login';
   }
 
   // 并发拉基础数据，任一失败不影响已登录状态
@@ -42,8 +58,42 @@ export async function boot(): Promise<'ok' | 'need-pair'> {
   return 'ok';
 }
 
-/** 扫码/手输配对码后的落地。 */
-export async function pairWith(
+/* ---------------- 账号登录（默认路径） ---------------- */
+
+function kindOf(target: string): 'phone' | 'email' {
+  return target.includes('@') ? 'email' : 'phone';
+}
+
+export async function loginWithCode(base: string, target: string, code: string): Promise<void> {
+  await setBaseURL(base);
+  const res = await post<{ token: string }>('/v1/auth/login', { kind: kindOf(target), target, code });
+  await saveAccountToken(res.token);
+  await boot();
+}
+
+export async function loginWithPassword(base: string, target: string, password: string): Promise<void> {
+  await setBaseURL(base);
+  const res = await post<{ token: string }>('/v1/auth/login', {
+    kind: kindOf(target), target, mode: 'password', password,
+  });
+  await saveAccountToken(res.token);
+  await boot();
+}
+
+export async function sendCode(base: string, target: string): Promise<{ devCode?: string }> {
+  await setBaseURL(base);
+  return post<{ devCode?: string }>('/v1/auth/send-code', { target });
+}
+
+/* ---------------- 连接电脑（登录后的可选能力） ---------------- */
+
+/**
+ * 用 6 位码把「这台设备」绑定到一台电脑。
+ *
+ * 只加设备令牌，**不动账号令牌**：登录态和电脑授权是两件事。
+ * 之前这里会顺手删掉账号令牌，等于连了电脑就看不到 PC 上的会话。
+ */
+export async function connectComputer(
   base: string,
   code: string,
   name: string,
@@ -56,20 +106,25 @@ export async function pairWith(
     platform,
   });
   await saveDeviceToken(res.token);
+  // 重新引导一次：设备令牌会改变服务端的审批策略（远程设备需审批），
+  // 也让工作区能力立刻生效。
   await boot();
 }
 
-/** 账号登录（手机号 + 验证码）。作为配对之外的备用入口。 */
-export async function loginWithCode(base: string, target: string, code: string): Promise<void> {
-  await setBaseURL(base);
-  const res = await post<{ token: string }>('/v1/auth/login', { target, code });
-  await saveAccountToken(res.token);
+/** 断开这台设备与电脑的绑定，保留账号登录。 */
+export async function disconnectComputer(): Promise<void> {
+  await clearDeviceToken();
   await boot();
 }
 
-export async function sendCode(base: string, target: string): Promise<{ devCode?: string }> {
-  await setBaseURL(base);
-  return post<{ devCode?: string }>('/v1/auth/send-code', { target });
+/** 当前这台设备是否已经连接过电脑。 */
+export function computerConnected(): boolean {
+  return hasDeviceToken();
+}
+
+/** 登录页要展示的服务器地址（空表示还没配过）。 */
+export function currentBase(): string {
+  return getBaseURL();
 }
 
 export async function signOut(): Promise<void> {
@@ -78,3 +133,7 @@ export async function signOut(): Promise<void> {
   useApp.getState().setUser(null);
   useApp.getState().setConvs([]);
 }
+
+
+/** 兼容旧调用名：pairWith = connectComputer。 */
+export const pairWith = connectComputer;

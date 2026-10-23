@@ -62,10 +62,14 @@ func (m *Manager) Save() error {
 			Root: w.Root, Label: w.Label, CreatedAt: w.CreatedAt,
 		})
 	}
-	// 按开始时间倒序，只留最近 N 个
+	// 按开始时间倒序，只留最近 N 个。
+	// 必须在持锁时深拷贝：SaveAsync 在后台跑，runner 可能正在改 Step/ToolCalls，
+	// 直接序列化活指针会在 -race 下报数据竞争。
 	runs := make([]*Run, 0, len(m.runs))
 	for _, r := range m.runs {
-		runs = append(runs, r)
+		if cp := cloneRunLocked(r); cp != nil {
+			runs = append(runs, cp)
+		}
 	}
 	m.mu.Unlock()
 

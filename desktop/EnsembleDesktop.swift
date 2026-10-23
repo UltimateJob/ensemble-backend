@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
     private var window: NSWindow!
     private var webView: WKWebView!
     private var baseURL = "http://127.0.0.1:8080"
+    private var isRemote = false
     private var didShowError = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -115,6 +116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "重新载入", action: #selector(reload), keyEquivalent: "r")
         appMenu.addItem(withTitle: "打开日志", action: #selector(openLog), keyEquivalent: "l")
+        let supportItem = NSMenuItem(title: "打开配置目录", action: #selector(openSupportDir), keyEquivalent: "")
+        supportItem.target = self
+        appMenu.addItem(supportItem)
+        let settingsItem = NSMenuItem(title: "账户与设置…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(settingsItem)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
@@ -171,6 +178,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         // 桌面端是自带后端的 App：页面、工作区、执行都跑在本机。
         // 模型调用由这个本地后端转发给线上（REMOTE_BASE），
         // 所以客户端不需要也不应该持有 API Key。
+        //
+        // 注意这两种「线上」是不同的事：
+        //   REMOTE_BASE     —— 本地后端把模型请求转发出去（默认，长期形态）
+        //   ENSEMBLE_REMOTE_ONLY —— 完全不启动本地后端，页面也由线上提供
+        //                        （调试用来对照线上环境，不是发布形态）
+        if remoteOnlyMode(), let remote = remoteBase() {
+            baseURL = remote
+            isRemote = true
+            window.title = "纸团 · 线上"
+            if ping(remote, timeout: 3.0) {
+                loadApp()
+            } else {
+                showError("连不上线上后端：\(remote)\n\n请检查网络，或修改配置：\n\(supportDir.path)/.env\nENSEMBLE_REMOTE_ONLY=1\nENSEMBLE_REMOTE_BASE=\(remote)")
+            }
+            return
+        }
+        window.title = "纸团"
+
+        // 已经有一个后端在跑（比如用户先跑了 scripts/dev.sh）就直接用。
         for _ in 0..<3 {
             if ping(baseURL) {
                 loadApp()
@@ -187,17 +213,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         pollUntilReady(tries: 150)
     }
 
-    private func ping(_ base: String) -> Bool {
+    /// 线上后端地址。优先级：命令行参数 → 环境变量 → 应用支持目录/.env → 当前目录/.env。
+    /// 没有配置时返回 nil，走本地后端模式。
+    /// 是否进入「只用线上、不启动本地后端」的调试模式。
+    /// 默认关闭：正常发布形态是本地后端 + REMOTE_BASE 转发模型。
+    private func remoteOnlyMode() -> Bool {
+        if CommandLine.arguments.contains("--remote-only") { return true }
+        if ProcessInfo.processInfo.environment["ENSEMBLE_REMOTE_ONLY"] == "1" { return true }
+        if loadDotEnv()["ENSEMBLE_REMOTE_ONLY"] == "1" { return true }
+        return false
+    }
+
+    private func remoteBase() -> String? {
+        var raw = ""
+        if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--remote=") }) {
+            raw = String(arg.dropFirst("--remote=".count))
+        }
+        if raw.isEmpty {
+            raw = ProcessInfo.processInfo.environment["ENSEMBLE_REMOTE_BASE"] ?? ""
+        }
+        // 本地后端要转发模型请求时同样读 REMOTE_BASE，两者用同一个值，
+        // 但不应该因为「配了转发地址」就跳进 remote-only 模式。
+        if raw.isEmpty {
+            let env = loadDotEnv()
+            raw = env["ENSEMBLE_REMOTE_BASE"] ?? ""
+        }
+        raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        if !raw.contains("://") { raw = "https://" + raw }
+        guard let u = URL(string: raw), let scheme = u.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", u.host != nil else {
+            return nil
+        }
+        while raw.hasSuffix("/") { raw.removeLast() }
+        return raw
+    }
+
+    private func ping(_ base: String, timeout: TimeInterval = 0.6) -> Bool {
         guard let url = URL(string: base + "/healthz") else { return false }
         var req = URLRequest(url: url)
-        req.timeoutInterval = 0.6
+        req.timeoutInterval = timeout
         let sem = DispatchSemaphore(value: 0)
         var alive = false
         URLSession.shared.dataTask(with: req) { _, resp, _ in
             alive = (resp as? HTTPURLResponse)?.statusCode == 200
             sem.signal()
         }.resume()
-        _ = sem.wait(timeout: .now() + 1.2)
+        _ = sem.wait(timeout: .now() + timeout + 0.6)
         return alive
     }
 
@@ -360,6 +422,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         }
     }
 
+    @objc private func openSupportDir() {
+        try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(supportDir)
+    }
+
     @objc private func openDevTools() {
         webView.configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         webView.evaluateJavaScript("console.log('devtools enabled')", completionHandler: nil)
@@ -369,6 +436,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         let routes = ["lobby", "room", "goals", "connectors", "library", "settings"]
         guard item.tag >= 0, item.tag < routes.count else { return }
         webView.evaluateJavaScript("location.hash = '#/\(routes[item.tag])'", completionHandler: nil)
+    }
+
+    @objc private func openSettings() {
+        webView.evaluateJavaScript("location.hash = '#/settings'", completionHandler: nil)
     }
 
     @objc private func togglePanel() {
@@ -400,18 +471,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        window.title = "纸团"
+        window.title = isRemote ? "纸团 · 线上" : "纸团"
     }
 
     /// 外链走系统浏览器，站内跳转留在壳里。
+    /// 线上模式下 teamwise.cn 也算站内，不能一点链接就跳到 Safari。
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if navigationAction.navigationType == .linkActivated,
            let url = navigationAction.request.url,
-           let host = url.host, !host.hasPrefix("127.0.0.1"), host != "localhost" {
-            NSWorkspace.shared.open(url)
-            decisionHandler(.cancel)
-            return
+           let host = url.host {
+            let internalHosts = Set([
+                URL(string: baseURL)?.host,
+                "127.0.0.1",
+                "localhost",
+            ].compactMap { $0 })
+            if !internalHosts.contains(host) {
+                NSWorkspace.shared.open(url)
+                decisionHandler(.cancel)
+                return
+            }
         }
         decisionHandler(.allow)
     }
@@ -475,7 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
             FileHandle.standardError.write("[web:\(level)] \(text)\n".data(using: .utf8) ?? Data())
             return
         }
-        if message.name == "pickDirectory" {
+        if message.name == "pickDirectory" || message.name == "pickWorkspace" {
+            // 页面里的「选择…」按钮 / ⌘O 菜单 → 同一个原生目录面板。
             DispatchQueue.main.async { self.pickWorkspace() }
             return
         }

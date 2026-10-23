@@ -43,3 +43,8 @@ desktop/AppIcon.icns
 # 本机环境信息（服务器地址、凭据）。写在这里让本机所有 agent 都能查到，
 # 但绝不入库——凭据不能跟着仓库走。
 docs/local/
+
+# 本地协作文件（两个 agent 共享，不入库）
+.claude/COORDINATION.md
+# 本地编译产物
+/server

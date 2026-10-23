@@ -437,67 +437,66 @@ func (g *gatingProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-ch
 	return ch, nil
 }
 
-// 自动选路应避开在途占满的渠道：slow 渠道忙时，第二个请求走 fast 渠道。
+// 自动选路应避开在途占满的渠道：一个渠道被占住时，第二个请求走空闲的那个。
+//
+// 两个渠道都必须阻塞（gating），否则先完成的那条流会立刻归还计数，
+// 测试就变成在赌选路顺序。之前成功路径不归还计数，这个测试靠泄漏
+// 才「稳定」通过；修好计数后必须让两边都真实占用。
 func TestLeastBusyRouting(t *testing.T) {
 	reg := NewRegistry()
-	slow := &gatingProvider{name: "slow", gate: make(chan struct{})}
-	fast := &echoProvider{name: "fast"}
-	reg.Add(slow)
-	reg.Add(fast)
+	a := &gatingProvider{name: "a", gate: make(chan struct{})}
+	b := &gatingProvider{name: "b", gate: make(chan struct{})}
+	reg.Add(a)
+	reg.Add(b)
 	mt := NewModelTable([]domain.ModelInfo{
-		{Key: "m-slow", Provider: "slow", Upstream: "up-slow", Enabled: true, Weight: 5},
-		{Key: "m-fast", Provider: "fast", Upstream: "up-fast", Enabled: true, Weight: 5},
+		{Key: "m-a", Provider: "a", Upstream: "up-a", Enabled: true, Weight: 5},
+		{Key: "m-b", Provider: "b", Upstream: "up-b", Enabled: true, Weight: 5},
 	})
 	gw := New(reg, mt, 0, 100, time.Minute)
 
-	// 第一个请求：两边都空闲，按权重轮询落在其中一个；
-	// 用在途计数确认它真的占住了渠道。
+	// 第一个请求占住其中一个渠道。
 	s1, err := gw.Stream(context.Background(), domain.ChatRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 等选路落地（goroutine 启动后 BusyAdd 生效需要一点时间）
-	deadline := time.Now().Add(2 * time.Second)
-	var busySlow, busyFast int64
-	for time.Now().Before(deadline) {
-		busySlow, busyFast = reg.Busy("slow"), reg.Busy("fast")
-		if busySlow+busyFast == 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if busySlow+busyFast != 1 {
-		t.Fatalf("第一个请求应占用恰好一个渠道，slow=%d fast=%d", busySlow, busyFast)
-	}
-	busyName := "slow"
-	idleName := "fast"
-	if busyFast == 1 {
-		busyName, idleName = "fast", "slow"
+	waitBusy(t, reg, func(slow, fast int64) bool { return slow+fast == 1 })
+	first, second := "a", "b"
+	if reg.Busy("b") == 1 {
+		first, second = "b", "a"
 	}
 
-	// 第二个请求：必须落在空闲的那个渠道上。
+	// 第二个请求必须落在空闲的那个上。
 	s2, err := gw.Stream(context.Background(), domain.ChatRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = s2
-	deadline = time.Now().Add(2 * time.Second)
-	var busyIdle int64
-	for time.Now().Before(deadline) {
-		if busyIdle = reg.Busy(idleName); busyIdle == 1 {
-			break
+	waitBusy(t, reg, func(slow, fast int64) bool {
+		if first == "a" {
+			return slow == 1 && fast == 1
 		}
-		time.Sleep(10 * time.Millisecond)
+		return slow == 1 && fast == 1
+	})
+	if reg.Busy(second) != 1 {
+		t.Fatalf("第二个请求应路由到空闲渠道 %s（在途=%d）", second, reg.Busy(second))
 	}
-	if busyIdle != 1 {
-		t.Fatalf("第二个请求应路由到空闲渠道 %s（在途=%d）", idleName, busyIdle)
-	}
-	if b := reg.Busy(busyName); b != 1 {
-		t.Fatalf("忙渠道 %s 在途应为 1，得到 %d", busyName, b)
-	}
-	close(slow.gate)
+
+	close(a.gate)
+	close(b.gate)
 	<-s1
 	<-s2
+}
+
+// waitBusy 等待两个渠道的在途数满足条件。
+func waitBusy(t *testing.T, reg *Registry, ok func(a, b int64) bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ok(reg.Busy("a"), reg.Busy("b")) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("在途数未达到预期：a=%d b=%d", reg.Busy("a"), reg.Busy("b"))
 }
 
 // 熔断打开的渠道不接新流量；全部打开时退回全量候选（由 Allow 报错）。
@@ -518,7 +517,7 @@ func TestOpenCircuitExcludedFromPick(t *testing.T) {
 	if st := reg.State("a"); st != "open" {
 		t.Fatalf("a 应已熔断，状态 %q", st)
 	}
-	m, p, ok := gw.pickModel(domain.ChatRequest{})
+	m, p, ok := gw.pickModel(domain.ChatRequest{}, nil)
 	if !ok {
 		t.Fatal("应能选出模型")
 	}
@@ -541,13 +540,13 @@ func TestTaskModelRoutingPools(t *testing.T) {
 	gw := New(reg, mt, 0, 100, time.Minute)
 
 	for i := 0; i < 6; i++ {
-		m, p, ok := gw.pickModel(domain.ChatRequest{})
+		m, p, ok := gw.pickModel(domain.ChatRequest{}, nil)
 		if !ok || m.Key != "chat-model" {
 			t.Fatalf("聊天自动选路应始终落在 chat-model，得到 %s/%s (ok=%v)", m.Key, p, ok)
 		}
 	}
 	for i := 0; i < 6; i++ {
-		m, _, ok := gw.pickModel(domain.ChatRequest{Task: true})
+		m, _, ok := gw.pickModel(domain.ChatRequest{Task: true}, nil)
 		if !ok || m.Key != "task-model" {
 			t.Fatalf("任务选路应始终落在 task-model，得到 %s (ok=%v)", m.Key, ok)
 		}
@@ -557,7 +556,297 @@ func TestTaskModelRoutingPools(t *testing.T) {
 		{Key: "only-task", Provider: "p1", Enabled: true, TaskOnly: true},
 	})
 	gw2 := New(reg, mt2, 0, 100, time.Minute)
-	if m, _, ok := gw2.pickModel(domain.ChatRequest{}); !ok || m.Key != "only-task" {
+	if m, _, ok := gw2.pickModel(domain.ChatRequest{}, nil); !ok || m.Key != "only-task" {
 		t.Fatalf("池空回退失败：%v %v", m.Key, ok)
+	}
+}
+
+// namedProvider 用固定名字注册，测试多渠道选路时用。
+type namedProvider struct {
+	name    string
+	streams [][]domain.Chunk
+	calls   atomic.Int32
+}
+
+func (p *namedProvider) Name() string { return p.name }
+func (p *namedProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	p.calls.Add(1)
+	ch := make(chan domain.Chunk, 4)
+	ch <- domain.Chunk{Content: "ok"}
+	ch <- domain.Chunk{Done: true}
+	close(ch)
+	return ch, nil
+}
+
+// failingProvider 总是返回错误，用来验证「换渠道」而不是「同渠道重试」。
+type failingProvider struct{ calls atomic.Int32 }
+
+func (p *failingProvider) Name() string { return "failing" }
+func (p *failingProvider) Chat(ctx context.Context, req domain.ChatRequest) (<-chan domain.Chunk, error) {
+	p.calls.Add(1)
+	return nil, errors.New("503 no available channel")
+}
+
+func TestStreamFailsOverToBackupProvider(t *testing.T) {
+	// 中转挂了（503）时必须切到保底渠道，而不是在同一个上游重试。
+	bad := &failingProvider{}
+	good := &scriptedProvider{streams: [][]domain.Chunk{
+		{{Content: "保底渠道的回答"}, {Done: true, Usage: &domain.Usage{TotalTokens: 3}}},
+	}}
+	reg := NewRegistry()
+	reg.Add(bad)
+	reg.Add(good)
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "primary", Provider: "failing", Enabled: true, Weight: 1},
+		{Key: "backup", Provider: "scripted", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, table, 2, 100, time.Second)
+
+	out, err := gw.Stream(t.Context(), domain.ChatRequest{
+		Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for c := range out {
+		if c.Err != nil {
+			t.Fatalf("应切到保底渠道成功，却收到错误：%v", c.Err)
+		}
+		text += c.Content
+	}
+	if text != "保底渠道的回答" {
+		t.Fatalf("text=%q", text)
+	}
+	if bad.calls.Load() > 1 {
+		t.Fatalf("同一个失败渠道不应被反复重试：%d 次", bad.calls.Load())
+	}
+}
+
+func TestStreamFailoverWhenNamedModelFails(t *testing.T) {
+	// 用户点名了一个渠道；它挂了仍然要走保底，而不是直接失败。
+	bad := &failingProvider{}
+	good := &scriptedProvider{streams: [][]domain.Chunk{
+		{{Content: "backup"}, {Done: true}},
+	}}
+	reg := NewRegistry()
+	reg.Add(bad)
+	reg.Add(good)
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "named", Provider: "failing", Enabled: true, Weight: 1},
+		{Key: "spare", Provider: "scripted", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, table, 2, 100, time.Second)
+
+	out, err := gw.Stream(t.Context(), domain.ChatRequest{
+		Model:    "named",
+		Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for c := range out {
+		if c.Err != nil {
+			t.Fatalf("点名的渠道失败后应走保底，得到 %v", c.Err)
+		}
+		text += c.Content
+	}
+	if text != "backup" {
+		t.Fatalf("text=%q", text)
+	}
+}
+
+func TestPickPrefersLowerRank(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "relay", Provider: "a", Enabled: true, Weight: 10, Rank: 2},
+		{Key: "official", Provider: "b", Enabled: true, Weight: 1, Rank: 1},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+	for i := 0; i < 50; i++ {
+		m, _, ok := gw.pickModel(domain.ChatRequest{}, nil)
+		if !ok || m.Key != "official" {
+			t.Fatalf("应优先排名第 1 的官方渠道，得到 %s", m.Key)
+		}
+	}
+}
+
+func TestPickSpillsToNextRankWhenSaturated(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "official", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+		{Key: "relay", Provider: "b", Enabled: true, Weight: 5, Rank: 2},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+
+	// 官方渠道占满默认并发上限后，应自动溢出到中转。
+	reg.BusyAdd("a", defaultChannelConcurrency)
+	for i := 0; i < 20; i++ {
+		m, _, ok := gw.pickModel(domain.ChatRequest{}, nil)
+		if !ok || m.Key != "relay" {
+			t.Fatalf("官方饱和后应溢出到中转，得到 %s", m.Key)
+		}
+	}
+}
+
+func TestPickRoundRobinWithinTier(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "a", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+		{Key: "b", Provider: "b", Enabled: true, Weight: 1, Rank: 1},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+	count := map[string]int{}
+	for i := 0; i < 40; i++ {
+		m, _, _ := gw.pickModel(domain.ChatRequest{}, nil)
+		count[m.Key]++
+	}
+	if count["a"] == 0 || count["b"] == 0 {
+		t.Fatalf("同排名应轮询，得到 %v", count)
+	}
+}
+
+func TestPickSkipsOpenCircuit(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "official", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+		{Key: "relay", Provider: "b", Enabled: true, Weight: 1, Rank: 2},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 1, time.Minute)
+	reg.Report("a", false, time.Millisecond, "503", 1, time.Minute)
+	if reg.State("a") != "open" {
+		t.Fatal("阈值 1 时应熔断")
+	}
+	m, _, ok := gw.pickModel(domain.ChatRequest{}, nil)
+	if !ok || m.Key != "relay" {
+		t.Fatalf("熔断渠道不应被选，得到 %s", m.Key)
+	}
+}
+
+func TestPickUsesConfiguredConcurrency(t *testing.T) {
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "official", Provider: "a", Enabled: true, Weight: 1, Rank: 1, Concurrency: 2},
+		{Key: "relay", Provider: "b", Enabled: true, Weight: 5, Rank: 2},
+	})
+	reg := NewRegistry()
+	reg.Add(&namedProvider{name: "a"})
+	reg.Add(&namedProvider{name: "b"})
+	gw := New(reg, table, 0, 100, time.Second)
+
+	// 未到配置的并发上限（2）：仍优先官方。
+	reg.BusyAdd("a", 1)
+	if m, _, _ := gw.pickModel(domain.ChatRequest{}, nil); m.Key != "official" {
+		t.Fatalf("未饱和时应走官方，得到 %s", m.Key)
+	}
+	// 到达上限：溢出到中转。
+	reg.BusyAdd("a", 1)
+	if m, _, _ := gw.pickModel(domain.ChatRequest{}, nil); m.Key != "relay" {
+		t.Fatalf("达到并发上限应溢出，得到 %s", m.Key)
+	}
+}
+
+// 回归：成功路径必须归还并发计数。
+// 之前 chunk.Done 直接 return，计数只加不减；跑满默认上限后
+// 所有渠道都被当成饱和，网关开始返回 no provider。
+func TestStreamReleasesBusyOnSuccess(t *testing.T) {
+	p := &namedProvider{name: "a"}
+	reg := NewRegistry()
+	reg.Add(p)
+	table := NewModelTable([]domain.ModelInfo{
+		{Key: "m", Provider: "a", Enabled: true, Weight: 1, Rank: 1},
+	})
+	gw := New(reg, table, 1, 100, time.Second)
+
+	for i := 0; i < defaultChannelConcurrency*3; i++ {
+		out, err := gw.Stream(t.Context(), domain.ChatRequest{
+			Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+		})
+		if err != nil {
+			t.Fatalf("第 %d 次请求就失败：%v", i+1, err)
+		}
+		for c := range out {
+			if c.Err != nil {
+				t.Fatalf("第 %d 次请求出错：%v", i+1, c.Err)
+			}
+		}
+		if b := reg.Busy("a"); b != 0 {
+			t.Fatalf("第 %d 次请求后 in-flight=%d，应为 0", i+1, b)
+		}
+	}
+}
+
+func TestUsageObserverCost(t *testing.T) {
+	p := &scriptedProvider{streams: [][]domain.Chunk{{
+		{Content: "ok"},
+		{Done: true, Usage: &domain.Usage{PromptTokens: 1000, CompletionTokens: 500, TotalTokens: 1500}},
+	}}}
+	reg := NewRegistry()
+	reg.Add(p)
+	table := NewModelTable([]domain.ModelInfo{{
+		Key: "m", Provider: "scripted", Enabled: true, Weight: 1,
+		InputCostPer1M: 10, OutputCostPer1M: 20,
+	}})
+	gw := New(reg, table, 0, 3, time.Second)
+	var events []domain.UsageEvent
+	gw.SetUsageObserver(func(ev domain.UsageEvent) { events = append(events, ev) })
+
+	out, err := gw.Stream(context.Background(), domain.ChatRequest{
+		UserID: "u1", Messages: []domain.ChatMessage{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range out {
+	}
+	if len(events) != 1 {
+		t.Fatalf("应上报一次用量，得到 %d", len(events))
+	}
+	ev := events[0]
+	if ev.UserID != "u1" || ev.Model != "m" || ev.Provider != "scripted" {
+		t.Fatalf("归因字段不正确：%+v", ev)
+	}
+	if ev.PromptTokens != 1000 || ev.CompletionTokens != 500 || ev.TotalTokens != 1500 {
+		t.Fatalf("token 字段不正确：%+v", ev)
+	}
+	// 1000/1e6*10 + 500/1e6*20 = 0.02
+	if ev.CostCNY < 0.0199 || ev.CostCNY > 0.0201 {
+		t.Fatalf("成本计算不正确：%v", ev.CostCNY)
+	}
+}
+
+// 套餐模型白名单：显式指定白名单外的模型时退回白名单内自动选路，
+// 白名单内没有可用模型时不选路（请求会以 no_provider 失败）。
+func TestPickModelAllowedList(t *testing.T) {
+	reg := NewRegistry()
+	reg.Add(&echoProvider{name: "p1"})
+	reg.Add(&echoProvider{name: "p2"})
+	mt := NewModelTable([]domain.ModelInfo{
+		{Key: "cheap", Provider: "p1", Enabled: true, Weight: 1},
+		{Key: "premium", Provider: "p2", Enabled: true, Weight: 1},
+	})
+	gw := New(reg, mt, 0, 100, time.Minute)
+
+	// 会话存的是 premium，但套餐只允许 cheap：不报错，退回 cheap。
+	m, p, ok := gw.pickModel(domain.ChatRequest{Model: "premium"}, []string{"cheap"})
+	if !ok || m.Key != "cheap" || p != "p1" {
+		t.Fatalf("白名单外的显式模型应退回白名单内选路，得到 %s/%s ok=%v", m.Key, p, ok)
+	}
+	// 白名单内模型可被显式指定。
+	m, _, ok = gw.pickModel(domain.ChatRequest{Model: "cheap"}, []string{"cheap"})
+	if !ok || m.Key != "cheap" {
+		t.Fatalf("白名单内显式模型应被尊重，得到 %s ok=%v", m.Key, ok)
+	}
+	// 白名单里没有任何已启用模型：不选路。
+	if _, _, ok := gw.pickModel(domain.ChatRequest{}, []string{"missing"}); ok {
+		t.Fatal("白名单全部不可用时应返回 false")
 	}
 }

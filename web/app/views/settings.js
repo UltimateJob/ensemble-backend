@@ -4,7 +4,7 @@
 
 import { api, state, esc, icon, toast } from '../js/core.js';
 import { avatarHTML } from '../js/avatars.js';
-import { confirmModal, promptModal } from '../js/modal.js';
+import { confirmModal, promptModal, openModal } from '../js/modal.js';
 
 let root = null;
 
@@ -42,6 +42,11 @@ function render() {
   // 本机选的头像优先；没选过才回落到账号自带的。
   const localAvatar = localStorage.getItem('ens_avatar') || u.avatar || '';
   const notifyOn = prefs().notify !== 'false';   // 没设置过就当开启
+  const quota = typeof u.quota === 'number' ? u.quota : null;
+  const used = typeof u.used === 'number' ? u.used : 0;
+  const remaining = quota != null ? Math.max(0, quota - used) : null;
+  const pct = quota ? Math.min(100, Math.round(used / quota * 100)) : 0;
+  const hasPassword = !!state.me?.hasPassword;
 
   root.innerHTML = `
     <div class="page">
@@ -56,17 +61,31 @@ function render() {
         <div class="pf-body">
           <div class="pf-name">${esc(u.name || '未命名')}</div>
           <div class="pf-id">${esc(u.phone || u.email || '未绑定手机号或邮箱')} · ${esc(planLabel(u.plan))}</div>
-          <div class="pf-usage">剩余额度 ${esc(state.me?.remaining ?? '-')} 次</div>
+          <div class="pf-usage">剩余额度 ${remaining != null ? esc(remaining) : '-'} 次</div>
         </div>
         <label class="btn btn-line">更换头像
           <input type="file" id="avatarUp" accept="image/*" hidden>
         </label>
       </section>
 
+      <section class="quota-card">
+        <div class="qc-head">
+          <div>
+            <div class="qc-t">本月额度</div>
+            <div class="qc-sub">每轮群聊发言、每次执行任务都会计入用量</div>
+          </div>
+          <div class="qc-num">${remaining != null ? `${esc(remaining)}<em> / ${esc(quota)}</em>` : '—'}</div>
+        </div>
+        <div class="qc-bar"><i style="width:${pct}%"></i></div>
+        <div class="qc-foot">${quota != null
+          ? `已用 ${used} 次 · ${pct}%`
+          : '额度信息暂不可用'}</div>
+      </section>
+
       <section class="settings-list">
         ${row('user-round', '个人资料', '修改昵称', 'editName')}
         ${row('bell', '消息通知', '审批与任务完成提醒', 'toggleNotify', notifyOn)}
-        ${row('shield-alert', '账号安全', '登录设备与验证方式', 'security')}
+        ${row('shield-alert', '账号安全', hasPassword ? '已设置密码 · 可修改' : '尚未设置密码（仅验证码登录）', 'security')}
         ${row('lock', '隐私设置', '数据与可见范围', 'privacy')}
         ${row('log-out', '退出登录', '', 'logout', null, true)}
       </section>
@@ -135,9 +154,7 @@ function bind() {
     }
   });
 
-  root.querySelector('[data-act=security]')?.addEventListener('click', () => {
-    toast('当前使用手机号 / 邮箱验证码登录');
-  });
+  root.querySelector('[data-act=security]')?.addEventListener('click', () => openPasswordDialog());
   root.querySelector('[data-act=privacy]')?.addEventListener('click', () => {
     toast('工作区文件只存在本机，不会上传');
   });
@@ -170,4 +187,51 @@ function row(ic, title, sub, act, on = null, danger = false) {
     </span>
     ${on !== null ? `<span class="switch ${on ? 'on' : ''}"></span>` : icon('chevron-right', 16)}
   </button>`;
+}
+
+/* ---------------- 账号安全：设置 / 修改密码 ---------------- */
+
+function openPasswordDialog() {
+  const has = !!state.me?.hasPassword;
+  openModal({
+    title: has ? '修改密码' : '设置密码',
+    width: 480,
+    body: `
+      <p class="hint" style="margin-bottom:14px">
+        ${has
+          ? '修改后，旧的密码立即失效。验证码登录不受影响。'
+          : '设置密码后，可以用手机号 / 邮箱 + 密码登录，也可以继续用验证码。'}
+      </p>
+      ${has ? `<label class="field"><span>原密码</span>
+        <input id="oldPass" type="password" autocomplete="current-password"></label>` : ''}
+      <label class="field"><span>新密码</span>
+        <input id="newPass" type="password" placeholder="8-72 个字符" autocomplete="new-password"></label>
+      <label class="field"><span>确认新密码</span>
+        <input id="newPass2" type="password" autocomplete="new-password"></label>
+      <div class="login-err hidden" id="pwErr"></div>`,
+    actions: [
+      { key: 'cancel', label: '取消', kind: 'line' },
+      { key: 'save', label: has ? '修改密码' : '设置密码', kind: 'primary', onClick: async mask => {
+        const oldPass = mask.querySelector('#oldPass')?.value || '';
+        const np = mask.querySelector('#newPass').value;
+        const np2 = mask.querySelector('#newPass2').value;
+        const err = mask.querySelector('#pwErr');
+        const fail = m => { err.textContent = m; err.classList.remove('hidden'); return false; };
+        if ([...np].length < 8 || [...np].length > 72) return fail('密码长度需在 8-72 个字符之间');
+        if (np !== np2) return fail('两次输入的新密码不一致');
+        try {
+          await api('/v1/me/password', { method: 'POST', body: { oldPassword: oldPass, newPassword: np } });
+          if (state.me) state.me.hasPassword = true;
+          toast(has ? '密码已修改' : '密码已设置', { type: 'ok' });
+          render();
+          return true;
+        } catch (e) {
+          if (e.code === 'old_password_incorrect') return fail('原密码不正确');
+          if (e.code === 'weak_password') return fail('密码长度需在 8-72 个字符之间');
+          return fail(e.message);
+        }
+      } },
+    ],
+    onMount: mask => mask.querySelector(has ? '#oldPass' : '#newPass')?.focus(),
+  });
 }

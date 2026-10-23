@@ -1,0 +1,478 @@
+{
+  "stamp": "2026-10-23T08-00-02",
+  "base": "http://127.0.0.1:8080",
+  "results": [
+    {
+      "case": "seeded-bugfix",
+      "title": "已有项目跨端修 bug（后端校验 + 前端展示）",
+      "kind": "complex",
+      "mode": "solo",
+      "convId": "c_92cc3a7f9deacc26",
+      "outcome": {
+        "mode": "solo",
+        "wallMs": 138647,
+        "phases": [
+          {
+            "name": "实现",
+            "wallMs": 138647
+          }
+        ],
+        "runs": [
+          {
+            "id": "run_36fb3e64bf557352",
+            "agentKey": "solo",
+            "agentName": "单聊工程师",
+            "status": "done",
+            "steps": 19,
+            "tokensIn": 120919,
+            "tokensOut": 11743,
+            "toolCalls": 24,
+            "changedFiles": 4,
+            "summary": "两个 bug 都已修复并验证通过。\n\n**改动**\n\n1. `backend/handler.go`\n   - 新增 `maxTextRunes = 200` 常量，并引入 `unicode/utf8`。\n   - 校验顺序：`strconv` 解码失败 → 400；`strings.TrimSpace(in.Text) == \"\"` → 400（空串、纯空格、缺字段都拒绝，保持原有用空格语义）；`utf8.RuneCountInString(in.Text) > 200` → 400（按 rune 计数，不按字节；不做额外 trim，`\" 好… \"` 这类首尾空格会照原样计入长度）。\n   - 错误格式仍是 `{\"error\":{\"message\":\"...\"}}`，接口路径与字段名未动。\n\n2. `backend/handler_test.go`\n   - 抽取 `newMux` / `postJSON` 辅助函数，保留原 `TestCreateAndList` 不变。\n   - 新增 `TestCreateTextValidation`，表驱动覆盖：`\"\"`、缺 `text`、纯空格 → 400；恰好 200 个中文字符 → 201（按字节算会误判为 600 字节超长，这条正好防回归）；201 个中文字符 → 400；200/201 个 emoji（4 字节）→ 201/400；含首尾空格的 200 字符 → 201。400 用例额外断言 `error.message` 非空且未写入任何数据。\n\n3. `web/index.html` + `web/app.js`\n   - 页面新增 `<p id=\"error\" role=\"alert\" hidden>` 错误展示区。\n   - 抽出 `parseResponse`：非 2xx 时取 `data.error.message` 抛错，拿不到则回退 `请求失败（HTTP xxx）`；`toMessage` 兜底网络层异常。\n   - `load()` 和提交表单都包 try/catch，在错误区显示 `error.message`；每次请求前先 `clearError()`，提交成功后清空输入框并重新加载。\n\n**验证**\n- `go test ./... -count=1` 通过（原测试 + 新测试，8 个子用例全绿）；`go vet ./...` 干净；`node --check web/app.js` 语法通过。\n- 真实起服务做端到端验证：`text:\"\"` → 400 `text 不能为空`；201 个中文字符 → 400 `text 长度不能超过 200 个字符`；200 个中文字符 → 201 正常创建；`/`、`/app.js` 均正常返回且含错误提示元素。\n\n剩余：仓库不是 git 仓库",
+            "error": "",
+            "elapsedMs": 134931
+          }
+        ],
+        "status": "done",
+        "error": ""
+      },
+      "verification": {
+        "workspace": "/tmp/ensemble-bench/2026-10-23T08-00-02/seeded-bugfix/solo",
+        "files": [
+          {
+            "path": "backend/go.mod",
+            "size": 21
+          },
+          {
+            "path": "backend/handler.go",
+            "size": 1750
+          },
+          {
+            "path": "backend/handler_test.go",
+            "size": 3041
+          },
+          {
+            "path": "backend/main.go",
+            "size": 361
+          },
+          {
+            "path": "web/app.js",
+            "size": 1845
+          },
+          {
+            "path": "web/index.html",
+            "size": 332
+          }
+        ],
+        "verify": {
+          "code": 0,
+          "out": "ok  \ttodo\t0.302s\n",
+          "err": ""
+        },
+        "smoke": {
+          "requests": [
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 不能为空\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 长度不能超过 200 个字符\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"id\":1,\"text\":\"正常\",\"done\":false}\n",
+              "expect": [
+                200,
+                201
+              ],
+              "status": 201,
+              "ok": true
+            },
+            {
+              "method": "GET",
+              "path": "/",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "<!doctype html>\n<html lang=\"zh-CN\">\n<head><meta charset=\"utf-8\"><title>待办</title></head>\n<body>\n<h1>待办</h1>\n<form id=\"form\"><input id=\"text\" required><button>添加</button></form>\n<p id=\"error\" role=\"alert\" style=\"color:#b00020;margin:.5rem 0\" hidden></p>\n<ul id=\"list\"></ul>\n<script src=\"app.js\"></scri"
+            }
+          ],
+          "log": "2026/10/23 16:02:23 listening on 127.0.0.1:18081\n"
+        },
+        "checks": [
+          {
+            "name": "后端测试通过",
+            "ok": true
+          },
+          {
+            "name": "新增了校验测试",
+            "ok": true
+          },
+          {
+            "name": "前端有错误展示",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 201",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET / → 200",
+            "ok": true
+          }
+        ],
+        "score": 100
+      }
+    },
+    {
+      "case": "seeded-bugfix",
+      "title": "已有项目跨端修 bug（后端校验 + 前端展示）",
+      "kind": "complex",
+      "mode": "team",
+      "convId": "c_00b9a929e866a6e2",
+      "outcome": {
+        "mode": "team",
+        "teamId": "team_2bd979545ff88239",
+        "wallMs": 228463,
+        "phases": [
+          {
+            "name": "规划",
+            "wallMs": 48022
+          },
+          {
+            "name": "并行开发",
+            "wallMs": 153827
+          },
+          {
+            "name": "验证",
+            "wallMs": 2599
+          },
+          {
+            "name": "验收",
+            "wallMs": 24010
+          }
+        ],
+        "runs": [
+          {
+            "id": "run_3bf67666cb8569cf",
+            "agentKey": "frontend",
+            "agentName": "前端",
+            "status": "done",
+            "steps": 16,
+            "tokensIn": 96911,
+            "tokensOut": 10537,
+            "toolCalls": 19,
+            "changedFiles": 2,
+            "summary": "前端改动已完成并通过验证。\n\n**修改的文件（只改 web/）**\n- `web/app.js`：新增统一的请求封装 `request()`。遇到非 2xx 响应时，它会读取后端错误结构 `{ error: { message } }`（兼容 `{message}`、纯文本），再据此 `throw new Error(message)`；网络异常也转成带 message 的 Error。新增 `showError()` / `clearError()`：接口调用失败时把 `error.message` 渲染到错误区；添加时先清空旧错误；成功后也清空错误，不残留误报。失败时保留输入框内容，并在 `finally` 解除按钮禁用，避免假死。接口路径 `/api/todos`、字段 `text` 均未改。\n- `web/index.html`：新增错误容器 `<div id=\"error\" role=\"alert\" aria-live=\"polite\" hidden>` 及隐藏样式；去掉输入框的 `required`，让空文本能提交到后端，从而直接走 400 展示错误（前端不再静默拦截）。\n\n**验证**\n- `node --check web/app.js` → 退出码 0。\n- 在 `/tmp/fe_check`（工作区外）用 DOM/fetch 模拟驱动 app.js，覆盖 5 条路径：\n  - `[load ok]` 首次加载成功：错误区 hidden=true，无残留提示\n  - `[400]` 提交 `{\"text\":\"\"}`：错误区显示「text 不能为空」（取自 error.message），输入框内容保留，按钮恢复可用，列表条数不变（无假死、无堆栈）\n  - `[success]` 201：错误区隐藏、列表刷新为 2 条、输入框未被清空\n  - `[netErr]`：显示「网络异常，请稍后重试」\n  - `[500 non-json]`：显示「请求失败（HTTP 500）」，未抛未捕获异常\n- 验证用的 harness 与副本都在 `/tmp`，工作区仅 `web/app.js`、`web/index.html` 两个改动文件，无构建产物/探测文件；未触碰 `backend/`。\n\n**遗留**：无。前端需后端那侧返回 400 才能在空文本/超长场景看到提示，该部分由 backend 分支实现、qa 验收。",
+            "error": "",
+            "elapsedMs": 155640
+          },
+          {
+            "id": "run_9774cc9282576653",
+            "agentKey": "backend",
+            "agentName": "后端",
+            "status": "done",
+            "steps": 12,
+            "tokensIn": 73927,
+            "tokensOut": 5581,
+            "toolCalls": 14,
+            "changedFiles": 2,
+            "summary": "后端职责已完成。\n\n**改动文件（仅在 backend/ 内）**\n- `backend/handler.go`\n  - 删除 `strings.TrimSpace` 空判断（不再 trim 空格），改为 `in.Text == \"\"` 返回 400。\n  - 新增 `const maxTextRunes = 200`，并用 `utf8.RuneCountInString(in.Text) > maxTextRunes` 返回 400（按 rune 计，非字节）。\n  - 路由 `/api/todos`、方法、请求字段 `text`、成功响应 `{id,text,done}`、错误结构 `{\"error\":{\"message\":...}}` 全部未变。\n- `backend/handler_test.go`\n  - 保留原 `TestCreateAndList`（改为用 `newTestMux()` 重置 store，仍然只走 POST/GET 原路径）。\n  - 新增 `TestCreateTextValidation`，表驱动覆盖 11 个用例：空文本 400、`text` 缺失 400、201 rune（ASCII / 中文 / emoji）400、200 rune（ASCII / 中文 / emoji）201、150 个中文 rune（450 字节）201、`\"   \"` 201、普通文本 201；并断言 400 时 `error.message` 非空且**未写入数据**，201 时回显 rune 数与条数正确。\n\n**验证**\n- `go vet ./...`（cwd=backend）→ exit 0\n- `go test ./... -v -count=1`（cwd=backend）→ exit 0，`TestCreateAndList` + 11 个子用例全 PASS\n\n**接口签名摘要**\n- `POST /api/todos` body `{\"text\": string}` → 201 `{id,text,done}`；400 `{\"error\":{\"message\":string}}`（空字符串 / >200 rune / JSON 解析失败）；405 其它方法；`GET /api/todos` → 200 `{\"todos\":[]}`。\n\n**剩余**：无。未触碰 web/，未留构建产物（工作区仅 6 个源文件），未执行任何 git 写操作。",
+            "error": "",
+            "elapsedMs": 68171
+          }
+        ],
+        "status": "done",
+        "score": 100,
+        "repairs": 0,
+        "checks": [
+          {
+            "name": "backend-go-test",
+            "passed": true,
+            "exitCode": 0,
+            "output": "ok  \ttodo\t0.375s"
+          },
+          {
+            "name": "backend-go-vet",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          },
+          {
+            "name": "frontend-js-syntax",
+            "passed": true,
+            "exitCode": 0,
+            "output": ""
+          }
+        ],
+        "review": {
+          "agentKey": "qa",
+          "verdict": "pass",
+          "summary": "后端按 rune 计数的空/超长校验与前端错误提示均已落地，契约字段（/api/todos、{\"text\"}、{error:{message}}）保持一致，未越界改动；边界风险均为非阻塞项。",
+          "issues": [
+            "前端 showError/clearError 在 errorBox 为 null 时静默 return：若 index.html 被缓存成旧版本（无 #error 容器），POST 400 时页面依旧无任何提示（复现：把 index.html 的 <div id=\"error\"> 删掉，提交空文本，观察无提示）。可考虑在容器缺失时退化为 alert/插入节点，但当前仓库含容器，不阻塞。",
+            "边界：仅含空白的 text（如 \"   \" 或 \"\\t\\n\"）按契约必须 2xx，请勿在联调中以\"看起来是空\"为由回退成 400；复现：POST {\"text\":\"   \"} 期望 2xx。",
+            "边界：rune 计数不等于用户感知字符数，组合型 emoji（如 201 个 \"👨‍👩‍👧\" 每个为多 rune）会被判超长 400；若后续要求按 grapheme 计需改契约，当前与验收标准一致，仅记录。",
+            "边界：非法 UTF-8 或裸字符串等异常 body 时后端返回 400 + JSON，前端 readErrorMessage 走通用兜底文案（如 \"请求失败（HTTP 400）\"）而非 text 校验文案；复现：curl 发送 {} 之外的非 JSON body。属预期兜底，不阻塞。",
+            "复现检查点：POST 成功后紧接着 load() 失败时，页面显示的是列表加载错误而非添加成功反馈；若有用户反馈\"添加成功却报错\"，先确认是 GET 失败而非 POST 误报。",
+            "按钮在 finally 中恢复可用，若 GET /api/todos 挂起，load() 内的 fetch 无超时控制会导致提交按钮长时间禁用（假死观感），复现：把后端冻结不返回，点添加。非本次验收范围，记录备查。"
+          ],
+          "nits": [
+            "前端 showError/clearError 在 errorBox 为 null 时静默 return：若 index.html 被缓存成旧版本（无 #error 容器），POST 400 时页面依旧无任何提示（复现：把 index.html 的 <div id=\"error\"> 删掉，提交空文本，观察无提示）。可考虑在容器缺失时退化为 alert/插入节点，但当前仓库含容器，不阻塞。",
+            "边界：仅含空白的 text（如 \"   \" 或 \"\\t\\n\"）按契约必须 2xx，请勿在联调中以\"看起来是空\"为由回退成 400；复现：POST {\"text\":\"   \"} 期望 2xx。",
+            "边界：rune 计数不等于用户感知字符数，组合型 emoji（如 201 个 \"👨‍👩‍👧\" 每个为多 rune）会被判超长 400；若后续要求按 grapheme 计需改契约，当前与验收标准一致，仅记录。",
+            "边界：非法 UTF-8 或裸字符串等异常 body 时后端返回 400 + JSON，前端 readErrorMessage 走通用兜底文案（如 \"请求失败（HTTP 400）\"）而非 text 校验文案；复现：curl 发送 {} 之外的非 JSON body。属预期兜底，不阻塞。",
+            "复现检查点：POST 成功后紧接着 load() 失败时，页面显示的是列表加载错误而非添加成功反馈；若有用户反馈\"添加成功却报错\"，先确认是 GET 失败而非 POST 误报。",
+            "按钮在 finally 中恢复可用，若 GET /api/todos 挂起，load() 内的 fetch 无超时控制会导致提交按钮长时间禁用（假死观感），复现：把后端冻结不返回，点添加。非本次验收范围，记录备查。"
+          ]
+        },
+        "assignments": [
+          {
+            "agentKey": "backend",
+            "agentName": "后端",
+            "task": "交付物：backend/handler.go 中新增待办的 text 校验 —— 空字符串（不 trim 空格）与超过 200 个 Unicode 字符（用 rune 计数，如 utf8.RuneCountInString，不用 len 字节数）均返回 HTTP 400；错误响应沿用 handler 现有 JSON 结构（字段名不变，含可读 message），不改路由。同时在 backend/handler_test.go 补一条测试，覆盖：空文本 400、201 个 rune（含中文/emoji 等多字节字符用例）400、恰好 200 rune 与非空正常文本仍成功；确认既有测试全部仍通过。范围只动 backend/。；并补齐「字符数/rune」。",
+            "scope": [
+              "backend/",
+              "server/",
+              "api/",
+              "cmd/",
+              "internal/",
+              "pkg/",
+              "go.mod",
+              "go.sum",
+              "*.go",
+              "字符数/rune/"
+            ]
+          },
+          {
+            "agentKey": "frontend",
+            "agentName": "前端",
+            "task": "交付物：web/app.js（必要时 web/index.html 加一个错误展示容器）在新增待办请求失败时把错误显示到页面上，文案取 error.message；非 2xx 响应需 throw/转成带 message 的 Error（沿用后端返回的 message 字段），清空/隐藏上一次的错误、成功提交时不残留错误提示，输入框内容不被清空以便重试。不改接口路径与字段名，不改后端。范围只动 web/。",
+            "scope": [
+              "web/",
+              "frontend/",
+              "client/",
+              "ui/",
+              "public/",
+              "*.html",
+              "*.css",
+              "*.js",
+              "*.ts",
+              "*.tsx",
+              "*.jsx",
+              "*.vue"
+            ]
+          }
+        ],
+        "issues": [],
+        "plan": {
+          "objective": "修复后端待办文本校验（空/超长按 rune 计）与前端接口错误提示缺失，保持既有测试与接口路径、字段名不变。",
+          "acceptance": [
+            "后端：POST 创建待办 body {\"text\":\"\"} → 返回 400，且不产生新数据",
+            "后端：text 为 201 个 rune（如 201 个 \"a\"）→ 400；200 个 rune → 2xx",
+            "后端：text 为 150 个多字节字符（如 150 个 \"中\"，字节超 200 但 rune=150）→ 2xx，证明按 rune 计数而非字节",
+            "后端：text=\"   \"（非空、未超长）→ 2xx，证明未新增 trim 逻辑",
+            "后端：backend/handler_test.go 新增用例同时覆盖空文本 400 与超长（>200 rune）400，且现有测试全部通过",
+            "前端：接口返回 400（或其他错误）时，页面可见地显示错误信息，内容取自 error.message；无报错堆栈、无假死",
+            "前端：添加成功的正常路径行为不变，不出现误报错误提示",
+            "双方未改动接口路径、请求/响应字段名；backend 只动 backend/，frontend 只动 web/，无越界改动"
+          ],
+          "contracts": "创建待办接口（路径与字段名保持现状，双侧均不得改动）：\\n- 请求：POST 到 handler.go 中现有路径，Content-Type: application/json，body：{\"text\": string}\\n- 成功：2xx，响应体沿用现有成功结构\\n- 失败：HTTP 400，错误响应沿用现有错误字段结构（错误信息人类可读）；本次仅新增\"空文本/超长文本返回 400\"两种触发情况，不新增字段\\n- 校验规则：text 缺失或为空字符串(\"\") → 400；按 Unicode rune 计数 > 200 → 400；不 trim 空格、不按字节数\\n- 前端契约：fetch 非 2xx 时构造 error 对象（message 来源于后端错误响应内容），并在页面渲染 error.message；成功路径 UI 行为不变",
+          "assignments": [
+            {
+              "agentKey": "backend",
+              "agentName": "后端",
+              "task": "交付物：backend/handler.go 中新增待办的 text 校验 —— 空字符串（不 trim 空格）与超过 200 个 Unicode 字符（用 rune 计数，如 utf8.RuneCountInString，不用 len 字节数）均返回 HTTP 400；错误响应沿用 handler 现有 JSON 结构（字段名不变，含可读 message），不改路由。同时在 backend/handler_test.go 补一条测试，覆盖：空文本 400、201 个 rune（含中文/emoji 等多字节字符用例）400、恰好 200 rune 与非空正常文本仍成功；确认既有测试全部仍通过。范围只动 backend/。；并补齐「字符数/rune」。",
+              "scope": [
+                "backend/",
+                "server/",
+                "api/",
+                "cmd/",
+                "internal/",
+                "pkg/",
+                "go.mod",
+                "go.sum",
+                "*.go",
+                "字符数/rune/"
+              ]
+            },
+            {
+              "agentKey": "frontend",
+              "agentName": "前端",
+              "task": "交付物：web/app.js（必要时 web/index.html 加一个错误展示容器）在新增待办请求失败时把错误显示到页面上，文案取 error.message；非 2xx 响应需 throw/转成带 message 的 Error（沿用后端返回的 message 字段），清空/隐藏上一次的错误、成功提交时不残留错误提示，输入框内容不被清空以便重试。不改接口路径与字段名，不改后端。范围只动 web/。",
+              "scope": [
+                "web/",
+                "frontend/",
+                "client/",
+                "ui/",
+                "public/",
+                "*.html",
+                "*.css",
+                "*.js",
+                "*.ts",
+                "*.tsx",
+                "*.jsx",
+                "*.vue"
+              ]
+            }
+          ],
+          "verification": [
+            {
+              "name": "backend-go-test",
+              "argv": [
+                "go",
+                "test",
+                "./..."
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "backend-go-vet",
+              "argv": [
+                "go",
+                "vet",
+                "./..."
+              ],
+              "cwd": "backend"
+            },
+            {
+              "name": "frontend-js-syntax",
+              "argv": [
+                "node",
+                "--check",
+                "app.js"
+              ],
+              "cwd": "web"
+            }
+          ],
+          "reviewerKey": "qa",
+          "notes": "分工（前后端无共享文件，可完全并行）：\\n- backend（full，仅 backend/）：在 handler.go 增加上述校验逻辑；在 handler_test.go 新增覆盖空文本与超长文本的测试；保持现有测试通过。验收人：qa。\\n- frontend（full，仅 web/）：在 app.js 增加错误展示逻辑（显示 error.message），如需提示区可在 index.html 加容器元素。验收人：qa。\\n- qa（audit）：按验收标准逐条审查改动并给出结论，不改代码。\\n- arch：无代码改动。"
+        },
+        "error": ""
+      },
+      "verification": {
+        "workspace": "/tmp/ensemble-bench/2026-10-23T08-00-02/seeded-bugfix/team",
+        "files": [
+          {
+            "path": "backend/go.mod",
+            "size": 21
+          },
+          {
+            "path": "backend/handler.go",
+            "size": 1884
+          },
+          {
+            "path": "backend/handler_test.go",
+            "size": 4548
+          },
+          {
+            "path": "backend/main.go",
+            "size": 361
+          },
+          {
+            "path": "web/app.js",
+            "size": 2632
+          },
+          {
+            "path": "web/index.html",
+            "size": 407
+          }
+        ],
+        "verify": {
+          "code": 0,
+          "out": "ok  \ttodo\t0.131s\n",
+          "err": ""
+        },
+        "smoke": {
+          "requests": [
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 不能为空\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"error\":{\"message\":\"text 长度不能超过 200 个字符\"}}\n",
+              "expect": 400,
+              "status": 400,
+              "ok": true
+            },
+            {
+              "method": "POST",
+              "path": "/api/todos",
+              "body": "{\"id\":1,\"text\":\"正常\",\"done\":false}\n",
+              "expect": [
+                200,
+                201
+              ],
+              "status": 201,
+              "ok": true
+            },
+            {
+              "method": "GET",
+              "path": "/",
+              "expect": 200,
+              "status": 200,
+              "ok": true,
+              "body": "<!doctype html>\n<html lang=\"zh-CN\">\n<head><meta charset=\"utf-8\"><title>待办</title>\n<style>\n  #error { color: #b00020; margin: 8px 0; }\n  #error[hidden] { display: none; }\n</style>\n</head>\n<body>\n<h1>待办</h1>\n<form id=\"form\"><input id=\"text\"><button>添加</button></form>\n<div id=\"error\" role=\"alert\" aria-"
+            }
+          ],
+          "log": "2026/10/23 16:06:14 listening on 127.0.0.1:18081\n"
+        },
+        "checks": [
+          {
+            "name": "后端测试通过",
+            "ok": true
+          },
+          {
+            "name": "新增了校验测试",
+            "ok": true
+          },
+          {
+            "name": "前端有错误展示",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 400",
+            "ok": true
+          },
+          {
+            "name": "冒烟 POST /api/todos → 201",
+            "ok": true
+          },
+          {
+            "name": "冒烟 GET / → 200",
+            "ok": true
+          }
+        ],
+        "score": 100
+      }
+    }
+  ]
+}

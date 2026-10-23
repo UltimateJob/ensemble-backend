@@ -3,9 +3,11 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/UltimateJob/ensemble-backend/internal/agent"
 	"github.com/UltimateJob/ensemble-backend/internal/domain"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
 )
@@ -23,10 +25,44 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 		Model   string             `json:"model"`
 		Members []string           `json:"members"`
 		Agents  []domain.ConvAgent `json:"agents"`
+		// 创建即绑定本地工作区（代码群第一屏就要能派活）。
+		Workspace         *domain.ConvWorkspace `json:"workspace"`
+		DefaultPermission string                `json:"defaultPermission"`
+		AgentPermissions  map[string]string     `json:"agentPermissions"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
 		return
+	}
+	if req.Workspace != nil {
+		// 本机目录只能由本机客户端选：公网请求带路径等于让我们去读服务器文件。
+		if !isLoopback(r.RemoteAddr) {
+			fail(w, 403, "forbidden", "只能在本机绑定本地工作区")
+			return
+		}
+		switch strings.TrimSpace(req.Workspace.Kind) {
+		case "cloud":
+			fail(w, 400, "cloud_not_available", "云端工作区即将支持")
+			return
+		case "", "local":
+		default:
+			badRequest(w, "只支持本地工作区")
+			return
+		}
+		if strings.TrimSpace(req.Workspace.Root) == "" {
+			badRequest(w, "工作区路径不能为空")
+			return
+		}
+	}
+	if req.DefaultPermission != "" && !agent.ValidPermission(agent.Permission(req.DefaultPermission)) {
+		badRequest(w, "默认权限不合法")
+		return
+	}
+	for key, p := range req.AgentPermissions {
+		if !agent.ValidPermission(agent.Permission(p)) {
+			badRequest(w, "角色权限不合法："+key)
+			return
+		}
 	}
 	// 两个 C 端场景的角色都是开局生成的：
 	//   日常陪聊 —— 随机性格的朋友（6 种性格模板）
@@ -53,10 +89,33 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	conv, err := s.chat.Create(u.ID, req.Title, req.Studio, req.Model, req.Members, req.Agents)
+	conv, err := s.chat.CreateWithOptions(u.ID, req.Title, req.Studio, req.Model, req.Members, req.Agents, service.CreateOptions{
+		Workspace:         req.Workspace,
+		DefaultPermission: req.DefaultPermission,
+		AgentPermissions:  req.AgentPermissions,
+	})
 	if err != nil {
 		serverErr(w, err.Error())
 		return
+	}
+	if req.Workspace != nil && s.agents != nil {
+		// 执行器按 convID 找工作区；只在会话里存一份路径不够。
+		bw, berr := s.agents.BindWorkspaceFor(u.ID, conv.ID, req.Workspace.Root, req.Workspace.Label)
+		if berr != nil {
+			conv.Workspace = nil
+			_ = s.chat.Update(conv)
+			badRequest(w, berr.Error())
+			return
+		}
+		label := strings.TrimSpace(req.Workspace.Label)
+		if label == "" {
+			label = filepath.Base(bw.Root)
+		}
+		conv.Workspace = &domain.ConvWorkspace{
+			ID: bw.ID, Kind: "local", Root: bw.Root, Label: label, BoundAt: time.Now(),
+		}
+		_ = s.chat.Update(conv)
+		s.chat.AppendSystemNote(conv.ID, "已绑定本地工作区："+bw.Root)
 	}
 	created(w, conv)
 }
@@ -90,10 +149,38 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 		// Agents 用指针区分「没带这个字段」和「带了个空数组」：
 		// 没带＝不动角色；带了空数组＝把群恢复成场景预设（清空自定义角色）。
 		Agents *[]domain.ConvAgent `json:"agents"`
+		// 权限：带了才改。空字符串表示恢复「跟随群默认」。
+		DefaultPermission *string           `json:"defaultPermission"`
+		AgentPermissions  map[string]string `json:"agentPermissions"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
 		return
+	}
+	if req.DefaultPermission != nil {
+		p := strings.TrimSpace(*req.DefaultPermission)
+		if p != "" && !agent.ValidPermission(agent.Permission(p)) {
+			badRequest(w, "默认权限不合法")
+			return
+		}
+		conv.DefaultPermission = p
+	}
+	if len(req.AgentPermissions) > 0 {
+		if conv.AgentPermissions == nil {
+			conv.AgentPermissions = make(map[string]string, len(req.AgentPermissions))
+		}
+		for key, p := range req.AgentPermissions {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				delete(conv.AgentPermissions, key)
+				continue
+			}
+			if !agent.ValidPermission(agent.Permission(p)) {
+				badRequest(w, "角色权限不合法："+key)
+				return
+			}
+			conv.AgentPermissions[key] = p
+		}
 	}
 	if req.Title != "" {
 		if len([]rune(req.Title)) > 40 {

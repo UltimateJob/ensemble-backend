@@ -1,16 +1,17 @@
 import { useColorScheme } from 'react-native';
 import { create } from 'zustand';
+import { dark as darkRaw, light } from './tokens';
 
 /**
- * 明暗双主题。
+ * 明暗双主题 · 纸团 v1.0
  *
- * 两套色不是简单反色：
- *   - 亮色：暖白底 + 白卡 + 蓝紫渐变，靠光分层
- *   - 暗色：不是纯黑（#000 在 OLED 上过硬），而是深灰蓝 #0E0F14，
- *     卡片比底亮一档，阴影几乎消失、改用极淡描边分层。
- *     渐变在暗底上提亮饱和，否则会显脏。
+ * 浅色：暖灰底 `#F6F6F4` + 白卡，层次靠投影。
+ * 深色：真黑底 `#0B0B0C` + 微渐变卡，阴影几乎不可见，改用极淡描边分层。
  *
- * 所有颜色引用都走 useTheme()，不在组件里写裸值。
+ * 关键差异（相对上一版）：
+ *   - 不再有彩色光晕，底色是平坦的暖灰
+ *   - 主按钮是墨黑（浅色）/ 反白（深色），不是蓝紫渐变
+ *   - 品牌渐变只给门面页用，群聊内不用
  */
 
 export type ThemeMode = 'light' | 'dark';
@@ -19,143 +20,197 @@ export interface Theme {
   mode: ThemeMode;
   dark: boolean;
 
-  /** 页面底（渐变三端点） */
+  /* 表面 */
   canvas: [string, string, string];
-  /** 光晕色（暗色下更明显） */
+  /** 兼容旧组件；新设计不用光晕 */
   orbA: string;
   orbB: string;
-
   card: string;
+  /** 卡片顶部渐变浅端（深色下有值） */
+  cardTop: string;
   cardSunken: string;
   cardTint: string;
+  /** 悬浮板（成员条 / 托盘 / 输入板） */
+  slab: string;
+  slabTop: string;
 
+  /* 品牌（仅门面页） */
   accent: string;
   accentDeep: string;
-  /** 强调文字：在浅色 accent 底上仍满足 4.5:1 */
   accentText: string;
   gradient: [string, string, string];
   gradientSoft: [string, string];
   accentSoft: string;
   accentFaint: string;
 
+  /* 文字 */
   ink: string;
   ink2: string;
   ink3: string;
   ink4: string;
+  faint: string;
 
+  /* 语义 */
   ok: string;
   okSoft: string;
+  okDot: string;
   warn: string;
   warnSoft: string;
   bad: string;
   badSoft: string;
+  dangerDot: string;
+  goldBg: string;
+  goldFg: string;
+  meBlue: string;
 
+  /* 状态环 */
   ringIdle: string;
   ringWorking: string;
   ringDone: string;
   ringBlocked: string;
 
+  /* 线 / 材质 */
   line: string;
+  hairline: string;
+  track: string;
+  toggleOff: string;
+  radioOff: string;
+  chipBg: string;
+  slate: string;
   scrim: string;
   white: string;
-  /** 卡片描边：暗色下用来替代阴影 */
   cardBorder: string;
-  /** 毛玻璃条（顶栏/底栏） */
   barBg: string;
   shadowColor: string;
+  /** 主按钮底：浅色墨黑，深色反白 */
+  primaryBg: string;
+  primaryInk: string;
+  primaryGrad: [string, string];
 }
 
 export const LIGHT: Theme = {
   mode: 'light',
   dark: false,
-  // 暖白底：元宝那类产品的页面不是冷蓝，而是极淡的暖灰白，
-  // 这样上面的白卡片才显得"干净"而不是"发蓝".
-  canvas: ['#F7F7F9', '#FAFAFB', '#FCFCFD'],
-  orbA: 'rgba(78,123,251,0.07)',
-  orbB: 'rgba(139,92,246,0.05)',
-  card: '#FFFFFF',
-  cardSunken: '#F4F4F7',
-  cardTint: '#FAFAFB',
-  accent: '#3D6BF5',
-  accentDeep: '#5B4BE8',
-  /** 强调文字专用：在 accentSoft 底上也能达到 4.5:1 */
-  accentText: '#2B52C9',
-  // 主色渐变收敛：起止都是蓝，中间带一点靛，不再拉到紫。
-  // 拉到紫会让整个 App 看起来像"AI 生成器的默认配色"。
-  gradient: ['#3D6BF5', '#4A6FF0', '#5B6FE8'],
-  gradientSoft: ['#EEF3FF', '#F4F0FF'],
-  accentSoft: '#E9EFFF',
-  accentFaint: '#F6F9FF',
-  ink: '#12121A',
-  ink2: '#4A4A55',
-  // ink3 之前是 #8A8A97，在 #F7F7F9 底上只有 3.27:1，低于 WCAG AA 的 4.5。
-  // 加深到 #6E6E7C 后约 5.1:1，既达标又不失"次要"的层级感。
-  ink3: '#6E6E7C',
-  // ink4 只用于占位符和极弱装饰，不承载信息，允许低于 4.5
-  ink4: '#A0A0AE',
-  ok: '#0FA968',
-  okSoft: '#E4F7EE',
-  warn: '#DE8700',
-  warnSoft: '#FFF5E3',
-  bad: '#E0454A',
-  badSoft: '#FFECEC',
-  ringIdle: '#D6D6E0',
-  ringWorking: '#4E7BFB',
-  ringDone: '#0FA968',
-  ringBlocked: '#E0454A',
-  line: '#E9EAF1',
-  scrim: 'rgba(16,16,26,0.40)',
-  white: '#FFFFFF',
+  canvas: [light.bg, light.bg, light.bg],
+  orbA: 'transparent',
+  orbB: 'transparent',
+  card: light.surface,
+  cardTop: light.surface,
+  cardSunken: light.surfaceSoft,
+  cardTint: '#FAFAF8',
+  slab: 'rgba(255,255,255,0.86)',
+  slabTop: '#FFFFFF',
+
+  accent: light.brandFrom,
+  accentDeep: light.brandTo,
+  accentText: '#3B5BD6',
+  gradient: [light.brandFrom, '#6A6AF2', light.brandTo],
+  gradientSoft: ['#EEF2FF', '#F5F0FF'],
+  accentSoft: '#EDF2FF',
+  accentFaint: '#F7F9FF',
+
+  ink: light.ink,
+  ink2: light.text2,
+  ink3: light.text3,
+  ink4: light.text4,
+  faint: light.faint,
+
+  ok: light.ok,
+  okSoft: '#EAF4ED',
+  okDot: light.okDot,
+  warn: light.wait,
+  warnSoft: '#FDF3E3',
+  bad: light.danger,
+  badSoft: light.dangerSoft,
+  dangerDot: light.dangerDot,
+  goldBg: light.goldBg,
+  goldFg: light.goldFg,
+  meBlue: light.meBlue,
+
+  ringIdle: light.radioOff,
+  ringWorking: light.ink,
+  ringDone: light.okDot,
+  ringBlocked: light.dangerDot,
+
+  line: light.hairline,
+  hairline: light.hairline,
+  track: light.track,
+  toggleOff: light.toggleOff,
+  radioOff: light.radioOff,
+  chipBg: light.chipBg,
+  slate: light.slate,
+  scrim: light.scrim,
+  white: light.white,
   cardBorder: 'transparent',
-  barBg: 'rgba(248,249,253,0.86)',
-  shadowColor: '#2B3A77',
+  barBg: 'rgba(255,255,255,0.86)',
+  shadowColor: '#101214',
+  primaryBg: light.ink,
+  primaryInk: '#FFFFFF',
+  primaryGrad: [light.inkGrad[0], light.inkGrad[1]],
 };
 
 export const DARK: Theme = {
   mode: 'dark',
   dark: true,
-  canvas: ['#0B0C11', '#0E0F16', '#121319'],
-  // 暗色下光晕必须极淡：稍强一点就会在深底上形成一块硬边的紫色区域，
-  // 看起来像渲染错误而不是"环境光"。
-  orbA: 'rgba(78,123,251,0.07)',
-  orbB: 'rgba(139,92,246,0.06)',
-  card: '#1A1B23',
-  cardSunken: '#22242E',
-  cardTint: '#1E1F28',
+  canvas: [darkRaw.bg, darkRaw.bg, darkRaw.bg],
+  orbA: 'transparent',
+  orbB: 'transparent',
+  card: darkRaw.surface,
+  cardTop: darkRaw.surfaceTop,
+  cardSunken: '#1E1E22',
+  cardTint: '#202024',
+  slab: 'rgba(38,38,43,0.92)',
+  slabTop: darkRaw.slabTop,
+
   accent: '#7C9BFF',
   accentDeep: '#A78BFA',
-  /** 暗色下 accent 本身已经够亮，强调文字直接用 accent */
   accentText: '#9BB4FF',
-  // 暗色下渐变不能再提亮，否则气泡会"发光"刺眼。
-  gradient: ['#4A6FD8', '#5568D0', '#5F66C8'],
+  gradient: ['#4E7BFB', '#6A6AF2', '#8B5CF6'],
   gradientSoft: ['#20243A', '#262242'],
   accentSoft: 'rgba(124,155,255,0.16)',
   accentFaint: 'rgba(124,155,255,0.08)',
-  ink: '#F2F3F8',
-  ink2: '#C2C4D2',
-  // 暗底上亮文字，对比度天然更高；稍微提亮保证次要文字也过 4.5
-  ink3: '#9A9CAE',
-  ink4: '#6E7086',
-  ok: '#3DD68C',
-  okSoft: 'rgba(61,214,140,0.14)',
-  warn: '#F0B040',
-  warnSoft: 'rgba(240,176,64,0.14)',
-  bad: '#FF6B6B',
-  badSoft: 'rgba(255,107,107,0.14)',
+
+  ink: darkRaw.text,
+  ink2: darkRaw.text2,
+  ink3: darkRaw.text3,
+  ink4: '#8A8A92',
+  faint: darkRaw.faint,
+
+  ok: darkRaw.ok,
+  okSoft: 'rgba(76,195,138,0.14)',
+  okDot: darkRaw.ok,
+  warn: '#E8A33D',
+  warnSoft: 'rgba(232,163,61,0.14)',
+  bad: darkRaw.danger,
+  badSoft: darkRaw.dangerSoft,
+  dangerDot: darkRaw.danger,
+  goldBg: 'rgba(150,118,47,0.22)',
+  goldFg: '#D6B269',
+  meBlue: '#3E8FE0',
+
   ringIdle: '#3A3C4A',
-  ringWorking: '#7C9BFF',
-  ringDone: '#3DD68C',
-  ringBlocked: '#FF6B6B',
-  line: 'rgba(255,255,255,0.08)',
-  scrim: 'rgba(0,0,0,0.62)',
+  ringWorking: '#F2F2F2',
+  ringDone: darkRaw.ok,
+  ringBlocked: darkRaw.danger,
+
+  line: darkRaw.hairline,
+  hairline: darkRaw.hairline,
+  track: darkRaw.track,
+  toggleOff: '#3A3C42',
+  radioOff: '#4A4C56',
+  chipBg: darkRaw.chipBg,
+  slate: '#C9C9CE',
+  scrim: 'rgba(0,0,0,0.58)',
   white: '#FFFFFF',
   cardBorder: 'rgba(255,255,255,0.06)',
-  barBg: 'rgba(16,17,24,0.84)',
+  barBg: 'rgba(30,30,34,0.86)',
   shadowColor: '#000000',
+  primaryBg: darkRaw.primary,
+  primaryInk: darkRaw.primaryInk,
+  primaryGrad: [darkRaw.primary, darkRaw.primary],
 };
 
 interface ThemeState {
-  /** 用户选择：auto 跟随系统 */
   pref: 'auto' | 'light' | 'dark';
   setPref: (p: 'auto' | 'light' | 'dark') => void;
 }
@@ -165,7 +220,6 @@ export const useThemePref = create<ThemeState>((set) => ({
   setPref: (pref) => set({ pref }),
 }));
 
-/** 当前主题。跟随系统 + 用户覆盖。 */
 export function useTheme(): Theme {
   const sys = useColorScheme();
   const pref = useThemePref((s) => s.pref);
@@ -173,7 +227,6 @@ export function useTheme(): Theme {
   return mode === 'dark' ? DARK : LIGHT;
 }
 
-/** 非组件环境取主题（极少用）。 */
 export function themeFor(mode: ThemeMode): Theme {
   return mode === 'dark' ? DARK : LIGHT;
 }

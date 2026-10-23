@@ -144,6 +144,27 @@ func ResolveAgents(conv *domain.Conversation) (Scenario, []Agent) {
 	agents := sc.Agents
 	if custom := agentsFromConversation(conv); len(custom) > 0 {
 		agents = custom
+	} else if len(conv.Members) > 0 {
+		// 单聊/选定成员的群：Members 是用户在创建时挑的 key（也兼容名字）。
+		// 内置场景默认带全套角色，不筛的话「单聊」里其他角色仍会抢话。
+		// 自定义群的角色已经写在 conv.Agents 里，不走这条分支。
+		want := make(map[string]bool, len(conv.Members))
+		for _, m := range conv.Members {
+			if m = strings.TrimSpace(m); m != "" {
+				want[m] = true
+			}
+		}
+		if len(want) > 0 {
+			picked := make([]Agent, 0, len(want))
+			for _, a := range agents {
+				if want[a.Key] || want[a.Name] {
+					picked = append(picked, a)
+				}
+			}
+			if len(picked) > 0 {
+				agents = picked
+			}
+		}
 	}
 	out := make([]Agent, len(agents))
 	copy(out, agents)
@@ -271,6 +292,8 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	if maxSpeakers <= 0 {
 		maxSpeakers = 3
 	}
+	// 单聊没有「旁人接话」这条路：这个角色必须开口，沉默就是无响应。
+	single := len(agents) == 1
 
 	// 按剩余额度裁剪本轮发言人数。
 	// 不裁剪的话：只剩 1 次额度也会跑满 3 个角色，used 冲成负数。
@@ -340,6 +363,7 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 		// 强制不等于让所有人说话——只保证至少有一个角色接住。
 		force := (forceFirst && speakers == 0) || (attempt > 0 && speakers == 0) ||
 			(!casual && attempt == 0) ||
+			single ||
 			(len(addressed) > 0 && addressed[agent.Key] && !spoken[agent.Key])
 		memoryCard := ""
 		if o.mem != nil {

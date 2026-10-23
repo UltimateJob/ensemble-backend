@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Canvas } from '../../src/components/Canvas';
 import { Surface } from '../../src/components/Surface';
 import { Button, Card, Icon, IconTile, Input, NavBar, Row, T, Tag, Toggle } from '../../src/components/ui';
-import { del, get, getBaseURL, humanError, patch, setBaseURL } from '../../src/lib/api';
+import { del, get, getBaseURL, humanError, patch, post, setBaseURL } from '../../src/lib/api';
 import { signOut } from '../../src/lib/session';
 import { useApp } from '../../src/lib/store';
 import type { Device } from '../../src/lib/types';
@@ -22,6 +22,35 @@ export default function Settings() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [err, setErr] = useState('');
   const [host, setHost] = useState(getBaseURL());
+  const [hasPw, setHasPw] = useState(false);
+  const [oldPw, setOldPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [newPw2, setNewPw2] = useState('');
+  const [pwMsg, setPwMsg] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+
+  useEffect(() => {
+    get<any>('/v1/me')
+      .then((d) => setHasPw(!!d?.hasPassword))
+      .catch(() => { /* 未登录或旧服务端时按未设置处理 */ });
+  }, []);
+
+  async function savePassword() {
+    setPwMsg('');
+    if (newPw.length < 8 || newPw.length > 72) return setPwMsg('密码长度需在 8-72 个字符之间');
+    if (newPw !== newPw2) return setPwMsg('两次输入的新密码不一致');
+    setPwBusy(true);
+    try {
+      await post('/v1/me/password', { oldPassword: oldPw, newPassword: newPw });
+      setHasPw(true);
+      setOldPw(''); setNewPw(''); setNewPw2('');
+      setPwMsg('已保存');
+    } catch (e) {
+      setPwMsg(humanError(e));
+    } finally {
+      setPwBusy(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +91,28 @@ export default function Settings() {
                 </T>
               </View>
             </Row>
+          </View></Surface>
+
+          <Label>账号安全</Label>
+          <Surface shell={4} outerRadius={22}><View style={{ padding: CARD_PAD, gap: gap.xs }}>
+            <T size={type.caption} color={t.ink3} lh={leading.caption} style={{ marginBottom: gap.xs }}>
+              {hasPw ? '已设置密码。修改后旧密码立即失效，验证码登录不受影响。' : '设置密码后，可以用手机号/邮箱 + 密码登录。'}
+            </T>
+            {hasPw ? (
+              <Input value={oldPw} onChangeText={setOldPw} placeholder="原密码" secureTextEntry />
+            ) : null}
+            <Input value={newPw} onChangeText={setNewPw} placeholder="新密码（8-72 位）" secureTextEntry />
+            <Input value={newPw2} onChangeText={setNewPw2} placeholder="再输一次新密码" secureTextEntry />
+            {pwMsg ? (
+              <T size={type.caption} color={pwMsg === '已保存' ? t.accent : t.bad}>{pwMsg}</T>
+            ) : null}
+            <Button
+              label={hasPw ? '修改密码' : '设置密码'}
+              variant="secondary"
+              size="sm"
+              disabled={pwBusy}
+              onPress={savePassword}
+            />
           </View></Surface>
 
           <Label>外观</Label>

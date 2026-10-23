@@ -38,6 +38,8 @@ type Server struct {
 	agents *agent.Manager
 	// remote 线上后端 provider。nil 表示本地直连上游。
 	remote *gateway.Remote
+	// teams 团队任务编排器。未注入时团队接口不注册。
+	teams *agent.TeamManager
 
 	// 手机端相关。devices 为 nil 时远程路由不注册（单机模式不受影响）。
 	devices  *service.Devices
@@ -45,7 +47,24 @@ type Server struct {
 	conns    *service.Connectors
 	library  *service.Library
 	activity *service.Activity
+	official *service.Official
+
+	// upstreams 可编辑的上游渠道表。为 nil 时渠道接口不注册。
+	upstreams *store.Upstreams
+	// beforeProviderDelete 删除渠道前的业务校验（main 注入：模型表引用检查）。
+	beforeProviderDelete func(name string) string
+	// quotas 渠道额度查询（余额 / 5h / 7d 窗口）。
+	quotas *gateway.QuotaService
+
+	// 套餐级限流/并发。按套餐 ID 惰性创建令牌桶；
+	// 并发计数按用户 ID 累计，进入 +1、离开 -1。
+	limitMu      sync.Mutex
+	planLimiters map[string]*gateway.Limiter
+	userInflight map[string]int
 }
+
+// SetQuotas 注入渠道额度查询服务。须在开始接请求前调用。
+func (s *Server) SetQuotas(q *gateway.QuotaService) { s.quotas = q }
 
 func NewServer(
 	cfg config.Config,
@@ -65,8 +84,20 @@ func NewServer(
 		limiter: limiter,
 		seenAt:  make(map[string]time.Time),
 		mem:     mem,
+
+		planLimiters: make(map[string]*gateway.Limiter),
+		userInflight: make(map[string]int),
 	}
 }
+
+// SetUpstreams 注入可编辑的上游渠道表。须在开始接请求前调用。
+func (s *Server) SetUpstreams(u *store.Upstreams) { s.upstreams = u }
+
+// SetProviderDeleteGuard 注入删除渠道前的引用检查。
+func (s *Server) SetProviderDeleteGuard(fn func(name string) string) { s.beforeProviderDelete = fn }
+
+// SetTeamManager 注入团队任务编排器。须在开始接请求前调用。
+func (s *Server) SetTeamManager(t *agent.TeamManager) { s.teams = t }
 
 // SetRemoteServices 注入手机端所需的服务。
 //
@@ -78,12 +109,14 @@ func (s *Server) SetRemoteServices(
 	conns *service.Connectors,
 	library *service.Library,
 	activity *service.Activity,
+	official *service.Official,
 ) {
 	s.devices = devices
 	s.goals = goals
 	s.conns = conns
 	s.library = library
 	s.activity = activity
+	s.official = official
 }
 
 // Handler 构建完整路由。
@@ -140,6 +173,7 @@ func (s *Server) Handler() http.Handler {
 	// ---- 鉴权 ----
 	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCode)
 	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /v1/auth/reset-password", s.handleResetPassword)
 
 	// ---- 需要登录 ----
 	userMux := http.NewServeMux()
@@ -150,6 +184,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("POST /v1/characters/to-agent", s.handleCharacterToAgent)
 	userMux.HandleFunc("GET /v1/me", s.handleMe)
 	userMux.HandleFunc("PATCH /v1/me", s.handleUpdateMe)
+	userMux.HandleFunc("POST /v1/me/password", s.handleSetPassword)
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
 	userMux.HandleFunc("POST /v1/events", s.handleTrack)
 	userMux.HandleFunc("POST /v1/agents/draft", s.handleDraftAgent)
@@ -196,6 +231,21 @@ func (s *Server) Handler() http.Handler {
 		userMux.HandleFunc("POST /v1/runs/{id}/abort", s.handleAbort)
 		userMux.HandleFunc("GET /v1/runs/{id}/diff", s.handleRunDiff)
 		userMux.HandleFunc("POST /v1/runs/{id}/revert", s.handleRevert)
+
+		// 会话级工作区：代码工作室绑定本地目录、@ 派活、团队任务。
+		userMux.HandleFunc("PUT /v1/conversations/{id}/workspace", s.handleBindConvWorkspace)
+		userMux.HandleFunc("DELETE /v1/conversations/{id}/workspace", s.handleUnbindConvWorkspace)
+		userMux.HandleFunc("POST /v1/conversations/{id}/execute", s.handleExecute)
+		userMux.HandleFunc("GET /v1/conversations/{id}/runs", s.handleConvRuns)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/raw", s.handleWorkspaceRaw)
+		userMux.HandleFunc("GET /v1/workspaces/{id}/runs", s.handleWorkspaceRuns)
+	}
+	if s.teams != nil {
+		userMux.HandleFunc("POST /v1/conversations/{id}/team", s.handleStartTeam)
+		userMux.HandleFunc("GET /v1/conversations/{id}/teams", s.handleListTeams)
+		userMux.HandleFunc("GET /v1/teams/{id}", s.handleGetTeam)
+		userMux.HandleFunc("GET /v1/teams/{id}/events", s.handleTeamEvents)
+		userMux.HandleFunc("POST /v1/teams/{id}/cancel", s.handleCancelTeam)
 	}
 
 	// ---- 手机端：目标 / 连接器 / 资料库 / 状态环 ----
@@ -217,6 +267,9 @@ func (s *Server) Handler() http.Handler {
 		userMux.HandleFunc("GET /v1/library/{id}", s.handleGetArtifact)
 		userMux.HandleFunc("DELETE /v1/library/{id}", s.handleDeleteArtifact)
 	}
+	if s.official != nil {
+		userMux.HandleFunc("GET /v1/official", s.handleOfficial)
+	}
 	if s.devices != nil {
 		userMux.HandleFunc("POST /v1/devices/pair-code", s.handleIssuePairCode)
 		userMux.HandleFunc("GET /v1/devices", s.handleListDevices)
@@ -228,14 +281,19 @@ func (s *Server) Handler() http.Handler {
 	// 配对接口免登录：手机首次配对时还没有任何凭证
 	mux.HandleFunc("POST /v1/devices/pair", s.handlePair)
 
+	// 钱包与兑换码：用户侧只读余额/流水，兑换码由管理员生成。
+	userMux.HandleFunc("GET /v1/wallet", s.handleMyWallet)
+	userMux.HandleFunc("POST /v1/redeem", s.handleRedeemCode)
+
 	// authMiddleware 在基础鉴权之上叠了限流与在线时间节流
 	authMW := s.authMiddleware()
 	for _, p := range []string{
 		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/models", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
 		"/v1/conversations", "/v1/conversations/", "/v1/memories",
-		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/",
+		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/", "/v1/teams", "/v1/teams/",
 		"/v1/goals", "/v1/goals/", "/v1/connectors", "/v1/connectors/",
-		"/v1/library", "/v1/library/", "/v1/devices", "/v1/devices/",
+		"/v1/library", "/v1/library/", "/v1/devices", "/v1/devices/", "/v1/official",
+		"/v1/wallet", "/v1/redeem",
 	} {
 		mux.Handle(p, authMW(userMux))
 	}
@@ -251,6 +309,8 @@ func (s *Server) Handler() http.Handler {
 	adminMux.HandleFunc("POST /admin/api/models", s.handleAdminModels)
 	adminMux.HandleFunc("DELETE /admin/api/models/{key}", s.handleAdminModelDelete)
 	adminMux.HandleFunc("GET /admin/api/users", s.handleAdminUsers)
+	adminMux.HandleFunc("GET /admin/api/users/{id}", s.handleAdminUserDetail)
+	adminMux.HandleFunc("POST /admin/api/users/{id}/plan", s.handleAdminUserPlan)
 	adminMux.HandleFunc("POST /admin/api/users/{id}/status", s.handleAdminUserStatus)
 	adminMux.HandleFunc("POST /admin/api/users/{id}/quota", s.handleAdminUserQuota)
 	adminMux.HandleFunc("POST /admin/api/providers/{name}/reset", s.handleAdminResetProvider)
@@ -262,6 +322,34 @@ func (s *Server) Handler() http.Handler {
 	adminMux.HandleFunc("POST /admin/api/conversations/{id}/unlock", s.handleAdminUnlock)
 	adminMux.HandleFunc("GET /admin/api/events", s.handleAdminEvents)
 	adminMux.HandleFunc("GET /admin/api/metrics", s.handleMetrics)
+	adminMux.HandleFunc("GET /admin/api/series", s.handleAdminSeries)
+	adminMux.HandleFunc("GET /admin/api/system", s.handleAdminSystem)
+
+	// 商业化：套餐、成本、钱包、兑换码、运营设置、风控。
+	adminMux.HandleFunc("GET /admin/api/plans", s.handleAdminPlans)
+	adminMux.HandleFunc("POST /admin/api/plans", s.handleAdminPlans)
+	adminMux.HandleFunc("DELETE /admin/api/plans/{id}", s.handleAdminPlanDelete)
+	adminMux.HandleFunc("GET /admin/api/commerce", s.handleAdminCommerce)
+	adminMux.HandleFunc("GET /admin/api/ops", s.handleAdminOps)
+	adminMux.HandleFunc("POST /admin/api/ops", s.handleAdminOpsSave)
+	adminMux.HandleFunc("GET /admin/api/risk", s.handleAdminRisk)
+	adminMux.HandleFunc("GET /admin/api/wallet", s.handleAdminWallet)
+	adminMux.HandleFunc("GET /admin/api/wallet/{id}", s.handleAdminWalletUser)
+	adminMux.HandleFunc("POST /admin/api/wallet/{id}/topup", s.handleAdminWalletTopUp)
+	adminMux.HandleFunc("POST /admin/api/wallet/{id}/adjust", s.handleAdminWalletAdjust)
+	adminMux.HandleFunc("GET /admin/api/redeem-codes", s.handleAdminRedeemCodes)
+	adminMux.HandleFunc("POST /admin/api/redeem-codes", s.handleAdminRedeemCodeCreate)
+	adminMux.HandleFunc("POST /admin/api/redeem-codes/{code}/disable", s.handleAdminRedeemCodeDisable)
+	adminMux.HandleFunc("DELETE /admin/api/redeem-codes/{code}", s.handleAdminRedeemCodeDelete)
+	adminMux.HandleFunc("GET /admin/api/orders", s.handleAdminOrders)
+
+	// 上游渠道与渠道额度。
+	adminMux.HandleFunc("GET /admin/api/upstreams", s.handleAdminUpstreams)
+	adminMux.HandleFunc("POST /admin/api/upstreams", s.handleAdminUpstreams)
+	adminMux.HandleFunc("DELETE /admin/api/upstreams/{name}", s.handleAdminUpstreamDelete)
+	adminMux.HandleFunc("GET /admin/api/quotas", s.handleAdminQuotas)
+	adminMux.HandleFunc("POST /admin/api/quota-config", s.handleAdminQuotaConfig)
+	adminMux.HandleFunc("DELETE /admin/api/quota-config/{name}", s.handleAdminQuotaConfigDelete)
 
 	// 登录接口免 token，其余需要
 	mux.Handle("/admin/api/login", adminMux)
@@ -334,7 +422,7 @@ func (s *Server) Handler() http.Handler {
 	// 限制请求体大小，放在最外层——任何路径都不能靠一个大 body 撑爆内存。
 	// 2MB：消息上限 4000 字约 12KB，留足余量。
 	// 实测没有这个限制时，单个 100MB 请求会让内存从 80MB 涨到 331MB。
-	return LimitBody(h, 2<<20)
+	return LimitBody(s.maintenanceMiddleware(h), 2<<20)
 }
 
 // exeDirFn 返回可执行文件所在目录。抽成变量便于测试覆盖。

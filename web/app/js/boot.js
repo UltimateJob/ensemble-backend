@@ -76,7 +76,7 @@ async function boot() {
 }
 
 // 供其他模块调用
-window.__ens = { navigate, enterApp, refreshConvs, showLogin, boot };
+window.__ens = { navigate, enterApp, refreshConvs, showLogin, boot, state };
 
 document.addEventListener('login:show', e => showLogin(e.detail?.msg || ''));
 boot();

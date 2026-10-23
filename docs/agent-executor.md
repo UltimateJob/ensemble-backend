@@ -154,17 +154,23 @@ type Executor interface {
 
 ## 4. Agent 权限模型
 
-### 4.1 三档权限
+### 4.1 权限档位
 
 | 权限 | 读 | 写工作区 | 执行命令 | 说明 |
 |---|---|---|---|---|
 | `readonly` | 自动 | 拒绝 | 拒绝 | 架构、审校、测试分析用 |
-| `approval` | 自动 | 自动 + diff | **每次需批准** | 默认 operator |
-| `full` | 自动 | 自动 + diff | 自动 | 用户明确授权的 Agent |
+| `ask` | 自动 | **每次需批准** | **每次需批准** | 绑定目录后的群默认档 |
+| `approval` | 自动 | 自动 + diff | **每次需批准**（只读命令自动） | 默认 operator |
+| `full` | 自动 | 自动 + diff | 自动（critical 黑名单除外） | 用户明确授权的 Agent |
+| `audit` | 自动 | 拒绝 | 自动（critical 除外） | 独立验收轮 |
+
+解析顺序：会话里按角色覆盖 `agentPermissions[key]` → 会话默认 `defaultPermission` → 角色自身 `permission` → 代码场景兜底 `ask`。会话默认排在角色自身之前，保证用户在群设置里选的档位不会被内置角色的默认值静默盖掉。
 
 补充：
 
-- `approval` 的写操作默认允许，但会产生 diff 和 snapshot；如果用户希望写也审批，可以在 Workspace 上开 `writeApproval=true`。
+- 单聊（`Members` 只有一个角色）时 `/execute` 会去掉角色的团队分工 scope：一个人干活不该被「后端只改 backend/」挡住。
+- 团队任务不接受 `ask`：无人值守的流水线会在第一个写操作上停住，启动前直接拒绝并提示切换。
+- `approval` 的写操作默认允许，但会产生 diff 和 snapshot；如果用户希望写也审批，用 `ask`。
 - `full` 的文件工具仍受工作区根目录约束；但 `run` 是本地进程，命令本身可能访问工作区外。`full` 必须由群主二次确认，并在 UI 明确标注「等同当前系统用户权限」。
 - 如果产品要求「命令也只能碰工作区」，本地模式需要 macOS `sandbox-exec`/Linux namespace 或 Docker；首版不做这个承诺。
 - 删除大量文件、`git push/reset/clean`、安装依赖、联网，即使在 `full` 下也建议单独确认；这些是不可逆/高影响动作。

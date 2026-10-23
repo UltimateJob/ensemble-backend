@@ -43,6 +43,7 @@ import {
   withAlpha,
 } from '../../src/components/ui';
 import { get, humanError, post, stream } from '../../src/lib/api';
+import { normalizeActivity } from '../../src/lib/activity';
 import type { Approval } from '../../src/lib/runs';
 import { signOut } from '../../src/lib/session';
 import { ensureDefaultTeam } from '../../src/lib/defaultTeam';
@@ -179,8 +180,8 @@ export default function Main() {
 
   const loadActivity = useCallback(async (id: string) => {
     try {
-      const a = await get<AgentActivity[]>(`/v1/conversations/${id}/activity`);
-      setActivity(Array.isArray(a) ? a : []);
+      const a = await get<unknown>(`/v1/conversations/${id}/activity`);
+      setActivity(normalizeActivity(a));
     } catch {
       /* 状态环失败不影响聊天 */
     }
@@ -200,7 +201,7 @@ export default function Main() {
     let alive = true;
     async function poll() {
       try {
-        const acts = await get<AgentActivity[]>(`/v1/conversations/${activeConv}/activity`);
+        const acts = normalizeActivity(await get<unknown>(`/v1/conversations/${activeConv}/activity`));
         if (!alive) return;
         for (const b of acts.filter((a) => a.state === 'blocked' && a.runId)) {
           const run = await get<any>(`/v1/runs/${b.runId}`);
@@ -529,6 +530,7 @@ export default function Main() {
           <MoreMenu
             onClose={() => setMenuOpen(false)}
             items={[
+              ...(activeConv ? [{ icon: 'people-outline', label: '交给团队', onPress: () => router.push(`/team/task?convId=${activeConv}`) }] : []),
               { icon: 'folder-open-outline', label: '查看产物', onPress: () => router.push('/library') },
               { icon: 'flag-outline', label: '目标看板', onPress: () => router.push('/goals') },
               { icon: 'git-network-outline', label: '连接器', onPress: () => router.push('/connect') },
@@ -661,6 +663,13 @@ function Bubble({
         {/* 操作条：元宝在每个回复下面都有一条。只在完整回复后出现，
             流式中不出现（那时候用户还没读完，按钮是干扰）。 */}
         {msg.content && !streaming ? <MsgActions text={msg.content} /> : null}
+        {msg.attachments?.length ? (
+          <Row gap={6} style={{ flexWrap: 'wrap', marginTop: 6 }}>
+            {msg.attachments.map((a) => (
+              <Tag key={a.id || a.path} label={a.name || a.path || '产物'} tone="done" />
+            ))}
+          </Row>
+        ) : null}
       </View>
     </View>
   );
@@ -903,6 +912,7 @@ function TeamsPage({
   onGoals: () => void;
 }) {
   const t = useTheme();
+  const router = useRouter();
   const presets = scenarios.filter((s) => !s.random && (s.agents?.length ?? 0) > 0);
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -934,7 +944,7 @@ function TeamsPage({
         <Row gap={gap.xs} style={{ marginTop: gap.lg }}>
           <QuickTile icon="flag" colors={['#7FA8F7', '#4A7FE0']} label="目标" onPress={onGoals} />
           <QuickTile icon="folder-open" colors={['#B39AF0', '#7C5CE0']} label="资料" onPress={onLibrary} />
-          <QuickTile icon="sparkles" colors={['#F5A972', '#E8734A']} label="角色市场" onPress={() => {}} />
+          <QuickTile icon="chatbubble-ellipses" colors={['#6FD8AE', '#34A87C']} label="单聊" onPress={() => router.push('/solo')} />
         </Row>
       </FadeInUp>
 

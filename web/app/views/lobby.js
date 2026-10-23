@@ -6,6 +6,7 @@ import { $, api, state, esc, icon, hydrateIcons, emptyState, toast } from '../js
 import { navigate } from '../js/router.js';
 import { avatarHTML, coverUrl } from '../js/avatars.js';
 import { stagger } from '../js/motion.js';
+import { openModal, closeModal } from '../js/modal.js';
 
 // 大厅展示的四个预设：三个工作组 + 草帽团。
 // 「二次元茶话会」是随机抽人的场景，放进大厅会让人以为角色是固定的；
@@ -97,6 +98,7 @@ function render() {
           <h1>团队大厅</h1>
           <p class="page-sub">选一组现成的角色，或者自己组一个</p>
         </div>
+        <button class="btn btn-line" id="soloBtn">${icon('message-circle', 16)}和一位角色单聊</button>
         <button class="btn btn-primary" id="newTeam">${icon('plus', 16)}新建自定义团队</button>
       </header>
 
@@ -135,6 +137,88 @@ function render() {
   });
   root.querySelector('#newTeam')?.addEventListener('click', openNewTeam);
   root.querySelector('#emptyNew')?.addEventListener('click', openNewTeam);
+  root.querySelector('#soloBtn')?.addEventListener('click', openSolo);
+}
+
+/* ---------------- 单聊：一个房间只有你和一位角色 ---------------- */
+
+async function openSolo() {
+  const code = state.scenarios.find(s => s.key === 'code');
+  const quick = code?.agents || [];
+  const mask = openModal({
+    title: '和一位角色单聊',
+    width: 620,
+    body: `
+      <p class="hint" style="margin-bottom:14px">
+        只有你和这一位角色。适合简单任务和快速迭代；复杂任务再交给团队。
+        绑定本地工作区后，可以直接让它读代码、改文件、跑测试。
+      </p>
+      <div class="solo-h">代码角色</div>
+      <div class="solo-grid" id="soloQuick">
+        ${quick.map(a => `<button class="solo-card" data-key="${esc(a.key)}">
+          ${avatarHTML(a.name, a.color, { size: 38 })}
+          <span class="sc-body"><b>${esc(a.name)}</b><em>${esc(a.title || '')}</em></span>
+          ${icon('chevron-right', 14)}
+        </button>`).join('')}
+      </div>
+      <div class="solo-h" style="margin-top:18px">从角色库选</div>
+      <div class="solo-grid" id="soloLib"><div class="ap-idle">正在加载角色库…</div></div>`,
+    actions: [{ key: 'close', label: '关闭', kind: 'line' }],
+  });
+  mask?.querySelectorAll('#soloQuick [data-key]').forEach(b => {
+    b.addEventListener('click', () => {
+      const a = quick.find(x => x.key === b.dataset.key);
+      closeModal();
+      createSolo({ studio: 'code', member: a.key, name: a.name });
+    });
+  });
+  try {
+    const list = await api('/v1/characters?q=');
+    const box = mask?.querySelector('#soloLib');
+    if (!box) return;
+    const picks = (list || []).slice(0, 12);
+    box.innerHTML = picks.length ? picks.map(c => `
+      <button class="solo-card" data-name="${esc(c.name)}">
+        ${avatarHTML(c.name, '', { size: 38 })}
+        <span class="sc-body"><b>${esc(c.name)}</b><em>${esc(c.work || '')}</em></span>
+        ${icon('chevron-right', 14)}
+      </button>`).join('') : '<div class="ap-idle">角色库还是空的。可以先用上面的代码角色。</div>';
+    box.querySelectorAll('[data-name]').forEach(b => b.addEventListener('click', () => {
+      const c = picks.find(x => x.name === b.dataset.name);
+      if (!c) return;
+      closeModal();
+      createSolo({
+        studio: 'custom',
+        agent: {
+          key: 'lib_' + c.name, characterId: 'lib:' + c.name,
+          name: c.name, title: (c.tags || []).join(' / '), emoji: [...c.name][0],
+          color: '', prompt: c.tone || '',
+        },
+      });
+    }));
+  } catch (e) {
+    const box = mask?.querySelector('#soloLib');
+    if (box) box.innerHTML = '<div class="ap-idle">角色库加载失败，不影响上面的代码角色。</div>';
+  }
+}
+
+async function createSolo({ studio, member, name, agent }) {
+  try {
+    const body = {
+      title: `和「${name || agent?.name}」单聊`,
+      studio,
+      // 默认最安全的逐项批准；需要更顺滑时在房间顶栏切。
+      defaultPermission: 'ask',
+    };
+    if (member) body.members = [member];
+    if (agent) body.agents = [agent];
+    const conv = await api('/v1/conversations', { method: 'POST', body });
+    state.convs = await api('/v1/conversations').catch(() => state.convs);
+    document.dispatchEvent(new CustomEvent('conv:change'));
+    navigate('#/room/' + encodeURIComponent(conv.id));
+  } catch (e) {
+    toast('创建失败：' + e.message, { type: 'err' });
+  }
 }
 
 async function openNewTeam() {

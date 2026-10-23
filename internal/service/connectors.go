@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -28,6 +30,7 @@ var connectorKinds = map[string]string{
 	"github":   "GitHub",
 	"calendar": "企业日历",
 	"webhook":  "Webhook",
+	"qqmail":   "QQ 邮箱",
 }
 
 // HTTPProbe 连接器对外的请求客户端。测试里替换。
@@ -268,6 +271,19 @@ func (c *Connectors) probeOne(ctx context.Context, it *domain.Connector) error {
 		_, err = c.do(req, "日历")
 		return err
 
+	case "qqmail":
+		// QQ 邮箱用「授权码」（不是登录密码）。这里只做一次最轻的
+		// IMAP 登录握手验证——比发一封测试邮件克制，不产生副作用。
+		addr := strings.TrimSpace(sec["address"])
+		code := strings.TrimSpace(sec["authCode"])
+		if addr == "" || code == "" {
+			return errors.New("还没填邮箱地址或授权码")
+		}
+		if !strings.Contains(addr, "@") {
+			return errors.New("邮箱地址格式不对")
+		}
+		return c.probeIMAP(ctx, addr, code)
+
 	case "webhook":
 		url := strings.TrimSpace(cfg["url"])
 		if url == "" {
@@ -334,4 +350,65 @@ type ConnPatch struct {
 	Scope   *string
 	Config  *map[string]string
 	Secrets *map[string]string
+}
+
+/**
+ * probeIMAP 用一次最小的 IMAP 登录来验证邮箱凭据。
+ *
+ * 为什么不发测试邮件：那会在用户的真实收件箱里留下垃圾，
+ * 而且失败时很难判断是「凭据错」还是「SMTP 被封」。
+ * IMAP 登录只需要建立连接 + 一次 AUTH，无副作用。
+ *
+ * 这里只做到「连接建立且服务器回了 OK」——不实现完整的 IMAP 协议栈，
+ * 因为这一版连接器的目标只是「凭据是否可用」，不是收发邮件。
+ */
+func (c *Connectors) probeIMAP(ctx context.Context, addr, authCode string) error {
+	host := "imap.qq.com:993"
+	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	// QQ 邮箱 IMAP 必须 TLS
+	conn, err := tls.DialWithDialer(dialer, "tcp", host, &tls.Config{ServerName: "imap.qq.com"})
+	if err != nil {
+		return fmt.Errorf("连不上 QQ 邮箱 IMAP：%v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	// 读问候
+	if line, err := readIMAPLine(conn); err != nil || !strings.HasPrefix(line, "* OK") {
+		return fmt.Errorf("IMAP 握手失败：%s", line)
+	}
+	// LOGIN
+	if _, err := fmt.Fprintf(conn, "a1 LOGIN %q %q\r\n", addr, authCode); err != nil {
+		return fmt.Errorf("发送登录请求失败：%v", err)
+	}
+	for i := 0; i < 5; i++ {
+		line, err := readIMAPLine(conn)
+		if err != nil {
+			return fmt.Errorf("IMAP 响应异常：%v", err)
+		}
+		if strings.HasPrefix(line, "a1 OK") {
+			return nil
+		}
+		if strings.HasPrefix(line, "a1 NO") || strings.HasPrefix(line, "a1 BAD") {
+			return errors.New("QQ 邮箱拒绝了这组凭据（授权码是否正确？）")
+		}
+	}
+	return errors.New("IMAP 登录超时")
+}
+
+func readIMAPLine(conn net.Conn) (string, error) {
+	var buf []byte
+	one := make([]byte, 1)
+	for {
+		if _, err := conn.Read(one); err != nil {
+			return string(buf), err
+		}
+		buf = append(buf, one[0])
+		if len(buf) >= 2 && buf[len(buf)-2] == '\r' && buf[len(buf)-1] == '\n' {
+			return string(buf[:len(buf)-2]), nil
+		}
+		if len(buf) > 4096 {
+			return string(buf), nil
+		}
+	}
 }

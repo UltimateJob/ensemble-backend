@@ -3,14 +3,21 @@
    消息渲染与 SSE 复用 chat.js，这里只负责房间骨架与交互接线。
    ============================================================ */
 
-import { $, api, state, esc, icon, hydrateIcons, skeleton } from '../js/core.js';
+import { $, api, state, esc, icon, hydrateIcons, skeleton, toast } from '../js/core.js';
 import { openConv, send, kickoff, stopRound, setBusyUI } from '../js/chat.js';
 import { openPanel } from '../js/shell.js';
 import { avatarHTML } from '../js/avatars.js';
+import { loadActivity, stateLabel, ringOf, permissionLabel, isExecutable } from '../js/activity.js';
+import { workspaceBannerHTML, openWorkspaceDialog, workspacePath } from '../js/workspace.js';
+import { resumeRuns, sendExecute, clearRunBubbles } from '../js/exec.js';
+import { openTeamTask, teamBadge, openCurrentTeam, loadLatestTeam } from '../js/team.js';
 
 let root = null;
 let actTimer = null;
 let convId = '';
+let activity = { agents: [], runs: [], workspace: { bound: false }, defaultPermission: '' };
+let mode = 'chat';   // chat | exec
+let modeTouched = false;
 
 export async function mount(host, params, query) {
   root = host;
@@ -59,12 +66,17 @@ export async function mount(host, params, query) {
         </div>
         <div class="avatar-row" id="avatarRow"></div>
         <div class="rh-right">
+          <span id="teamSlot"></span>
+          <button class="icon-btn" id="teamBtn" title="交给团队：规划、并行、验证、评分">${icon('users', 17)}</button>
+          <button class="icon-btn" id="wsBtn" title="工作区与权限">${icon('folder', 17)}</button>
           <button class="icon-btn" id="nudgeBtn" title="让他们继续聊">${icon('sparkles', 17)}</button>
           <button class="icon-btn" id="roomMemory" title="他们记得">${icon('brain', 17)}</button>
           <button class="icon-btn" id="roomSettings" title="团队设置">${icon('settings', 17)}</button>
           <button class="icon-btn" id="roomPanel" title="工作面板">${icon('panel-right', 17)}</button>
         </div>
       </header>
+
+      <div id="wsBannerBox"></div>
 
       <div class="msg-stream" id="msgStream" role="log" aria-live="polite" aria-relevant="additions" aria-label="群聊消息">
         <div class="msg-wrap" id="msgWrap"></div>
@@ -76,10 +88,13 @@ export async function mount(host, params, query) {
           <div class="composer-bar">
             <button class="icon-btn" id="attachBtn" title="附件">${icon('paperclip', 16)}</button>
             <button class="icon-btn" id="mentionBtn" title="@ 角色">${icon('at-sign', 16)}</button>
+            <button class="mode-btn" id="modeBtn" title="切换：派活给角色执行 / 只是群聊讨论">
+              ${icon('terminal', 13)}<span id="modeLabel">讨论</span>
+            </button>
             <button class="send" id="sendBtn" title="发送">${icon('arrow-up', 16)}</button>
           </div>
         </div>
-        <div class="composer-hint"><span>回车发送，Shift + 回车换行</span></div>
+        <div class="composer-hint"><span>回车发送，Shift + 回车换行 · 以 @ 开头的消息会直接派活</span></div>
       </div>
     </div>`;
 
@@ -88,19 +103,24 @@ export async function mount(host, params, query) {
 
   // chat.js 会读 state.agents / 渲染到 #msgWrap
   await openConv(conv.id);
-  renderAvatarRow();
   renderEmptyState();
-  actTimer = setInterval(renderAvatarRow, 4000);
+  modeTouched = false;
+  mode = workspacePath(state.cur) ? 'exec' : 'chat';
+  syncMode();
+  await refreshWork();
+  actTimer = setInterval(refreshWork, 5000);
 
   if (query?.get('view') === 'studio') {
     const { mountStudio } = await import('./studio.js');
-    mountStudio(host, conv.id);
+    mountStudio(host, conv.id, query);
   }
 }
 
 export function unmount() {
   if (actTimer) clearInterval(actTimer);
   actTimer = null;
+  // 离开房间时断掉实时投影；任务本身在服务端继续跑，回来会重新接上。
+  clearRunBubbles();
   root = null;
   convId = '';
   stopRound(true);
@@ -180,12 +200,26 @@ function wireComposer() {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       if (state.busy) return;
-      if (ta.value.trim()) send();
+      if (ta.value.trim()) composeSend();
     }
   });
   btn?.addEventListener('click', () => {
     if (state.busy) { stopRound(); sync(); return; }
-    send();
+    composeSend();
+  });
+
+  // 派活 / 讨论：输入框以 @ 开头时自动切到派活。
+  ta?.addEventListener('input', () => {
+    if (/^\s*[@＠]/.test(ta.value) && mode !== 'exec') { mode = 'exec'; syncMode(); }
+  });
+  $('#modeBtn')?.addEventListener('click', () => {
+    modeTouched = true;
+    mode = mode === 'exec' ? 'chat' : 'exec';
+    syncMode();
+    if (mode === 'exec' && !workspacePath(state.cur)) {
+      openWorkspaceDialog(state.cur, { onDone: () => refreshWork() });
+      toast('先绑定工作区，才能派给角色执行', { type: 'info' });
+    }
   });
 
   // 发送/停止后按钮状态由 chat.js 的 setBusyUI 通知，这里再补一次
@@ -193,6 +227,12 @@ function wireComposer() {
   sync();
 
   $('#nudgeBtn')?.addEventListener('click', () => kickoff(state.cur.id));
+  $('#teamBtn')?.addEventListener('click', () => openTeamTask(state.cur, activity, {
+    onBound: () => refreshWork(),
+  }));
+  $('#wsBtn')?.addEventListener('click', () => openWorkspaceDialog(state.cur, {
+    onDone: () => refreshWork(),
+  }));
   // 右面板默认显示房间概览；再点一次收起。
   $('#roomPanel')?.addEventListener('click', async e => {
     const { panelOpen, closePanel } = await import('../js/shell.js');
@@ -249,24 +289,132 @@ function openMention(ta, anchor) {
   setTimeout(() => document.addEventListener('mousedown', close), 0);
 }
 
+/* ---------------- 发送分流 ---------------- */
+
+function syncMode() {
+  const b = $('#modeBtn');
+  const l = $('#modeLabel');
+  if (!b) return;
+  const exec = mode === 'exec';
+  b.classList.toggle('on', exec);
+  if (l) l.textContent = exec ? '派活' : '讨论';
+  b.title = exec ? '当前：派给角色执行（点击切回讨论）' : '当前：群聊讨论（点击切到派活）';
+}
+
+function hasMention(text) {
+  const agents = state.agents || [];
+  return agents.some(a => text.includes('@' + a.name) || text.includes('＠' + a.name) ||
+    text.includes('@' + a.key) || text.includes('＠' + a.key));
+}
+
+async function composeSend() {
+  const ta = $('#ta');
+  if (!ta) return;
+  const text = ta.value.trim();
+  if (!text) return;
+  const bound = !!workspacePath(state.cur);
+  // 派活：显式模式，或工作类群里 @ 了角色。讨论不受 @ 影响，
+  // 免得在竞标/研报群里想点名说话却被当成执行任务。
+  const work = bound || state.cur.studio === 'code' || state.cur.studio === 'custom';
+  const shouldExec = mode === 'exec' || (work && hasMention(text));
+  if (shouldExec && !bound) {
+    openWorkspaceDialog(state.cur, { onDone: () => refreshWork() });
+    toast('先选一个本地工作区，再派活', { type: 'info' });
+    return;
+  }
+  if (!shouldExec) { send(); return; }
+  // 多人群里「派活」必须点名：否则不知道让谁改。单聊可直接发。
+  if (state.agents.length > 1 && !hasMention(text)) {
+    toast('派活时 @ 一个角色；想让团队一起做，点右上角「交给团队」', { type: 'info', ms: 3600 });
+    openMention(ta, $('#mentionBtn'));
+    return;
+  }
+
+  ta.value = '';
+  ta.style.height = 'auto';
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+  await sendExecute(state.cur, text);
+  setTimeout(refreshWork, 900);
+}
+
+/* ---------------- 房间工作状态 ---------------- */
+
+async function refreshWork() {
+  if (!state.cur || !root) return;
+  activity = await loadActivity(state.cur.id);
+  state.activity = activity;
+  // 单聊没有「团队」可交；隐藏入口而不是让用户点了才被拒。
+  const teamBtn = $('#teamBtn');
+  if (teamBtn) teamBtn.style.display = (state.agents || []).length >= 2 ? '' : 'none';
+  // 只有代码/自定义群（或已绑工作区的群）才有「派活」语义。
+  const mb = $('#modeBtn');
+  if (mb) {
+    const work = state.cur.studio === 'code' || state.cur.studio === 'custom' || !!workspacePath(state.cur);
+    mb.style.display = work ? '' : 'none';
+  }
+  // 绑定工作区后默认进入「派活」；用户手动切过就尊重他的选择。
+  if (workspacePath(state.cur) && !modeTouched && mode !== 'exec') {
+    mode = 'exec';
+    syncMode();
+  }
+  await renderAvatarRow();
+  renderWorkspaceBanner();
+  await renderTeamSlot();
+  resumeRuns(state.cur, activity);
+}
+
+function renderWorkspaceBanner() {
+  const box = $('#wsBannerBox');
+  if (!box) return;
+  const conv = state.cur;
+  const rootPath = workspacePath(conv);
+  if (rootPath) {
+    // 已绑定：只留一条极薄的路径条，不占视线。
+    box.innerHTML = `<div class="ws-bar">
+      <span class="ws-b-icon">${icon('folder', 14)}</span>
+      <span class="ws-b-path" title="${esc(rootPath)}">${esc(rootPath)}</span>
+      <span class="ws-b-perm">${esc(permissionLabel(conv.defaultPermission || activity.defaultPermission))}</span>
+      <button class="ws-b-link" id="wsChange">更换</button>
+    </div>`;
+    box.querySelector('#wsChange').addEventListener('click', () => openWorkspaceDialog(conv, {
+      onDone: () => refreshWork(),
+    }));
+    return;
+  }
+  if (conv.studio !== 'code' && conv.studio !== 'custom') { box.innerHTML = ''; return; }
+  box.innerHTML = workspaceBannerHTML(conv);
+  box.querySelector('#wsBindBtn')?.addEventListener('click', () => openWorkspaceDialog(conv, {
+    onDone: () => refreshWork(),
+  }));
+}
+
+async function renderTeamSlot() {
+  const slot = $('#teamSlot');
+  if (!slot || !state.cur) return;
+  try {
+    const html = await teamBadge(state.cur);
+    if (!slot.isConnected) return;
+    slot.innerHTML = html || '';
+    slot.querySelector('#teamBadge')?.addEventListener('click', () => openCurrentTeam(state.cur));
+  } catch (e) { /* 团队不阻塞房间 */ }
+}
+
 /* ---------------- 头像条 ---------------- */
 
 async function renderAvatarRow() {
   const box = $('#avatarRow');
   if (!box || !state.cur) return;
   const agents = state.agents || [];
-  let acts = [];
-  try { acts = await api('/v1/conversations/' + state.cur.id + '/activity'); } catch (e) { acts = []; }
-  const byKey = new Map((acts || []).map(a => [a.key, a]));
+  const byKey = new Map((activity?.agents || []).map(a => [a.key, a]));
   box.innerHTML = agents.map(a => {
     const act = byKey.get(a.key);
     const st = act?.state || 'idle';
-    const title = st === 'working' ? `${a.name} · 正在执行` :
-                  st === 'blocked' ? `${a.name} · 等你审批` :
-                  st === 'done' ? `${a.name} · 刚完成` : a.name;
+    const perm = act?.permission || state.cur.defaultPermission || a.permission || '';
+    const title = `${a.name}${perm ? ' · ' + permissionLabel(perm) : ''}${act ? ' · ' + stateLabel(act) : ''}`;
     return `<button class="av-cell" data-key="${esc(a.key)}" title="${esc(title)}">
-      ${avatarHTML(a.name, a.color, { size: 34, ring: st })}
+      ${avatarHTML(a.name, a.color, { size: 34, ring: ringOf(st) })}
       <span class="av-name">${esc(a.name)}</span>
+      ${st === 'running' ? '<i class="av-live"></i>' : ''}
     </button>`;
   }).join('');
   box.querySelectorAll('.av-cell').forEach(b => b.addEventListener('click', () => {
@@ -326,10 +474,29 @@ export function openRoomPanel() {
     title: state.cur.title,
     subtitle: '房间概览',
     render: el => {
+      const ws = workspacePath(state.cur);
       el.innerHTML = `
+        <div class="panel-sec"><h4>工作区</h4>
+          <div id="panelWs">${ws
+            ? `<div class="pw-line"><code title="${esc(ws)}">${esc(ws)}</code>
+                 <span class="pw-perm">${esc(permissionLabel(state.cur.defaultPermission || activity.defaultPermission))}</span></div>
+               <button class="btn btn-line btn-sm" id="panelWsBtn" style="width:100%;margin-top:8px">工作区与权限</button>`
+            : `<div class="ap-idle">还没有绑定本地工作区。绑定后角色才能读代码、改文件、跑测试。</div>
+               <button class="btn btn-primary btn-sm" id="panelWsBtn" style="width:100%;margin-top:10px">选择目录</button>`}
+          </div>
+        </div>
+        <div class="panel-sec"><h4>团队任务</h4>
+          <button class="btn btn-line btn-sm" id="panelTeamBtn" style="width:100%">交给团队做</button>
+        </div>
         <div class="panel-sec"><h4>角色</h4><div id="memberList"></div></div>
         <div class="panel-sec"><h4>这一轮</h4><div id="pipeline"></div></div>
         <div class="panel-sec"><h4>产物</h4><div id="artifactList"></div></div>`;
+      el.querySelector('#panelWsBtn')?.addEventListener('click', () => openWorkspaceDialog(state.cur, {
+        onDone: () => { refreshWork(); openRoomPanel(); },
+      }));
+      el.querySelector('#panelTeamBtn')?.addEventListener('click', () => openTeamTask(state.cur, activity, {
+        onBound: () => refreshWork(),
+      }));
       import('../js/chat.js').then(m => {
         m.renderMembers?.();
         m.renderPipeline?.(true);
