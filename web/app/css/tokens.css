@@ -1,0 +1,112 @@
+/* ============================================================
+   纸团 · 设计 token
+   参考 iOS / macOS 的系统级视觉语言：材质分层、暖纸底、弹簧动效。
+
+   三条原则：
+   1. 纸是底：暖白纸色打底，所有浮层是「压在纸上的一层材料」；
+   2. 光是唯一的方向：阴影只向下、只柔和，不用硬边框切割；
+   3. 动效有重量：所有过渡走 spring 曲线，按下会缩，弹出会回弹。
+   ============================================================ */
+
+:root{
+  /* ---------- 纸张底色 ---------- */
+  --paper:#F4F2EE;          /* 主背景：暖纸白 */
+  --paper-2:#EDEAE4;        /* 次级面：略深一档 */
+  --paper-3:#E4E0D8;        /* 分隔 / 凹陷面 */
+  --sheet:#FFFFFF;          /* 浮起的卡片 / sheet */
+
+  /* 毛玻璃（导航、工具栏、浮层） */
+  --glass:rgba(252,251,248,.72);
+  --glass-strong:rgba(252,251,248,.88);
+  --glass-line:rgba(255,255,255,.72);
+  --blur:blur(40px) saturate(180%);
+
+  /* ---------- 墨色文字 ---------- */
+  --ink:#17171A;
+  --ink-2:#4A4A52;
+  --ink-3:#6A6A73;   /* 暖纸底 4.55:1 */
+  --ink-4:#7C7C85;          /* 装饰性文字；暖纸底 3.9:1 */
+
+  /* ---------- 主色：电光蓝 ---------- */
+  --pri:#2F6BFF;
+  --pri-deep:#1F57E0;       /* 承载白字的按钮底，对白 4.6:1 */
+  --pri-press:#1A4AC4;
+  --pri-soft:#E8EFFF;
+  --pri-glow:rgba(47,107,255,.28);
+
+  /* ---------- 点缀：印章橙（纸团意象） ---------- */
+  --seal:#FF6B3D;
+  --seal-deep:#D94A1E;
+  --seal-soft:#FFEDE7;
+
+  /* ---------- 状态 ---------- */
+  --ok:#34C759;      --ok-tx:#1E7B36;   --ok-soft:#E7F8EB;
+  --warn:#FF9F0A;    --warn-tx:#8A5200; --warn-soft:#FFF3E0;
+  --bad:#FF3B30;     --bad-tx:#B3261E;  --bad-soft:#FFEBEA;
+  --idle:#8E8E96;    --idle-soft:#EFEFEF;
+
+  /* ---------- 圆角：iOS 的连续弧 ---------- */
+  --r-xs:8px;
+  --r-sm:12px;
+  --r-md:16px;
+  --r-lg:22px;
+  --r-xl:28px;
+  --r-sheet:34px;    /* sheet / 大卡片 */
+  --r-pill:999px;
+
+  /* ---------- 阴影：只往下，双层 ---------- */
+  /* 阴影一律带纸底的暖褐色，不用纯黑——纯黑会在暖底上发灰。
+     三级够用：贴在纸上 / 浮起 / 弹出。 */
+  --sh-1:0 1px 2px rgba(74,62,44,.05), 0 3px 10px -4px rgba(74,62,44,.07);
+  --sh-2:0 2px 6px rgba(74,62,44,.06), 0 14px 34px -10px rgba(74,62,44,.14);
+  --sh-3:0 10px 28px rgba(74,62,44,.10), 0 40px 80px -20px rgba(74,62,44,.22);
+  --sh-inset:inset 0 1px 0 rgba(255,255,255,.92);
+  /* 发丝线：不需要边框时用它做边界 */
+  --hair:rgba(74,62,44,.10);
+
+  /* ---------- 动效：iOS spring ---------- */
+  --spring:cubic-bezier(.32,.72,0,1);        /* 有回弹的减速 */
+  --spring-soft:cubic-bezier(.25,.46,.45,.94);
+  --spring-bounce:cubic-bezier(.34,1.56,.64,1); /* 明显回弹，用于弹层 */
+  --t-fast:.18s var(--spring);
+  --t:.32s var(--spring);
+  --t-slow:.52s var(--spring);
+
+  /* ---------- 布局 ---------- */
+  --nav-w:240px;
+  --panel-w:400px;
+  --content-max:1040px;
+
+  /* ---------- 纸纹：极淡的噪点，让平涂的底有材质 ---------- */
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+
+  /* ---------- 层级：只在这里定义 z-index ---------- */
+  --z-base:0;
+  --z-sticky:10;
+  --z-panel:700;
+  --z-modal:8000;
+  --z-toast:9000;
+  --z-grain:9500;
+
+  /* ---------- 字体 ---------- */
+  /* 拉丁与数字用 Avenir Next：几何骨架、字怀开阔，比 SF Pro 更有性格；
+     中文仍交苹方，两者在小字号下高度接近，混排不会跳。
+     没有 Avenir 的系统（Windows）自然回落到系统 UI 字体。 */
+  --font:"Avenir Next",Avenir,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  --font-display:"Avenir Next",Avenir,-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
+  --font-num:"Avenir Next",Avenir,-apple-system,BlinkMacSystemFont,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+
+/* 尊重系统「减弱动态效果」：关掉位移与回弹，只保留淡入淡出。 */
+@media (prefers-reduced-motion:reduce){
+  :root{
+    --spring:linear;
+    --spring-soft:linear;
+    --spring-bounce:linear;
+    --t-fast:.01s linear;
+    --t:.01s linear;
+    --t-slow:.01s linear;
+  }
+  *{animation-duration:.01ms !important;animation-iteration-count:1 !important}
+}

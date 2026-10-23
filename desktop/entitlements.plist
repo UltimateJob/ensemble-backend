@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- WKWebView 需要网络客户端权限；缺了它，LaunchServices 会以
+       "process not properly entitled" 拒绝 via open 启动，
+       但直接运行可执行文件却能起来——这正是我们踩的坑。 -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- 本地 HTTP 服务与 WKWebView 之间的明文通信。
+      没有这个，App Transport Security 会拦掉 127.0.0.1 的请求。 -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+
+  <!-- 读取用户在工作区里选择的任意目录 -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+
+  <!-- 本地运行不需要沙箱：后端要执行用户自己的构建命令。
+       开沙箱会让 workdir 与命令执行全部失效。 -->
+  <key>com.apple.security.app-sandbox</key>
+  <false/>
+</dict>
+</plist>

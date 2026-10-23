@@ -1,4 +1,4 @@
-.PHONY: run build clean test
+.PHONY: run build clean test a11y contrast resilience-ui keyboard-ui ui-check shots
 
 # 本地启动：没有 Key 也能跑（自动降级 mock）
 run:
@@ -52,9 +52,47 @@ resilience:
 walk:
 	@node scripts/walk.mjs
 
+# 逐屏截图（需要后端在 :8092 跑着）
+shots:
+	@node scripts/ui-shots.mjs
+
 # 界面完整性：按钮/菜单项/图标都有活的逻辑
 audit:
 	@python3 scripts/audit-ui.py
+
+# 可访问性：Tab 顺序、焦点环、按钮可读名称、aria-live、缩放
+a11y:
+	@node scripts/check-a11y.mjs
+
+# 真实渲染的对比度：遍历所有可见文字，报低于 WCAG AA 的
+contrast:
+	@node scripts/check-contrast.mjs
+
+# 弱网 / 断网下的界面表现（骨架屏、失败标记、错误提示）
+resilience-ui:
+	@node scripts/check-resilience.mjs
+
+# 键盘操作：⌘1–6 切页、⌘0 面板、Enter 发送、Shift+Enter 换行
+keyboard-ui:
+	@node scripts/check-keyboard.mjs
+
+# 逐屏验收截图（25 屏 × 3 宽度）
+qa-shots:
+	@node scripts/qa-shots.mjs
+
+# 界面质量总入口：起一个临时后端，跑完全部 UI 检查
+# （元素完整性 / 可访问性 / 对比度 / 弱网 / 键盘 / 端到端）
+ui-check:
+	@./scripts/serve-test.sh start 18399 >/dev/null
+	@set -e; \
+	  trap './scripts/serve-test.sh stop >/dev/null' EXIT; \
+	  echo "== 元素完整性 =="; python3 scripts/audit-ui.py; \
+	  echo ""; echo "== 可访问性 =="; node scripts/check-a11y.mjs http://127.0.0.1:18399; \
+	  echo ""; echo "== 对比度 =="; node scripts/check-contrast.mjs http://127.0.0.1:18399; \
+	  echo ""; echo "== 弱网/断网 =="; node scripts/check-resilience.mjs http://127.0.0.1:18399; \
+	  echo ""; echo "== 键盘 =="; node scripts/check-keyboard.mjs http://127.0.0.1:18399; \
+	  echo ""; echo "== 桌面 E2E =="; E2E_BASE=http://127.0.0.1:18399 node scripts/e2e.mjs | tail -2; \
+	  echo ""; echo "== 移动 E2E =="; E2E_BASE=http://127.0.0.1:18399 node scripts/e2e-mobile.mjs | tail -2
 
 # 备份 data/ 到 backups/（只保留最近 20 份）
 backup:

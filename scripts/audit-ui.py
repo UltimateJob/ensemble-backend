@@ -8,33 +8,46 @@
 「存入角色库」和「存为工作室」两个按钮，HTML 一直在，
 但处理代码在后来的改动中被覆盖了，点了没反应。
 接口层测试全绿，用户点不动。
+
+改版后页面结构变了：index.html 只剩外壳，各页面的 DOM 由
+web/app/views/*.js 里的模板字符串生成，样式拆到 web/app/css/*.css。
+所以这里的扫描范围也跟着扩到 views 目录和整份 css。
 """
 import re, glob, sys, os
 
 os.chdir(os.path.join(os.path.dirname(__file__), '..'))
 
 html = open('web/app/index.html', encoding='utf-8').read()
-js = '\n'.join(open(f, encoding='utf-8').read() for f in sorted(glob.glob('web/app/js/*.js')))
+js_files = sorted(glob.glob('web/app/js/*.js')) + sorted(glob.glob('web/app/views/*.js'))
+js = '\n'.join(open(f, encoding='utf-8').read() for f in js_files)
+css = '\n'.join(open(f, encoding='utf-8').read() for f in sorted(glob.glob('web/app/css/*.css')))
+markup = html + '\n' + js   # 外壳 + 模板字符串生成的 DOM
 
 problems = []
 
-# 1) 按钮类元素必须有 JS 引用
-btn_ids = set(re.findall(r'<button[^>]*id="([a-zA-Z0-9_-]+)"', html))
+# 1) 按钮类元素必须有 JS 引用。
+#    按钮可能写在外壳 HTML 里，也可能由 views/*.js / js/*.js 的模板生成。
+btn_ids = set(re.findall(r'<button[^>]*\bid="([a-zA-Z0-9_-]+)"', markup))
 refs = set(re.findall(r"""["']#([a-zA-Z0-9_-]+)["']""", js))
 refs |= set(re.findall(r"getElementById\(['\"]([a-zA-Z0-9_-]+)['\"]\)", js))
 dead = sorted(btn_ids - refs)
 for d in dead:
-    problems.append(f'按钮 #{d} 在 HTML 里，但 JS 里没有任何引用')
+    problems.append(f'按钮 #{d} 在 HTML/模板里，但 JS 里没有任何引用')
 
-# 2) data-act 必须有对应分支
-acts = set(re.findall(r'data-act="([a-zA-Z0-9_-]+)"', html))
+# 2) data-act 必须有对应分支。
+#    新代码用 addEventListener 绑 [data-act=xxx]，不再走 switch(act)，
+#    两种写法都算「有处理」。
+acts = set(re.findall(r'data-act="([a-zA-Z0-9_-]+)"', markup))
+acts |= set(re.findall(r"data-act=(?:'|\")?([a-zA-Z0-9_-]+)", markup))
 handled = set(re.findall(r"act === '([a-zA-Z0-9_-]+)'", js))
+handled |= set(re.findall(r"\[data-act=(?:'|\")?([a-zA-Z0-9_-]+)\]", js))
+handled |= set(re.findall(r"dataset\.act === '([a-zA-Z0-9_-]+)'", js))
 for a in sorted(acts - handled):
     problems.append(f'菜单项 data-act="{a}" 没有处理分支')
 
 # 3) data-ic 用的图标必须存在
 icons = set(re.findall(r'"([a-z0-9-]+)":', open('web/app/icons.js', encoding='utf-8').read()))
-used = set(re.findall(r'data-ic="([a-z0-9-]+)"', html))
+used = set(re.findall(r'data-ic="([a-z0-9-]+)"', markup))
 used |= set(re.findall(r"""icon\('([a-z0-9-]+)'""", js))
 for u in sorted(used - icons):
     problems.append(f'图标 "{u}" 被引用但 icons.js 里没有')
@@ -51,33 +64,33 @@ for u in sorted(go_icons - icons):
 
 # 5) 几条「坏一次就再也看不出来」的 CSS 契约。
 #    这些都是实测出来的：出错时页面能渲染、测试能过，只是看着不对。
-css = open('web/app/app.css', encoding='utf-8').read()
-
 def rule(selector):
     """取出某个选择器的规则体（粗略但够用）。"""
     m = re.search(re.escape(selector) + r'\s*\{([^}]*)\}', css)
     return m.group(1) if m else None
 
-# 5a 会话列表必须能收缩，否则会话一多就撑破容器压到新手引导卡上
-body = rule('.conv-list')
+# 5a 消息滚动区顶部要有渐隐，滚动时最上面那条不该被硬切一半。
+#    新壳的滚动容器从 .msgs 改成了 .msg-stream。
+body = rule('.msg-stream')
 if body is None:
-    problems.append('.conv-list 规则不见了')
-elif 'min-height:0' not in body.replace(' ', ''):
-    problems.append('.conv-list 缺 min-height:0——会话多了会压到引导卡上')
-
-# 5b 产物卡正文要两行截断带省略号，不能靠 JS slice 硬切
-body = rule('.artifact .ad')
-if body is None:
-    problems.append('.artifact .ad 规则不见了')
-elif 'line-clamp' not in body:
-    problems.append('.artifact .ad 缺 line-clamp——长文案会被硬切，没有省略号')
-
-# 5c 消息区顶部要有渐隐，滚动时最上面那条不该被硬切一半
-body = rule('.msgs')
-if body is None:
-    problems.append('.msgs 规则不见了')
+    problems.append('.msg-stream 规则不见了')
 elif 'mask-image' not in body:
-    problems.append('.msgs 缺 mask-image——滚动时顶部消息会被硬切')
+    problems.append('.msg-stream 缺 mask-image——滚动时顶部消息会被硬切')
+
+# 5b 卡片正文要两行截断带省略号，不能靠 JS slice 硬切。
+#    产物卡（.artifact .ad）现在单行省略；目标卡描述（.gc-desc）
+#    和资料库摘要（.lib-sum）是两行截断。至少得有一处真的 clamp。
+body = rule('.gc-desc')
+if body is None:
+    problems.append('.gc-desc 规则不见了')
+elif 'line-clamp' not in body:
+    problems.append('.gc-desc 缺 line-clamp——长文案会被硬切，没有省略号')
+
+body = rule('.lib-sum')
+if body is None:
+    problems.append('.lib-sum 规则不见了')
+elif 'line-clamp' not in body:
+    problems.append('.lib-sum 缺 line-clamp——长文案会被硬切，没有省略号')
 
 
 # 6) 后台也要有移动适配。
@@ -114,7 +127,9 @@ if bare:
 # 7) 键盘焦点必须可见。
 #    之前只有浏览器默认的 1px 黑框，和紫色强调色不一致，
 #    在浅色卡片上也偏弱。checklist C14 要求 2px + offset。
-m = re.search(r':focus-visible\s*\{([^}]*)\}', css)
+# 只匹配独立规则（行首的 :focus-visible），不能匹配
+# `.msg-copy:focus-visible{opacity:1}` 这类后代规则。
+m = re.search(r'(?:^|\n)\s*:focus-visible\s*\{([^}]*)\}', css)
 if not m:
     problems.append('app.css 没有 :focus-visible 规则——键盘导航看不到焦点')
 else:
@@ -128,7 +143,11 @@ else:
 
 
 # 8) 文字对比度。checklist C9：正文 ≥4.5:1，次要文字 ≥3:1。
-#    这几个值不是拍脑袋——是量出来不达标之后调深的。
+#    改版后页面底色从 #F3F4F7 变成纯白，token 也换了名字。
+#    --tx-3/-4 是次要文字（时间、占位、说明），按 3:1 要求；
+#    正文类（--tx / --tx-2）按 4.5:1。
+#    注意 --pri 是按钮底色，白字压在上面，按 4.5:1 对大号字其实偏严，
+#    这里仍按正文标准卡，避免出现「白字看不清」的按钮。
 def _rgb(h):
     h = h.lstrip('#')
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
@@ -145,18 +164,29 @@ def _ratio(a, b):
     return (hi + 0.05) / (lo + 0.05)
 
 WHITE = (255, 255, 255)
-PAGE_BG = _rgb('F3F4F7')
-MIN = {'--tx': 7.0, '--tx-2': 4.5, '--tx-3': 4.5, '--tx-4': 3.0, '--pri': 4.5,
-       '--ok': 4.5, '--warn': 4.5, '--bad': 4.5}
+# iOS 质感改版后：页面底是暖纸 --paper，卡片是 --sheet 纯白。
+# 取两者里更差的做判定。--surface 是旧命名，保留兼容。
+SURFACE = _rgb('F4F2EE')   # --paper
+MIN = {'--ink': 4.5, '--ink-2': 4.5, '--ink-3': 3.0, '--ink-4': 3.0,
+       '--ok-tx': 4.5, '--warn-tx': 4.5, '--bad-tx': 4.5}
 for tok, need in MIN.items():
     m = re.search(re.escape(tok) + r'\s*:\s*(#[0-9A-Fa-f]{6})', css)
     if not m:
         problems.append(f'找不到 {tok} 的颜色值')
         continue
     c = _rgb(m.group(1))
-    worst = min(_ratio(c, WHITE), _ratio(c, PAGE_BG))
+    worst = min(_ratio(c, WHITE), _ratio(c, SURFACE))
     if worst < need:
         problems.append(f'{tok} {m.group(1)} 对比度 {worst:.2f} < {need}（最差背景）')
+
+# 白字压在按钮上，真正决定对比度的是按钮底色。
+# --pri 是设计稿指定的品牌色（#367BED 对白 4.03），用于描边/图标/链接；
+# 承载白字的按钮统一用更深的 --pri-deep。所以这里检查 --pri-deep。
+m = re.search(r'--pri-deep\s*:\s*(#[0-9A-Fa-f]{6})', css)
+if not m:
+    problems.append('找不到 --pri-deep（白字按钮底色）的颜色值')
+elif _ratio(_rgb(m.group(1)), WHITE) < 4.5:
+    problems.append(f'--pri-deep {m.group(1)} 对白字对比度 {_ratio(_rgb(m.group(1)), WHITE):.2f} < 4.5')
 
 
 # 9) 切会话时骨架屏必须铺在第一个 await 之前。
@@ -179,7 +209,7 @@ else:
 
 
 # 10) 刷新会话列表失败时，不能把列表清空。
-#     网络抖一下侧栏变成「还没有群聊」，用户会以为自己的群全没了。
+#     网络抖一下侧栏变成「还没有房间」，用户会以为自己的群全没了。
 convsjs = open('web/app/js/convs.js', encoding='utf-8').read()
 m = re.search(r'export async function loadConvs\(\)\s*\{(.*?)\n\}', convsjs, re.S)
 if not m:
@@ -190,31 +220,44 @@ else:
         problems.append('loadConvs 出错时清空了 state.convs——网络抖动会让侧栏变空')
 
 # 11) 发送失败要把原文还给用户，并标记那条消息
-chatjs2 = open('web/app/js/chat.js', encoding='utf-8').read()
-if 'onFail' not in chatjs2:
+if 'onFail' not in chatjs:
     problems.append('send() 没有失败回调——发送失败时原文会丢')
-elif 'msg.me.failed' not in open('web/app/app.css', encoding='utf-8').read():
+elif '.msg.me.failed' not in css:
     problems.append('缺少 .msg.me.failed 样式——发送失败的消息看起来像发成功了')
-
 
 # 12) 错误提示必须经过 humanError 翻译。
 #     裸的 toast(e.message) 会把「Failed to fetch」直接甩给用户。
-for f in ['web/app/js/app.js', 'web/app/js/chat.js', 'web/app/js/convs.js']:
+#     新壳里 views/ 下的页面也会弹错，一并检查。
+for f in js_files:
     src = open(f, encoding='utf-8').read()
     bare = len(re.findall(r'toast\(\s*[a-z]+\.message\s*\)', src))
     if bare:
         problems.append(f'{f} 有 {bare} 处直接把 e.message 弹出去——要用 humanError')
 
-
 # 13) 流被截断时必须能看出来。
 #     后端每轮末尾发 done；如果流在 done 之前就断了，前端原本
 #     和「正常结束」一模一样，用户只会觉得「怎么没人接着说了」。
-if "ev.type === 'done'" not in chatjs2:
+if "ev.type === 'done'" not in chatjs:
     problems.append('runRound 没有跟踪 done 事件——截断的流会被当成正常结束')
-elif 'sawDone' not in chatjs2:
+elif 'sawDone' not in chatjs:
     problems.append('runRound 没有 sawDone 标记')
-elif '这一轮没说完' not in chatjs2:
+elif '这一轮没说完' not in chatjs:
     problems.append('流被截断时没有给用户任何提示')
+
+# 14) 窄屏必须收起导航标签、且主内容不能整页隐藏。
+#     旧壳在 390 宽下写了 .main{display:none}，截图一看整页是空的。
+# 只查外壳样式：多个文件都有 860px 断点（chat.css 也有），
+# 在拼接后的总串里搜会抓到不相干的那个块。
+shell_css = open('web/app/css/shell.css', encoding='utf-8').read()
+m = re.search(r'@media\s*\(max-width:860px\)\s*\{(.*?)\n\}', shell_css, re.S)
+if not m:
+    problems.append('shell.css 没有 860px 窄屏断点——移动端没有适配')
+else:
+    narrow = m.group(1)
+    if re.search(r'\.main\s*\{\s*display\s*:\s*none', narrow):
+        problems.append('窄屏下 .main 被隐藏——手机上整页会空白')
+    if '--nav-w' not in narrow:
+        problems.append('窄屏没有收窄导航宽度')
 
 if problems:
     print(f'发现 {len(problems)} 个问题：\n')

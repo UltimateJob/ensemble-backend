@@ -29,6 +29,10 @@ type User struct {
 	Status    string    `json:"status"` // active | disabled
 	CreatedAt time.Time `json:"createdAt"`
 	LastSeen  time.Time `json:"lastSeen"`
+
+	// Preferences 界面偏好（通知、默认视图等）。键值都是字符串，
+	// 避免为每个开关加一个字段；空值不落盘。
+	Preferences map[string]string `json:"preferences,omitempty"`
 }
 
 // CanAccess 判断某个用户能否进入这个会话。

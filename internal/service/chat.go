@@ -228,7 +228,7 @@ func (c *Chat) SaveAssistant(convID, model, content string, tokens int, latency 
 }
 
 func systemPrompt(conv *domain.Conversation) string {
-	base := "你是智团工作台里的 Agent 团队。任务要拆成可交付的步骤，每一步都落成文件。回答简洁，不寒暄。"
+	base := "你是纸团工作台里的 Agent 团队。任务要拆成可交付的步骤，每一步都落成文件。回答简洁，不寒暄。"
 	switch conv.Studio {
 	case "bid":
 		return base + " 当前是投标应答场景：先出合规点对表，再写应答，最后核对废标风险。"

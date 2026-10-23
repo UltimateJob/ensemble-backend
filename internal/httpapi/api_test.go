@@ -1019,3 +1019,41 @@ func TestBodySizeLimit(t *testing.T) {
 		t.Fatalf("正常请求应 200，得到 %d", rec2.Code)
 	}
 }
+
+func TestUpdateMeMergesPreferences(t *testing.T) {
+	srv, h := newTestServer(t)
+	token := login(t, h, "13800000000")
+
+	rec, _ := doJSON(t, h, "PATCH", "/v1/me", token,
+		map[string]interface{}{"preferences": map[string]string{"notify": "false"}})
+	if rec.Code != 200 {
+		t.Fatalf("更新偏好应 200，得到 %d：%s", rec.Code, rec.Body.String())
+	}
+
+	_, me := doJSON(t, h, "GET", "/v1/me", token, nil)
+	data := me["data"].(map[string]interface{})
+	user := data["user"].(map[string]interface{})
+	id := user["id"].(string)
+
+	u, found := srv.store.GetUser(id)
+	if !found {
+		t.Fatal("用户不存在")
+	}
+	if got := u.Preferences["notify"]; got != "false" {
+		t.Fatalf("Preferences[notify] = %q，想要 false", got)
+	}
+
+	// 第二次只改 theme，notify 必须保留
+	rec2, _ := doJSON(t, h, "PATCH", "/v1/me", token,
+		map[string]interface{}{"preferences": map[string]string{"theme": "light"}})
+	if rec2.Code != 200 {
+		t.Fatalf("再次更新偏好应 200，得到 %d：%s", rec2.Code, rec2.Body.String())
+	}
+	u2, _ := srv.store.GetUser(id)
+	if got := u2.Preferences["notify"]; got != "false" {
+		t.Fatalf("合并后 Preferences[notify] = %q，想要 false", got)
+	}
+	if got := u2.Preferences["theme"]; got != "light" {
+		t.Fatalf("合并后 Preferences[theme] = %q，想要 light", got)
+	}
+}

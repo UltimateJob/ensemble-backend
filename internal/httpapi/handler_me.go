@@ -16,8 +16,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, map[string]interface{}{
-		"user":      u,
-		"remaining": u.Remaining(),
+		"user":        u,
+		"remaining":   u.Remaining(),
+		"preferences": u.Preferences,
 		// 让前端知道现在是真模型还是演示台词
 		"demo":     !s.cfg.UpstreamConfigured(),
 		"upstream": upstreamName(s.cfg),
@@ -35,8 +36,9 @@ func upstreamName(cfg config.Config) string {
 func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	u, _ := UserFrom(r.Context())
 	var req struct {
-		Name   string `json:"name"`
-		Avatar string `json:"avatar"`
+		Name        string            `json:"name"`
+		Avatar      string            `json:"avatar"`
+		Preferences map[string]string `json:"preferences"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
@@ -53,6 +55,19 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Avatar != "" {
 		cur.Avatar = req.Avatar
+	}
+	// 偏好按键合并：只覆盖请求里出现的键，空字符串表示删除该键。
+	if len(req.Preferences) > 0 {
+		if cur.Preferences == nil {
+			cur.Preferences = make(map[string]string, len(req.Preferences))
+		}
+		for k, v := range req.Preferences {
+			if v == "" {
+				delete(cur.Preferences, k)
+				continue
+			}
+			cur.Preferences[k] = v
+		}
 	}
 	_ = s.store.UpdateUser(cur)
 	ok(w, cur)

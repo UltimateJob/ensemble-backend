@@ -32,3 +32,8 @@ desktop/build/
 
 # 手机端 Web 构建产物（含运行时注入的演示令牌，绝不入库）
 web/m/
+
+# 头像原图体积大，按需本地生成；manifest 入库
+web/app/avatars/characters/*.png
+web/app/avatars/covers/*.png
+desktop/AppIcon.icns

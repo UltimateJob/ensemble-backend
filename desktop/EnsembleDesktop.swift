@@ -1,67 +1,102 @@
-// TeamWise Desktop —— 本机桌面壳。
+// 纸团桌面壳 —— 原生窗口 + 后端自启 + 原生目录选择 + 下载 + 通知。
 //
-// 只做三件事：
-//   1. 起一个窗口，加载本地后端的前端；
-//   2. 提供原生目录选择器（浏览器拿不到本机绝对路径）；
-//   3. 后端没在跑时，拉起同目录的 ensemble 二进制。
+// 与上一版的区别（都是实测踩出来的）：
+//   1. 后端二进制在 .app 包内（Contents/MacOS/ensemble），不是 .app 的上级目录；
+//   2. 静态资源在 Contents/Resources/web/，由 Go 的 webDir 第三条路径命中；
+//   3. 端口不再写死 8080：探测 8080–8099，把选中的端口通过 ADDR 传给子进程；
+//   4. 配置按「应用支持目录 → 仓库根」顺序读 .env，Finder 启动也能拿到 Key；
+//   5. 数据默认写到 ~/Library/Application Support/纸团/data，不放进 .app 内部。
 //
-// 不用 Electron：这里不需要 Node 运行时，WKWebView + AppKit 就够，
-// 体积从 ~200MB 降到 ~200KB，启动也更快。
+// 不用 Electron：这里不需要 Node 运行时，WKWebView + AppKit 就够。
 
 import Cocoa
 import WebKit
+import UserNotifications
 
-private let appBase = "http://127.0.0.1:8080"
-private let appURL = URL(string: "\(appBase)/app/")!
+private let appFolder = "纸团"
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+private let supportDir: URL = {
+    let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    return base.appendingPathComponent(appFolder, isDirectory: true)
+}()
+
+private var serverProcess: Process?
+
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
+                         WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
     private var window: NSWindow!
     private var webView: WKWebView!
-    private var server: Process?
-    private var statusItem: NSStatusItem?
+    private var baseURL = "http://127.0.0.1:8080"
+    private var didShowError = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
         buildMenu()
         buildWindow()
-        ensureBackendThenLoad()
+        requestNotifyPermission()
+        startFlow()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let p = server, p.isRunning {
-            p.terminate()
-        }
+        if let p = serverProcess, p.isRunning { p.terminate() }
     }
 
     // MARK: - 窗口
 
     private func buildWindow() {
-        let rect = NSRect(x: 0, y: 0, width: 1320, height: 900)
+        let cfg = WKWebViewConfiguration()
+        cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        cfg.websiteDataStore = .default()
+
+        // 把页面的 console 与未捕获异常转发到 stderr。
+        // WKWebView 默认吞掉这些，出问题时只剩一片白屏，无从下手。
+        let hook = WKUserScript(source: """
+        (function(){
+          const send = (level, args) => {
+            try {
+              window.webkit.messageHandlers.console.postMessage({
+                level: level,
+                text: Array.from(args).map(a => {
+                  try { return typeof a === 'string' ? a : JSON.stringify(a); }
+                  catch (e) { return String(a); }
+                }).join(' ')
+              });
+            } catch (e) {}
+          };
+          ['log','warn','error'].forEach(k => {
+            const orig = console[k];
+            console[k] = function(){ send(k, arguments); orig.apply(console, arguments); };
+          });
+          window.addEventListener('error', e => {
+            send('error', ['未捕获：' + (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || 0)]);
+          });
+          window.addEventListener('unhandledrejection', e => {
+            send('error', ['Promise 未处理：' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)]);
+          });
+        })();
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        cfg.userContentController.addUserScript(hook)
+        cfg.userContentController.add(self, name: "notify")
+        cfg.userContentController.add(self, name: "console")
+
+        webView = WKWebView(frame: .zero, configuration: cfg)
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.underPageBackgroundColor = .white
+
         window = NSWindow(
-            contentRect: rect,
+            contentRect: NSRect(x: 0, y: 0, width: 1320, height: 900),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        window.title = "智团 · TeamWise"
-        window.minSize = NSSize(width: 980, height: 680)
-        window.center()
-        window.titlebarAppearsTransparent = false
-
-        let config = WKWebViewConfiguration()
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        // 允许页面用 localStorage 保持登录态
-        config.websiteDataStore = .default()
-
-        webView = WKWebView(frame: rect, configuration: config)
-        webView.navigationDelegate = self
-        // 不设 drawsBackground：WKWebView 没有这个 KVC 属性，
-        // 用 setValue 会抛 NSUnknownKeyException，进程直接 exit 1。
-        webView.underPageBackgroundColor = .windowBackgroundColor
+        window.title = "纸团"
+        window.minSize = NSSize(width: 1080, height: 720)
         window.contentView = webView
+        window.setFrameAutosaveName("ZhituanMainWindow")
+        window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -71,9 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "关于 TeamWise", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "关于纸团",
+                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+                        keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "重新载入", action: #selector(reload), keyEquivalent: "r")
+        appMenu.addItem(withTitle: "打开日志", action: #selector(openLog), keyEquivalent: "l")
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
@@ -86,6 +125,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
+        let goItem = NSMenuItem()
+        let goMenu = NSMenu(title: "前往")
+        let names = ["团队大厅", "聊天房间", "目标看板", "连接器", "资料库", "设置"]
+        for (i, name) in names.enumerated() {
+            let item = NSMenuItem(title: name, action: #selector(goTo(_:)), keyEquivalent: "\(i + 1)")
+            item.tag = i
+            item.target = self
+            goMenu.addItem(item)
+        }
+        goMenu.addItem(.separator())
+        let panel = NSMenuItem(title: "切换工作面板", action: #selector(togglePanel), keyEquivalent: "0")
+        panel.target = self
+        goMenu.addItem(panel)
+        goItem.submenu = goMenu
+        main.addItem(goItem)
+
+        let viewItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "显示")
+        viewMenu.addItem(withTitle: "放大", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        viewMenu.addItem(.separator())
+        let dev = NSMenuItem(title: "开发者工具", action: #selector(openDevTools), keyEquivalent: "i")
+        dev.target = self
+        viewMenu.addItem(dev)
+        viewItem.submenu = viewMenu
+        main.addItem(viewItem)
+
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "编辑")
         editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
@@ -97,37 +162,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         NSApp.mainMenu = main
     }
 
-    // MARK: - 后端
+    // MARK: - 启动流程
 
-    /// 8080 没响应时，尝试拉起同目录的 ensemble 二进制。
-    private func ensureBackendThenLoad() {
-        // 启动瞬间网络栈可能还没就绪，ping 一次失败不代表服务没在跑。
-        // 重试三次再决定拉起自己的后端，否则会和已经跑着的实例抢 8080。
+    private func startFlow() {
+        // 已经有一个后端在跑（比如用户先跑了 scripts/dev.sh）就直接用。
         for _ in 0..<3 {
-            if ping() {
+            if ping(baseURL) {
                 loadApp()
                 return
             }
-            Thread.sleep(forTimeInterval: 0.4)
+            Thread.sleep(forTimeInterval: 0.35)
         }
-        startBackend()
-        // 轮询到起来为止（最多 12 秒），期间显示加载页
-        var tries = 0
-        DispatchQueue.global().async { [weak self] in
-            while tries < 120 {
-                Thread.sleep(forTimeInterval: 0.1)
-                tries += 1
-                if self?.ping() == true {
-                    DispatchQueue.main.async { self?.loadApp() }
-                    return
-                }
-            }
-            DispatchQueue.main.async { self?.loadApp() } // 起来失败也加载，让页面自己报错
+        guard let port = freePort(from: 8080, through: 8099) else {
+            showError("没有可用端口（8080–8099 都被占用了）。关掉一个再试。")
+            return
         }
+        baseURL = "http://127.0.0.1:\(port)"
+        startBackend(port: port)
+        pollUntilReady(tries: 150)
     }
 
-    private func ping() -> Bool {
-        guard let url = URL(string: "\(appBase)/healthz") else { return false }
+    private func ping(_ base: String) -> Bool {
+        guard let url = URL(string: base + "/healthz") else { return false }
         var req = URLRequest(url: url)
         req.timeoutInterval = 0.6
         let sem = DispatchSemaphore(value: 0)
@@ -140,42 +196,172 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         return alive
     }
 
-    private func startBackend() {
-        let fm = FileManager.default
-        let execDir = Bundle.main.bundleURL.deletingLastPathComponent()
-        let candidates = [
-            execDir.appendingPathComponent("ensemble"),
-            execDir.appendingPathComponent("bin/ensemble"),
-            URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("bin/ensemble"),
-            URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent("ensemble"),
-        ]
-        guard let bin = candidates.first(where: { fm.isExecutableFile(atPath: $0.path) }) else {
-            NSLog("找不到 ensemble 二进制，请先用 make build 构建，或手动启动服务")
+    private func pollUntilReady(tries: Int) {
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            for i in 0..<tries {
+                Thread.sleep(forTimeInterval: 0.1)
+                // 子进程提前退出：不用等满 15 秒，直接把日志位置告诉用户。
+                if i > 20, let p = serverProcess, !p.isRunning {
+                    DispatchQueue.main.async {
+                        self.showError("后端启动失败。\n日志：\(supportDir.path)/ensemble.log\n常见原因：端口被占用、数据目录不可写。")
+                    }
+                    return
+                }
+                if self.ping(self.baseURL) {
+                    DispatchQueue.main.async { self.loadApp() }
+                    return
+                }
+            }
+            DispatchQueue.main.async {
+                self.showError("后端 15 秒内没有就绪。\n日志：\(supportDir.path)/ensemble.log")
+            }
+        }
+    }
+
+    private func startBackend(port: Int) {
+        // 二进制在包内：Contents/MacOS/ensemble，与壳可执行文件同级。
+        guard let exeDir = Bundle.main.executableURL?.deletingLastPathComponent() else {
+            showError("找不到应用可执行文件位置。")
             return
         }
+        let candidates = [
+            exeDir.appendingPathComponent("ensemble"),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/ensemble"),
+        ]
+        guard let bin = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
+            showError("应用包内缺少 ensemble 二进制。\n请重新运行 desktop/build.sh 打包。")
+            return
+        }
+
+        var env = ProcessInfo.processInfo.environment
+        for (k, v) in loadDotEnv() { env[k] = v }
+        env["ADDR"] = ":\(port)"
+        if env["DATA_DIR"] == nil {
+            env["DATA_DIR"] = supportDir.appendingPathComponent("data").path
+        }
+
         let p = Process()
         p.executableURL = bin
-        p.currentDirectoryURL = bin.deletingLastPathComponent().deletingLastPathComponent()
-        // 继承当前环境（含 DEEPSEEK_API_KEY），不额外注入
-        p.environment = ProcessInfo.processInfo.environment
+        p.environment = env
+        p.currentDirectoryURL = Bundle.main.bundleURL
+
+        let logURL = supportDir.appendingPathComponent("ensemble.log")
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            _ = try? handle.seekToEnd()
+            p.standardOutput = handle
+            p.standardError = handle
+        }
         do {
             try p.run()
-            server = p
-            NSLog("已启动本地后端：\(bin.path) pid=\(p.processIdentifier)")
+            serverProcess = p
         } catch {
-            NSLog("启动后端失败：\(error)")
+            showError("启动后端失败：\(error.localizedDescription)")
         }
+    }
+
+    /// 依次读应用支持目录与仓库根的 .env，先读到的优先。
+    private func loadDotEnv() -> [String: String] {
+        var out: [String: String] = [:]
+        var candidates = [supportDir.appendingPathComponent(".env")]
+        if let cwd = ProcessInfo.processInfo.environment["PWD"] {
+            candidates.append(URL(fileURLWithPath: cwd).appendingPathComponent(".env"))
+        }
+        for url in candidates {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            for line in text.split(separator: "\n") {
+                let t = line.trimmingCharacters(in: .whitespaces)
+                if t.isEmpty || t.hasPrefix("#") { continue }
+                guard let eq = t.firstIndex(of: "=") else { continue }
+                let key = String(t[..<eq]).trimmingCharacters(in: .whitespaces)
+                var value = String(t[t.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+                if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+                    value = String(value.dropFirst().dropLast())
+                }
+                if !key.isEmpty, out[key] == nil { out[key] = value }
+            }
+        }
+        return out
+    }
+
+    private func freePort(from: Int, through: Int) -> Int? {
+        for port in from...through {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            if fd < 0 { continue }
+            defer { close(fd) }
+            var addr = sockaddr_in()
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = in_port_t(UInt16(port).bigEndian)
+            addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+            let bound = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            if bound == 0 { return port }
+        }
+        return nil
     }
 
     private func loadApp() {
-        webView.load(URLRequest(url: appURL))
+        webView.load(URLRequest(url: URL(string: baseURL + "/app/")!))
     }
+
+    private func showError(_ message: String) {
+        guard !didShowError else { return }
+        didShowError = true
+        let html = """
+        <html><head><meta charset="utf-8"></head>
+        <body style="font:15px -apple-system,BlinkMacSystemFont,'PingFang SC';background:#fff;color:#1A1A1D;
+                     display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+        <div style="max-width:520px;text-align:center;padding:24px">
+          <h2 style="font-size:20px;font-weight:600;margin:0 0 12px">打不开纸团</h2>
+          <p style="color:#5A5A63;line-height:1.75;white-space:pre-wrap;text-align:left">\(message)</p>
+          <button onclick="location.reload()"
+                  style="margin-top:22px;padding:10px 22px;border:0;border-radius:12px;
+                         background:#367BED;color:#fff;font-size:14px;cursor:pointer">重试</button>
+        </div></body></html>
+        """
+        webView.loadHTMLString(html, baseURL: nil)
+    }
+
+    // MARK: - 菜单动作
 
     @objc private func reload() {
-        webView.reload()
+        didShowError = false
+        if webView.url == nil || webView.url?.path == nil {
+            startFlow()
+        } else {
+            webView.reload()
+        }
     }
 
-    // MARK: - 原生目录选择
+    @objc private func openLog() {
+        let log = supportDir.appendingPathComponent("ensemble.log")
+        if FileManager.default.fileExists(atPath: log.path) {
+            NSWorkspace.shared.open(log)
+        } else {
+            NSWorkspace.shared.open(supportDir)
+        }
+    }
+
+    @objc private func openDevTools() {
+        webView.configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        webView.evaluateJavaScript("console.log('devtools enabled')", completionHandler: nil)
+    }
+
+    @objc private func goTo(_ item: NSMenuItem) {
+        let routes = ["lobby", "room", "goals", "connectors", "library", "settings"]
+        guard item.tag >= 0, item.tag < routes.count else { return }
+        webView.evaluateJavaScript("location.hash = '#/\(routes[item.tag])'", completionHandler: nil)
+    }
+
+    @objc private func togglePanel() {
+        webView.evaluateJavaScript(
+            "document.dispatchEvent(new KeyboardEvent('keydown',{key:'0',metaKey:true}))",
+            completionHandler: nil)
+    }
 
     /// 选完目录后注入页面：前端监听到后填进工作区路径输入框。
     @objc private func pickWorkspace() {
@@ -188,27 +374,108 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         panel.message = "选择代码工作室的工作区（本机绝对路径，不会上传）"
         panel.begin { [weak self] resp in
             guard resp == .OK, let url = panel.url else { return }
-            let path = url.path
-            let escaped = path.replacingOccurrences(of: "\\", with: "\\\\")
+            let escaped = url.path
+                .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "'", with: "\\'")
-            let js = "window.__ensemblePickDirectory && window.__ensemblePickDirectory('\(escaped)')"
-            self?.webView.evaluateJavaScript(js) { _, err in
-                if let err = err {
-                    NSLog("注入目录失败：\(err)")
-                }
-            }
+            self?.webView.evaluateJavaScript(
+                "window.__ensemblePickDirectory && window.__ensemblePickDirectory('\(escaped)')",
+                completionHandler: nil)
         }
     }
 
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        window.title = "智团 · TeamWise"
+        window.title = "纸团"
+    }
+
+    /// 外链走系统浏览器，站内跳转留在壳里。
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url,
+           let host = url.host, !host.hasPrefix("127.0.0.1"), host != "localhost" {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    // MARK: - WKUIDelegate
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "好")
+        alert.runModal()
+        completionHandler()
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: "确定")
+        alert.addButton(withTitle: "取消")
+        completionHandler(alert.runModal() == .alertFirstButtonReturn)
+    }
+
+    // MARK: - WKDownloadDelegate
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
+                  suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        let dir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        var target = dir.appendingPathComponent(suggestedFilename)
+        // 同名文件不覆盖：加 (1)(2) 后缀，和浏览器行为一致。
+        var n = 1
+        let base = target.deletingPathExtension().lastPathComponent
+        let ext = target.pathExtension
+        while FileManager.default.fileExists(atPath: target.path) {
+            let name = ext.isEmpty ? "\(base) (\(n))" : "\(base) (\(n)).\(ext)"
+            target = dir.appendingPathComponent(name)
+            n += 1
+        }
+        completionHandler(target)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        NSSound(named: "Glass")?.play()
+    }
+
+    // MARK: - 通知
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        if message.name == "console" {
+            guard let body = message.body as? [String: Any],
+                  let level = body["level"] as? String,
+                  let text = body["text"] as? String else { return }
+            // 直接写 stderr：终端里直接看得到，不需要开开发者工具。
+            FileHandle.standardError.write("[web:\(level)] \(text)\n".data(using: .utf8) ?? Data())
+            return
+        }
+        guard message.name == "notify",
+              let body = message.body as? [String: Any] else { return }
+        let content = UNMutableNotificationContent()
+        content.title = body["title"] as? String ?? "纸团"
+        content.body = body["body"] as? String ?? ""
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req)
+    }
+
+    private func requestNotifyPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 }
 
 // 未捕获的 ObjC 异常会直接让进程消失，日志里什么都不留。
-// 挂一个处理器，至少能看到崩在哪。
 NSSetUncaughtExceptionHandler { exc in
     let msg = "UNCAUGHT \(exc.name.rawValue): \(exc.reason ?? "?")\n\(exc.callStackSymbols.joined(separator: "\n"))\n"
     FileHandle.standardError.write(msg.data(using: .utf8) ?? Data())
