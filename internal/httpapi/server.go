@@ -171,8 +171,9 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	// ---- 鉴权 ----
-	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCode)
-	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	// 配了线上后端时，登录走线上鉴权、本地只做镜像；否则本地自建账号。
+	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCodeProxy)
+	mux.HandleFunc("POST /v1/auth/login", s.handleLoginProxy)
 	mux.HandleFunc("POST /v1/auth/reset-password", s.handleResetPassword)
 
 	// ---- 需要登录 ----

@@ -156,9 +156,13 @@ export function mountLogin(host) {
       }
       const d = await api('/v1/auth/login', { method: 'POST', body });
       state.token = d.token;
-      // 桌面端：把令牌交给本地后端，让它替我们调线上模型。
+      // 两份令牌各管一边：
+      //   d.token       本地会话（工作区、执行记录）
+      //   d.remoteToken 线上会话（模型调用）
+      // 配了线上后端时，登录由本地后端代理到线上，线上的令牌随响应回来；
+      // 纯浏览器 / 本地自建账号时没有 remoteToken，跳过即可。
       // Key 在服务器上，客户端不持有——这是「不自带 Key」的关键一步。
-      syncRemoteToken(d.token);
+      if (d.remoteToken) syncRemoteToken(d.remoteToken);
       state.user = d.user;
       localStorage.setItem('ens_token', d.token);
       host.classList.add('hidden');

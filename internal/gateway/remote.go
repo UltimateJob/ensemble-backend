@@ -76,6 +76,20 @@ func (r *Remote) SetToken(token string) {
 	r.rebuild()
 }
 
+// Base 返回线上根地址（不含 /v1）。鉴权代理要用它拼 /v1/auth/*。
+func (r *Remote) Base() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return strings.TrimSuffix(r.base, "/v1")
+}
+
+// Token 返回当前令牌，供心跳/诊断用。空表示还没登录。
+func (r *Remote) Token() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.token
+}
+
 // Probe 探一次线上是否可用。
 //
 // 只打 /healthz：不需要鉴权，能区分「服务器没起来」和「令牌过期」。
