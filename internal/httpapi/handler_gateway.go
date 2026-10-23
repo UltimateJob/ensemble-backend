@@ -112,16 +112,20 @@ func toChatRequest(in oaRequest) (domain.ChatRequest, error) {
 	return out, nil
 }
 
-// oaResponse 非流式响应。工具调用必须带出去，
-// 否则调用方拿到 200 + 空正文，只能当模型什么都没说。
-type oaResponse struct {
-	Message oaMessage `json:"message"`
-}
-
-func writeChatOK(w http.ResponseWriter, msg oaMessage) {
-	ok(w, map[string]any{
+// writeChatOK 输出非流式响应。工具调用与用量都必须带出去：
+// 少了前者调用方拿到 200 + 空正文，少了后者计费恒为 0。
+func writeChatOK(w http.ResponseWriter, msg oaMessage, usage *domain.Usage) {
+	data := map[string]any{
 		"choices": []map[string]any{{"message": msg}},
-	})
+	}
+	if usage != nil {
+		data["usage"] = map[string]int{
+			"prompt_tokens":     usage.PromptTokens,
+			"completion_tokens": usage.CompletionTokens,
+			"total_tokens":      usage.TotalTokens,
+		}
+	}
+	ok(w, data)
 }
 
 // handleGatewayChat 网关直连接口，协议对齐 OpenAI /v1/chat/completions。
@@ -164,6 +168,7 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 		msg := oaMessage{Role: "assistant"}
 		var lastErr string
 		var calls []*oaToolCall
+		var usage *domain.Usage
 		for c := range stream {
 			if c.Err != nil {
 				lastErr = c.Err.Error()
@@ -171,13 +176,16 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 			}
 			msg.Content += c.Content
 			msg.ToolCalls, calls = mergeToolCall(msg.ToolCalls, calls, c)
+			if c.Usage != nil {
+				usage = c.Usage
+			}
 		}
 		if lastErr != "" {
 			fail(w, 502, "upstream_error", lastErr)
 			return
 		}
 		_ = s.store.IncrementUsed(u.ID, 1)
-		writeChatOK(w, msg)
+		writeChatOK(w, msg, usage)
 		return
 	}
 
@@ -210,6 +218,19 @@ func (s *Server) handleGatewayChat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if c.Done {
+			// 用量必须带出去：桌面端把这里当上游，靠这一块统计
+			// token 与成本。漏了就是全线 0，计费失效。
+			if c.Usage != nil {
+				b, _ := json.Marshal(map[string]any{
+					"choices": []any{},
+					"usage": map[string]int{
+						"prompt_tokens":     c.Usage.PromptTokens,
+						"completion_tokens": c.Usage.CompletionTokens,
+						"total_tokens":      c.Usage.TotalTokens,
+					},
+				})
+				sw.writeRaw(fmt.Sprintf("data: %s\n\n", b))
+			}
 			sw.writeRaw("data: [DONE]\n\n")
 			// 流正常走完才计数；中途出错或断开不扣——
 			// 用户没拿到完整回复就不该付费。
