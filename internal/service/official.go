@@ -50,11 +50,19 @@ var OfficialAgents = []OfficialAgent{
 // OfficialChat 官方群的欢迎流。
 //
 // 每条对应设计图 v19 的一屏：欢迎语 → 举例说明 → 能力卡 → 已完成任务示例。
+// Kind 决定客户端用气泡、能力卡还是任务卡渲染——不能都压成纯文本，
+// 设计图里能力卡和任务卡是两种完全不同的版式。
 type OfficialChat struct {
 	Agent   string
 	Content string
 	// Kind text | capability | task
 	Kind string
+	// Badge official | host
+	Badge string
+	// Capability 仅 Kind=capability 时用
+	Capability *domain.CapabilityCard
+	// Task 仅 Kind=task 时用
+	Task *domain.MessageTask
 }
 
 // OfficialWelcome 固定的欢迎消息序列。
@@ -62,22 +70,43 @@ var OfficialWelcome = []OfficialChat{
 	{
 		Agent:   "tuantuan",
 		Kind:    "text",
+		Badge:   "official",
 		Content: "欢迎来到纸团 👋 我是团团——你说一句话，一整队 AI 替你做完。",
 	},
 	{
 		Agent:   "conductor",
 		Kind:    "text",
+		Badge:   "host",
 		Content: "比如你说「帮我把发布说明写出来」，我来分工：撰写起草、查证核对、审校把关。",
 	},
 	{
-		Agent:   "tuantuan",
-		Kind:    "capability",
-		Content: "组队干活|一句话派活，统筹自动拆任务分给大家\n你来把关|写文件、动数据之前，先经你审批\n成果归档|做完的文件自动存好，随时能找回来",
+		Agent: "tuantuan",
+		Kind:  "capability",
+		Badge: "official",
+		Capability: &domain.CapabilityCard{
+			Title: "纸团能帮你做什么",
+			Items: []domain.CapabilityItem{
+				{Title: "组队干活", Desc: "一句话派活，统筹自动拆任务分给大家"},
+				{Title: "你来把关", Desc: "写文件、动数据之前，先经你审批"},
+				{Title: "成果归档", Desc: "做完的文件自动存好，随时能找回来"},
+			},
+		},
 	},
 	{
-		Agent:   "conductor",
-		Kind:    "task",
-		Content: "写一份《新品发布说明》|发布说明 v1.2.md",
+		Agent: "conductor",
+		Kind:  "task",
+		Badge: "host",
+		Task: &domain.MessageTask{
+			Title:      "写一份《新品发布说明》",
+			Status:     "done",
+			StatusText: "已完成 · 示例",
+			File: &domain.ArtifactRef{
+				ID:   "demo-release-notes",
+				Kind: "doc",
+				Name: "发布说明 v1.2.md",
+				Path: "release-notes/v1.2.md",
+			},
+		},
 	},
 }
 
@@ -141,14 +170,22 @@ func (o *Official) Ensure(userID string) (*domain.Conversation, error) {
 		if agent != nil {
 			name = agent.Name
 		}
-		_ = o.store.AppendMessage(&domain.Message{
+		msg := &domain.Message{
 			ID:             store.NewID("m"),
 			ConversationID: conv.ID,
 			Role:           domain.RoleAssistant,
 			Agent:          name,
 			Content:        m.Content,
+			Kind:           m.Kind,
+			Badge:          m.Badge,
+			Capability:     m.Capability,
+			TaskCard:       m.Task,
 			CreatedAt:      base.Add(time.Duration(i) * time.Second),
-		})
+		}
+		if m.Task != nil && m.Task.File != nil {
+			msg.Attachments = []domain.ArtifactRef{*m.Task.File}
+		}
+		_ = o.store.AppendMessage(msg)
 	}
 	return conv, nil
 }

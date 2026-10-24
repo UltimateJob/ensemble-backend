@@ -170,9 +170,16 @@ type Message struct {
 	CreatedAt      time.Time `json:"createdAt"`
 	// 以下是执行器落群消息用的可选字段。旧数据没有，解码为零值。
 	Attachments []ArtifactRef `json:"attachments,omitempty"`
-	Kind        string        `json:"kind,omitempty"`     // text | run | run.failed | team | system
+	Kind        string        `json:"kind,omitempty"`     // text | run | run.failed | team | system | capability | task
 	Ref         string        `json:"ref,omitempty"`      // run id / team id
 	Mentions    []string      `json:"mentions,omitempty"` // 被 @ 的 agent key
+	// Capability 能力卡的内容（Kind=capability 时有值）。
+	// 设计图里它是「标题 + 三条要点」，不再是纯文本。
+	Capability *CapabilityCard `json:"capability,omitempty"`
+	// TaskCard 任务卡（Kind=task 时有值）。
+	TaskCard *MessageTask `json:"taskCard,omitempty"`
+	// Badge 名字后的徽章：official（官方）/ host（主持）
+	Badge string `json:"badge,omitempty"`
 }
 
 // ArtifactRef 一条产物引用：谁、在哪个工作区、哪个文件、多大。
@@ -439,4 +446,25 @@ type Event struct {
 	IP        string            `json:"ip,omitempty"`
 	UA        string            `json:"ua,omitempty"`
 	CreatedAt time.Time         `json:"createdAt"`
+}
+
+// CapabilityCard 能力介绍卡（设计图：纸团能帮你做什么）。
+type CapabilityCard struct {
+	Title string           `json:"title"`
+	Items []CapabilityItem `json:"items"`
+}
+
+// CapabilityItem 能力卡里的一条。
+type CapabilityItem struct {
+	Title string `json:"title"`
+	Desc  string `json:"desc"`
+}
+
+// MessageTask 消息里的任务卡。
+type MessageTask struct {
+	Title      string `json:"title"`
+	Status     string `json:"status"` // done | doing | blocked
+	StatusText string `json:"statusText,omitempty"`
+	// File 任务产出的文件（设计图里任务卡内嵌一个文件行）。
+	File *ArtifactRef `json:"file,omitempty"`
 }

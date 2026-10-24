@@ -156,7 +156,7 @@ function SpeakerAvatar({
 
   // 容器尺寸跟着动，Avatar 始终填满容器——固定 39px 再缩放会让
   // 未发言的头像也占 39px 的宽度，重叠时压住别人的字。
-  const size = scale.interpolate({ inputRange: [0, 1], outputRange: [30, 39] });
+  const size = scale.interpolate({ inputRange: [0, 1], outputRange: [36, 44] });
   const dotColor =
     member.state === 'done'
       ? t.okDot
@@ -171,7 +171,7 @@ function SpeakerAvatar({
       style={{
         width: size,
         height: size,
-        marginLeft: i === 0 ? 0 : -5,
+        marginLeft: i === 0 ? 0 : -10,
         zIndex,
         borderRadius: 999,
         borderWidth: 2,
@@ -181,7 +181,7 @@ function SpeakerAvatar({
     >
       {/* 不裁切：Animated 尺寸可能滞后一帧，overflow hidden 会把头像切掉一条 */}
       <Animated.View style={{ width: size, height: size, borderRadius: 999, overflow: 'hidden' }}>
-        <Avatar name={member.name} size={39} index={member.index} tint={member.color} />
+        <Avatar name={member.name} size={44} index={member.index} tint={member.color} />
       </Animated.View>
       {member.state !== 'idle' ? (
         <View
@@ -395,7 +395,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingLeft: 10,
     paddingRight: 12,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     ...shadow.slab,

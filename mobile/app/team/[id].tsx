@@ -57,6 +57,7 @@ export default function Room() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const userId = useApp((s) => s.user?.id);
+  const officialHints = useApp((s) => s.officialHints);
 
   const [conv, setConv] = useState<Conversation | null>(null);
   const [msgs, setMsgs] = useState<Message[]>([]);
@@ -286,8 +287,11 @@ export default function Room() {
   }
 
   /* ---------- 状态句 ---------- */
+  const isOfficial = conv?.studio === 'official';
   const statusLine =
-    workingCount > 0 && blockedCount > 0
+    isOfficial
+      ? '官方群 · 大家都在'
+      : workingCount > 0 && blockedCount > 0
       ? `${workingCount} 位在干活 · ${blockedCount} 位等你审批`
       : workingCount > 0
         ? `${workingCount} 位在干活`
@@ -300,6 +304,12 @@ export default function Room() {
       <Text style={{ fontWeight: weight.heavy as any }}>{rawMembers.find((m) => m.key === speaker)?.name}</Text>
       <Text style={{ color: t.ink3 }}> 正在发言</Text>
     </T>
+  ) : isOfficial ? (
+    // 官方群里没有「干活」这回事，它是在介绍产品
+    <T size={type.caption} color={t.ink3} numberOfLines={1}>
+      <Text style={{ color: t.ink, fontWeight: weight.heavy as any }}>团团</Text>
+      <Text> 正在为大家介绍纸团</Text>
+    </T>
   ) : (
     <T size={type.caption} color={t.ink3} numberOfLines={1}>
       {workingCount > 0 ? `${workingCount} 位在干活` : '都在待命'}
@@ -309,7 +319,7 @@ export default function Room() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.canvas[0] }} edges={['top', 'bottom']}>
       <ChatHeader
-        title={conv?.title ?? '加载中'}
+        title={`${conv?.title ?? '加载中'}${members.length ? `（${members.length}）` : ''}`}
         statusLine={statusLine}
         onBack={() => router.back()}
         onMenu={() => setInfoOpen(true)}
@@ -357,6 +367,32 @@ export default function Room() {
           if (busy) listRef.current?.scrollToEnd({ animated: true });
         }}
       />
+
+      {/* 建议 chips：官方群给新手引导语，其余群给常用指令 */}
+      {!busy && msgs.length > 0 && (officialHints.length > 0 || true) ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ flexGrow: 0, flexShrink: 0 }}
+          contentContainerStyle={s.chipRow}
+        >
+          {(officialHints.length
+            ? officialHints
+            : ['帮我写一份周报提纲', '帮我整理会议纪要', '创建一个新团队']
+          ).map((h) => (
+            <Pressable
+              key={h}
+              onPress={() => setInput(h)}
+              style={[s.chip, { backgroundColor: t.card, borderColor: t.hairline }]}
+            >
+              <Text style={{ fontSize: 12, color: t.ink, marginRight: 5 }}>✦</Text>
+              <T size={type.caption} color={t.ink} weight={weight.medium} numberOfLines={1}>
+                {h}
+              </T>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
 
       {/* 输入板 + 审批托盘：同一块容器 */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -494,7 +530,7 @@ function MessageRow({
 }) {
   const t = useTheme();
 
-  // 任务卡 / 文件卡
+  // 非文本消息（system 角色的富卡片）
   if (msg.role === 'system' && msg.artifacts?.length) {
     const title = msg.artifacts[0];
     const isTask = /任务|方案|架构/.test(title);
@@ -531,38 +567,175 @@ function MessageRow({
     );
   }
 
-  // 成员消息
+  /* ---------- 成员消息 ---------- */
   const showHead = prev?.agent !== msg.agent;
   const idx = members.findIndex((m) => m.name === msg.agent);
   const color = idx >= 0 ? (members[idx].color ?? memberColor(idx)) : undefined;
+
+  // 能力卡：标题 + 三条要点（设计图 v19 第三屏）
+  const cap = (msg as any).capability;
+  // 任务卡：标题 + 状态 + 内嵌文件（设计图 v19 第四屏）
+  const task = (msg as any).taskCard;
+  // 名字后的徽章：官方/主持
+  const badge = (msg as any).badge;
 
   return (
     <View style={{ marginTop: showHead ? 11 : 4 }}>
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
         <Pressable onPress={() => onAvatar(msg.agent ?? '')} style={{ width: 40 }}>
-          {showHead ? <Avatar name={msg.agent ?? '?'} size={40} index={idx >= 0 ? idx : 0} tint={color} /> : null}
-        </Pressable>
-        <View style={{ flex: 1, maxWidth: '84%' }}>
           {showHead ? (
-            <T size={type.micro} color={t.ink3} weight={weight.semibold} style={{ marginBottom: 5 }}>
-              {msg.agent}
-            </T>
+            <Avatar name={msg.agent ?? '?'} size={40} index={idx >= 0 ? idx : 0} tint={color} />
           ) : null}
-          <MemberBubble>
-            {msg.content ? (
-              <T size={type.body} lh={lead.body}>
-                {msg.content}
+        </Pressable>
+        <View style={{ flex: 1, maxWidth: '86%' }}>
+          {showHead ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+              <T size={type.micro} color={t.ink3} weight={weight.semibold}>
+                {msg.agent}
               </T>
-            ) : streaming ? (
-              <TypingDots color={t.ink4} />
-            ) : (
-              <T size={type.body} color={t.ink4}>
-                …
-              </T>
-            )}
-          </MemberBubble>
+              {badge ? (
+                <View
+                  style={[
+                    s.badge,
+                    {
+                      backgroundColor: badge === 'official' ? t.goldBg : t.cardSunken,
+                      borderColor: badge === 'official' ? t.goldFg + '33' : t.hairline,
+                    },
+                  ]}
+                >
+                  <T
+                    size={9.5}
+                    weight={weight.semibold}
+                    color={badge === 'official' ? t.goldFg : t.ink3}
+                  >
+                    {badge === 'official' ? '官方' : '主持'}
+                  </T>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {cap ? (
+            <CapabilityBubble card={cap} />
+          ) : task ? (
+            <TaskMessageCard task={task} onOpenFile={() => {}} />
+          ) : (
+            <MemberBubble>
+              {msg.content ? (
+                <T size={type.body} lh={lead.body}>
+                  {msg.content}
+                </T>
+              ) : streaming ? (
+                <TypingDots color={t.ink4} />
+              ) : (
+                <T size={type.body} color={t.ink4}>
+                  …
+                </T>
+              )}
+            </MemberBubble>
+          )}
         </View>
       </View>
+    </View>
+  );
+}
+
+/* ============================================================
+   富消息卡片
+   ============================================================ */
+
+/** 能力卡：标题 + 要点列表（设计图「纸团能帮你做什么」）。 */
+function CapabilityBubble({
+  card,
+}: {
+  card: { title: string; items: { title: string; desc: string }[] };
+}) {
+  const t = useTheme();
+  return (
+    <View style={[s.capCard, { backgroundColor: t.card, borderColor: t.hairline }]}>
+      <T size={type.card} weight={weight.strong} style={{ marginBottom: 10 }}>
+        {card.title}
+      </T>
+      {card.items.map((it, i) => (
+        <View key={it.title} style={{ flexDirection: 'row', gap: 9, marginTop: i === 0 ? 0 : 9 }}>
+          <View style={[s.capDot, { backgroundColor: t.ink }]} />
+          <View style={{ flex: 1 }}>
+            <T size={type.sub} weight={weight.strong} lh={20}>
+              {it.title}
+            </T>
+            <T size={type.caption} color={t.ink3} lh={19} style={{ marginTop: 1 }}>
+              {it.desc}
+            </T>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** 任务卡：类型行 + 标题 + 内嵌文件行。 */
+function TaskMessageCard({
+  task,
+  onOpenFile,
+}: {
+  task: {
+    title: string;
+    status: string;
+    statusText?: string;
+    file?: { name: string; path?: string };
+  };
+  onOpenFile: () => void;
+}) {
+  const t = useTheme();
+  const tone = task.status === 'done' ? 'done' : task.status === 'blocked' ? 'blocked' : 'working';
+  return (
+    <View style={[s.taskCard, { backgroundColor: t.card, borderColor: t.hairline }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Icon name="checkbox-outline" size={13} color={t.ink2} />
+          <T size={type.micro} color={t.ink2} weight={weight.semibold}>
+            任务
+          </T>
+        </View>
+        <View
+          style={[
+            s.statusPill,
+            {
+              backgroundColor:
+                tone === 'done' ? t.okSoft : tone === 'blocked' ? t.badSoft : t.accentSoft,
+            },
+          ]}
+        >
+          <T
+            size={type.micro}
+            weight={weight.semibold}
+            color={tone === 'done' ? t.ok : tone === 'blocked' ? t.bad : t.accentText}
+          >
+            {task.statusText ?? (tone === 'done' ? '已完成' : tone === 'blocked' ? '等你审批' : '执行中')}
+          </T>
+        </View>
+      </View>
+      <T size={type.card} weight={weight.strong} lh={21} style={{ marginTop: 9 }}>
+        {task.title}
+      </T>
+      {task.file ? (
+        <Pressable
+          onPress={onOpenFile}
+          style={[s.taskFileRow, { backgroundColor: t.cardSunken }]}
+        >
+          <View style={[s.taskFileIcon, { backgroundColor: withAlpha('#7C93A8', 0.16) }]}>
+            <Icon name="document-text" size={17} color="#7C93A8" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <T size={type.sub} weight={weight.strong} numberOfLines={1}>
+              {task.file.name}
+            </T>
+            <T size={type.micro} color={t.ink3} style={{ marginTop: 2 }}>
+              已存入资料库 · 点开就能看
+            </T>
+          </View>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -640,6 +813,19 @@ const s = StyleSheet.create({
     borderRadius: radius.tag,
   },
 
+  chipRow: {
+    paddingHorizontal: 12,
+    gap: 8,
+    paddingBottom: 8,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   dock: {
     marginHorizontal: 12,
     marginBottom: 8,
@@ -674,6 +860,41 @@ const s = StyleSheet.create({
   },
   stopSquare: { width: 12, height: 12, borderRadius: 3 },
 
+  badge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  capCard: {
+    borderRadius: radius.message,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 14,
+    ...shadow.card,
+  },
+  capDot: { width: 5, height: 5, borderRadius: 3, marginTop: 7 },
+  taskCard: {
+    borderRadius: radius.message,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 13,
+    ...shadow.card,
+  },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill },
+  taskFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 11,
+  },
+  taskFileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   mention: {
     marginHorizontal: 10,
     marginBottom: 10,
