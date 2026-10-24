@@ -260,9 +260,56 @@ function renderArts(rec, arts) {
   });
 }
 
+// 二进制产物：按文本读会得到乱码，直接给下载入口。
+// docx/xlsx 是执行器最常产出的两类文件，也是「每一步都落成文件」
+// 这个卖点最直接的兑现物，不能只给一屏乱码。
+const BINARY_EXT = /\.(docx|xlsx|pptx|pdf|zip|png|jpe?g|gif|webp|mp4|mp3)$/i;
+
 export async function openArtifact(conv, ref) {
   const wsId = conv?.workspace?.id;
   if (!wsId || !ref?.path) { toast('这个产物没有可预览的路径', { type: 'info' }); return; }
+  const isBinary = BINARY_EXT.test(ref.path || '');
+
+  // 下载必须走 fetch 带 Authorization：
+  // 裸 <a href> 不会带请求头，后端只认 Bearer，结果必然是 401。
+  const download = async () => {
+    try {
+      const res = await fetch(
+        `/v1/workspaces/${encodeURIComponent(wsId)}/raw?path=` + encodeURIComponent(ref.path),
+        { headers: { Authorization: 'Bearer ' + (state.token || '') } });
+      if (!res.ok) throw new Error('下载失败（HTTP ' + res.status + '）');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = ref.name || ref.path.split('/').pop() || 'file';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      toast(e.message || '下载失败', { type: 'err' });
+    }
+  };
+
+  if (isBinary) {
+    const { openPanel } = await import('./shell.js');
+    openPanel({
+      title: ref.name || ref.path,
+      subtitle: (ref.agentName || '') + ' · ' + ref.path,
+      render: el => {
+        el.innerHTML = `<div class="art-binary">
+          <div class="art-binary-ic">${icon('file-text', 28)}</div>
+          <b>${esc(ref.name || ref.path)}</b>
+          <span>这类文件不能当文本预览，下载后用对应软件打开</span>
+          <button class="btn btn-primary" data-act="dl">${icon('download', 14)}下载</button>
+        </div>`;
+        el.querySelector('[data-act=dl]').addEventListener('click', download);
+      },
+    });
+    return;
+  }
+
   try {
     const chunk = await api(`/v1/workspaces/${encodeURIComponent(wsId)}/file?path=` +
       encodeURIComponent(ref.path) + '&limit=400');
@@ -277,12 +324,7 @@ export async function openArtifact(conv, ref) {
             <button class="btn btn-line btn-sm" data-act="rev">${icon('git-compare', 13)}看改动</button>
           </div>
           <pre class="art-pre">${esc(chunk?.content || '(空文件)')}</pre>`;
-        el.querySelector('[data-act=dl]').addEventListener('click', () => {
-          const a = document.createElement('a');
-          a.href = `/v1/workspaces/${encodeURIComponent(wsId)}/raw?path=` + encodeURIComponent(ref.path);
-          a.download = ref.name || 'file';
-          a.click();
-        });
+        el.querySelector('[data-act=dl]').addEventListener('click', download);
         el.querySelector('[data-act=rev]').addEventListener('click', async () => {
           if (!ref.runId) return;
           try {

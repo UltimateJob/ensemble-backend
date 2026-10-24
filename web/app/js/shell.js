@@ -27,7 +27,10 @@ export function setActiveNav(name) {
 export function renderNav(convs = []) {
   const list = $('#navList');
   if (!list) return;
-  list.innerHTML = NAV.map(n => `
+  list.innerHTML = `
+    <button class="nav-search" id="navSearch" title="搜索（⌘K）">
+      ${icon('search', 16)}<span>搜索</span><kbd>⌘K</kbd>
+    </button>` + NAV.map(n => `
     <a class="nav-item" data-key="${n.key}" href="#/${n.key}">
       ${icon(n.ic, 18)}<span>${n.label}</span>
     </a>`).join('') + `
@@ -39,6 +42,9 @@ export function renderNav(convs = []) {
         </a>`).join('') : '<div class="nav-room-empty">还没有房间</div>'}
     </div>`;
   hydrateIcons(list);
+  document.getElementById('navSearch')?.addEventListener('click', () => {
+    import('./search.js').then(m => m.openSearch());
+  });
   setActiveNav(currentName());
 }
 
@@ -133,6 +139,12 @@ export function initShell() {
   document.addEventListener('keydown', e => {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
+    // ⌘K 全局搜索：README 一直在宣传，但三栏改版时界面被删了
+    if (e.key === 'k' || e.key === 'K') {
+      e.preventDefault();
+      import('./search.js').then(m => m.openSearch());
+      return;
+    }
     if (e.key === '0') { e.preventDefault(); togglePanel(); return; }
     const n = Number(e.key);
     if (n >= 1 && n <= NAV.length) { e.preventDefault(); location.hash = '#/' + NAV[n - 1].key; }

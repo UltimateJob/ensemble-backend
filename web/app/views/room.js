@@ -106,6 +106,20 @@ export async function mount(host, params, query) {
     const { mountStudio } = await import('./studio.js');
     mountStudio(host, conv.id, query);
   }
+
+  // 从搜索结果或其他地方带着 ?msg=<id> 进来：滚到那条并高亮。
+  // 要等消息渲染完（openConv 是异步的，上面已经 await），再加一帧
+  // 确保布局稳定，否则 scrollIntoView 会算错位置。
+  const focusMsg = query?.get('msg');
+  if (focusMsg) {
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-mid="${CSS.escape(focusMsg)}"]`);
+      if (!el) return;
+      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el.classList.add('msg-focus');
+      setTimeout(() => el.classList.remove('msg-focus'), 2600);
+    });
+  }
 }
 
 export function unmount() {
@@ -126,6 +140,10 @@ function renderEmptyState() {
   const wrap = $('#msgWrap');
   if (!wrap) return;
   if (wrap.querySelector('.msg')) return;   // 已有历史消息
+  // 加载失败时 chat.js 会放一张带「重试」的卡片。这张卡必须留着——
+  // 无条件写空态会把它覆盖掉，用户看到的是「房间是空的」，
+  // 以为历史消息丢了，而不是「网断了」。
+  if (wrap.querySelector('.err-card')) return;
   const agents = (state.agents || []).slice(0, 4);
   const seeds = seedFor(state.cur?.studio);
   wrap.innerHTML = `
@@ -395,7 +413,7 @@ async function fillArtifacts(convId) {
   const box = document.querySelector('#artifactList');
   if (!box) return;
   try {
-    const list = await api('/v1/library?convId=' + encodeURIComponent(convId) + '&limit=8');
+    const list = await api('/v1/library?conversationId=' + encodeURIComponent(convId) + '&limit=8');
     if (!list?.length) {
       box.innerHTML = '<div class="ap-idle">这个群还没有产出文件。角色完成交付后会出现在这里。</div>';
       return;

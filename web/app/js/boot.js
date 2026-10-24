@@ -39,12 +39,18 @@ function showLogin(msg = '') {
 export async function enterApp() {
   $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
-  const [convs, scenarios] = await Promise.all([
+  // 模型列表和角色库也要拉：右栏的模型选择器、角色面板的「从角色库添加」
+  // 都读这两个状态，之前从没赋值，两处 UI 永远是隐藏/空态。
+  const [convs, scenarios, models, library] = await Promise.all([
     api('/v1/conversations').catch(() => []),
     api('/v1/scenarios').catch(() => []),
+    api('/v1/models').catch(() => []),
+    api('/v1/characters').catch(() => []),
   ]);
   state.convs = convs || [];
   state.scenarios = scenarios || [];
+  state.models = models || [];
+  state.library = library || [];
   renderNav(state.convs);
   renderNavFoot(state.user);
   startRouter();

@@ -516,3 +516,13 @@ kbd{
   .rh-title{font-size:15px}
   .rh-sub{font-size:11px}
 }
+
+/* 从搜索结果跳过来时，把目标消息闪一下——否则滚过去了也对不准 */
+.msg-focus{
+  animation:msgFocus 2.4s var(--spring-soft);
+  border-radius:var(--r-lg);
+}
+@keyframes msgFocus{
+  0%,45%{background:rgba(47,107,255,.10)}
+  100%{background:transparent}
+}

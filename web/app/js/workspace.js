@@ -14,7 +14,11 @@ import { openModal, closeModal, confirmModal } from './modal.js';
 import { PERMISSIONS } from './activity.js';
 
 // 原生目录选择器由桌面壳注入。浏览器里没有。
-const nativePick = () => typeof window.__pickDirectory === 'function';
+//
+// 检测的是 pickDirectory 消息通道，不是某个全局函数：
+// 真正的回调 __ensemblePickDirectory 要等面板打开后才由壳调用，
+// 之前拿它判断「有没有原生能力」永远为假，桌面端也退化成手填路径。
+const nativePick = () => !!window.webkit?.messageHandlers?.pickDirectory;
 
 /**
  * 接上桌面壳的原生目录选择器。
