@@ -31,6 +31,11 @@ export async function mount(host) {
             placeholder="比如：一只橘猫坐在窗台上晒太阳，暖色调，胶片质感"></textarea>
         </label>
         <div class="img-opts">
+          <label class="field"><span>风格</span>
+            <select id="imgStyle">
+              <option value="">随机风格（每次可能不同）</option>
+            </select>
+          </label>
           <label class="field"><span>尺寸</span>
             <select id="imgSize">
               <option value="1024x1024">方形 1024×1024</option>
@@ -48,6 +53,10 @@ export async function mount(host) {
           <button class="btn btn-primary" id="imgGo">${icon('sparkles', 16)}生成</button>
         </div>
         <div class="hint" id="imgHint"></div>
+        <div class="img-style-note hidden" id="imgStyleNote">
+          固定风格下每张图用同一个模型，风格一致；随机风格会在多个渠道间轮换，
+          单张更省事，但一批图可能风格不一。
+        </div>
       </section>
 
       <section class="sec">
@@ -58,6 +67,11 @@ export async function mount(host) {
 
   hydrateIcons(host);
   $('#imgGo').addEventListener('click', submit);
+  $('#imgStyle').addEventListener('change', () => {
+    const fixed = !!$('#imgStyle').value;
+    $('#imgStyleNote').classList.toggle('hidden', !fixed);
+    updateHint(fixed);
+  });
   $('#imgPrompt').addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
   });
@@ -83,6 +97,7 @@ async function submit() {
         prompt,
         size: $('#imgSize').value,
         n: Number($('#imgN').value) || 1,
+        provider: $('#imgStyle').value || '',   // 空 = 随机
       },
     });
     currentJob = job;
@@ -141,6 +156,24 @@ function renderPending(job) {
   $('#imgHint').textContent = '正在生成，一般十几秒到一分钟…';
 }
 
+// updateHint 让提示跟着风格选项走。
+// 固定风格时还写「轮流使用」会让人以为设置没生效。
+function updateHint(fixed) {
+  const el = $('#imgHint');
+  if (!el) return;
+  const provs = state.__imgProvs || [];
+  const names = provs.map(p => p.model || p.name);
+  if (fixed) {
+    const pick = $('#imgStyle')?.value;
+    const hit = provs.find(p => p.name === pick);
+    el.textContent = '固定使用 ' + (hit ? (hit.model || hit.name) : pick) + '，每张图风格一致';
+    return;
+  }
+  if (names.length > 1) el.textContent = '随机风格：' + names.join(' / ') + ' 轮流使用';
+  else if (names.length === 1) el.textContent = '生图模型：' + names[0];
+  else el.textContent = '';
+}
+
 async function loadList() {
   const grid = $('#imgList');
   if (!grid) return;
@@ -153,18 +186,28 @@ async function loadList() {
   }
   // 多渠道路由时告诉用户现在是哪几个模型在轮，
   // 出图风格不一致时这是唯一的线索。
-  const provs = data.providers || [];
-  if (provs.length > 1) {
-    $('#imgHint').textContent = '当前有 ' + provs.length + ' 个生图渠道，轮流使用：' + provs.join('、');
-  } else if (provs.length === 1) {
-    $('#imgHint').textContent = '生图渠道：' + provs[0];
-  }
+  // providers 现在带模型名：[{name, model}]
+  state.__imgProvs = data.providers || [];
+  updateHint(!!($('#imgStyle')?.value));
 
   if (!data.enabled) {
     grid.innerHTML = `<div class="panel-empty">还没有配置生图渠道。到运维台的「上游渠道」里新增一个图片生成类型的渠道。</div>`;
     $('#imgHint').textContent = '生图渠道还没配，现在提交会失败。';
     return;
   }
+  // 风格下拉：把可用的渠道填进去。空选项是随机。
+  const sel = $('#imgStyle');
+  if (sel) {
+    const cur = sel.value;
+    const provs = data.providers || [];
+    sel.innerHTML = '<option value="">随机风格（每次可能不同）</option>' +
+      provs.map(p => {
+        const label = p.model && p.model !== p.name ? `${p.name} · ${p.model}` : p.name;
+        return `<option value="${esc(p.name)}">${esc(label)}</option>`;
+      }).join('');
+    if (cur) sel.value = cur;
+  }
+
   const items = data.items || [];
   if (!items.length) {
     grid.innerHTML = '<div class="panel-empty">还没有生成过图片</div>';

@@ -30,7 +30,7 @@ func (j *ImageJobs) Generate(ctx context.Context, userID, workspaceRoot, prompt,
 		return nil, err
 	}
 
-	gen := j.pickGen()
+	gen := j.pickGen("")
 	if gen == nil {
 		return nil, errors.New("没有配置生图渠道")
 	}
