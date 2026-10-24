@@ -245,6 +245,14 @@ func (c *Connectors) tokenRequest(ctx context.Context, p OAuthProvider, code str
 	form.Set("redirect_uri", p.RedirectURI)
 	form.Set("grant_type", "authorization_code")
 
+	// 先把 form 补全再一次性建请求。
+	//
+	// 之前是先建请求、再改 form、再替换 req.Body——ContentLength 还是
+	// 旧值，GitHub 收到的是被截断的请求体，换令牌静默失败。
+	if !p.BasicAuth {
+		form.Set("client_id", p.ClientID)
+		form.Set("client_secret", p.ClientSecret)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
@@ -255,10 +263,6 @@ func (c *Connectors) tokenRequest(ctx context.Context, p OAuthProvider, code str
 	}
 	if p.BasicAuth {
 		req.SetBasicAuth(p.ClientID, p.ClientSecret)
-	} else {
-		form.Set("client_id", p.ClientID)
-		form.Set("client_secret", p.ClientSecret)
-		req.Body = io.NopCloser(strings.NewReader(form.Encode()))
 	}
 
 	resp, err := c.probe.Client.Do(req)
