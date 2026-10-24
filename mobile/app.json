@@ -39,6 +39,9 @@
     ],
     "experiments": {
       "baseUrl": "/m"
+    },
+    "extra": {
+      "defaultBaseURL": "https://teamwise.cn"
     }
   }
 }

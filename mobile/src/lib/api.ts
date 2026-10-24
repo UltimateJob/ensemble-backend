@@ -19,6 +19,17 @@ export function getBaseURL(): string {
 export async function loadBaseURL(): Promise<string> {
   if (baseURL) return baseURL;
   baseURL = (await getItem(KEY_BASE)) ?? '';
+  if (!baseURL) {
+    // 首次打开：用 app.json 里的默认地址。
+    // Expo Go 里用户不必手输团队地址——预置线上，改地址仍可在设置里改。
+    try {
+      const { default: Constants } = await import('expo-constants');
+      const d = (Constants.expoConfig as any)?.extra?.defaultBaseURL;
+      if (typeof d === 'string' && d) baseURL = normalizeBase(d);
+    } catch {
+      /* 拿不到就保持空，界面会让用户填 */
+    }
+  }
   return baseURL;
 }
 
