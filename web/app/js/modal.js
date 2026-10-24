@@ -70,12 +70,15 @@ const RISK_LABEL = {
   critical: '不可逆的高危操作',
 };
 
-export function approvalModal({ approval, runId }) {
+export function approvalModal({ approval, runId, onDone }) {
   const risk = RISK_LABEL[approval.risk] || approval.risk || '未知';
   const danger = approval.risk === 'critical';
+  // 每个出口都要通知队列继续：三条动作按钮 + 关闭 + Esc
+  const done = fn => async (...args) => { try { return await fn(...args); } finally { onDone?.(); } };
   return openModal({
     title: '需要你的审批',
     width: 580,
+    onClose: () => onDone?.(),
     body: `
       <div class="apv-sum">${esc(approval.summary || approval.tool || '一次操作')}</div>
       ${approval.command ? `<pre class="apv-cmd">${esc(approval.command)}</pre>` : ''}
@@ -85,9 +88,9 @@ export function approvalModal({ approval, runId }) {
         <span><b>${esc(risk)}</b> · 本地运行时，命令以你的用户权限执行</span>
       </div>`,
     actions: [
-      { key: 'run', label: '本任务都允许', kind: 'line', onClick: () => decide(runId, approval.id, true, 'run') },
-      { key: 'no', label: '拒绝', kind: 'line', danger: true, onClick: () => decide(runId, approval.id, false, 'once') },
-      { key: 'yes', label: '允许本次执行', kind: 'primary', onClick: () => decide(runId, approval.id, true, 'once') },
+      { key: 'run', label: '本任务都允许', kind: 'line', onClick: done(() => decide(runId, approval.id, true, 'run')) },
+      { key: 'no', label: '拒绝', kind: 'line', danger: true, onClick: done(() => decide(runId, approval.id, false, 'once')) },
+      { key: 'yes', label: '允许本次执行', kind: 'primary', onClick: done(() => decide(runId, approval.id, true, 'once')) },
     ],
   });
 }
@@ -100,6 +103,38 @@ async function decide(runId, approvalId, approve, scope) {
     toast('审批失败：' + e.message, { type: 'err' });
   }
   return true;
+}
+
+/* ---------------- 审批队列 ---------------- */
+
+// 同一时刻只显示一个审批弹窗。
+//
+// openModal 会先关掉已有的弹窗，所以两个 Run 同时要审批时，后弹的会
+// 顶掉前一个；前一个的 id 已经进了 pendingApprovals，之后不再重放，
+// 用户永远看不到它——10 分钟后后端以「未在时限内批准」失败。
+//
+// 改成排队：一次只问一个，处理完自动弹下一个。
+const apvQueue = [];
+let apvOpen = false;
+
+export function enqueueApproval({ approval, runId }) {
+  apvQueue.push({ approval, runId });
+  pumpApproval();
+}
+
+function pumpApproval() {
+  if (apvOpen || apvQueue.length === 0) return;
+  const next = apvQueue.shift();
+  apvOpen = true;
+  approvalModal({
+    approval: next.approval,
+    runId: next.runId,
+    onDone: () => {
+      apvOpen = false;
+      // 让上一个弹窗的关闭动画走完再弹下一个，避免闪一下
+      setTimeout(pumpApproval, 180);
+    },
+  });
 }
 
 /* ---------------- 确认 / 提示 ---------------- */

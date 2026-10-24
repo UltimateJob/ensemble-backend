@@ -403,7 +403,12 @@ export function buildMsgEl(o) {
         <span class="msg-name">${esc(o.name)}</span>
         ${o.title ? `<span class="msg-title">${esc(o.title)}</span>` : ''}
         <span class="msg-time">${o.time ? timeStr(o.time) : ''}</span>
-        <button class="msg-copy" title="复制这条消息">${icon('copy', 13)}</button>
+        <span class="msg-acts">
+          <button class="msg-act" data-act="copy" title="复制">${icon('copy', 13)}</button>
+          ${o.me
+            ? `<button class="msg-act" data-act="edit" title="编辑后重发">${icon('pencil', 13)}</button>`
+            : `<button class="msg-act" data-act="regen" title="重新生成">${icon('refresh-cw', 13)}</button>`}
+        </span>
       </div>
       <div class="msg-text md"></div>
       <div class="msg-atts"></div>
@@ -411,10 +416,33 @@ export function buildMsgEl(o) {
   const tx = el.querySelector('.msg-text');
   tx.innerHTML = mdRender(o.text || '');
   if (o.attachments?.length) renderAttachments(el.querySelector('.msg-atts'), o.attachments);
-  el.querySelector('.msg-copy').addEventListener('click', async ev => {
+  el.querySelector('[data-act=copy]').addEventListener('click', async ev => {
     ev.stopPropagation();
     const ok = await copyText(el._raw);
     toast(ok ? '已复制' : '复制失败，浏览器没给权限');
+  });
+  // 编辑后重发：把原文放回输入框并聚焦。不自动发送——
+  // 用户点「编辑」多半是想改一改，直接重发反而要再撤回一次。
+  el.querySelector('[data-act=edit]')?.addEventListener('click', ev => {
+    ev.stopPropagation();
+    const ta = $('#ta');
+    if (!ta) return;
+    ta.value = el._raw;
+    ta.style.height = 'auto';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    // 光标放到末尾，方便接着改
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    toast('已放回输入框，改完再发', { type: 'info' });
+  });
+  // 重新生成：找到这条之前的最后一条用户消息，重发一次。
+  // 不做「删除旧回复」——历史留着更诚实，用户能看到自己为什么重试。
+  el.querySelector('[data-act=regen]')?.addEventListener('click', async ev => {
+    ev.stopPropagation();
+    const prompt = lastUserPromptBefore(el);
+    if (!prompt) { toast('找不到对应的提问，没法重新生成', { type: 'err' }); return; }
+    if (state.busy) { toast('还在说，先停掉这一轮'); return; }
+    await sendText(prompt);
   });
   return { el, textEl: tx };
 }
@@ -1178,14 +1206,23 @@ export async function send() {
   const ta = $('#ta');
   const text = ta.value.trim();
   if (!text) return;
+  ta.value = '';
+  ta.style.height = 'auto';
+  await sendText(text);
+}
+
+// sendText 发送一段指定文本。从输入框发和「重新生成」共用这一条路径，
+// 避免两处实现走样——消息渲染、失败回填、额度扣减都在这里。
+export async function sendText(text) {
+  if (state.busy) { toast('还在说，先停掉这一轮'); return; }
+  if (!state.cur) { toast('先选一个群'); return; }
+  text = String(text || '').trim();
+  if (!text) return;
   // 后端上限 4000 字。前端先拦一道，省得用户打完才被拒。
   if ([...text].length > 4000) {
     toast('太长了，最多 4000 字。拆成几条发更好');
     return;
   }
-
-  ta.value = '';
-  ta.style.height = 'auto';
   state.busy = true;
   setBusyUI(true);
 
@@ -1233,4 +1270,17 @@ export async function kickoff(convId, topic) {
   if (nb) nb.disabled = true;
 
   await runRound('/v1/conversations/' + convId + '/kickoff', topic ? { topic } : {});
+}
+
+/** 从某条消息往前找最近的一条用户消息。用于「重新生成」。 */
+function lastUserPromptBefore(el) {
+  let cur = el?.previousElementSibling;
+  while (cur) {
+    if (cur.classList.contains('msg') && cur.classList.contains('me')) {
+      // 系统提示、时间分隔符不算；me 类即用户消息
+      return cur._raw || cur.querySelector('.msg-text')?.textContent || '';
+    }
+    cur = cur.previousElementSibling;
+  }
+  return '';
 }

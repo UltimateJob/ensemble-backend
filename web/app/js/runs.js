@@ -5,7 +5,7 @@
    ============================================================ */
 
 import { state } from './core.js';
-import { approvalModal } from './modal.js';
+import { enqueueApproval } from './modal.js';
 
 const subs = new Map();       // runId -> AbortController
 const handlers = new Set();   // (runId, ev) => void
@@ -30,7 +30,8 @@ function handle(runId, ev) {
     const key = ap.id || `${runId}:${ev.seq}`;
     if (!pendingApprovals.has(key)) {
       pendingApprovals.add(key);
-      approvalModal({ approval: ap, runId });
+      // 排队而不是直接弹：两个 Run 同时要审批时直接弹会互相覆盖
+      enqueueApproval({ approval: ap, runId });
       notifyNative('需要你的审批', ap.summary || ap.command || '有一个操作在等你确认');
     }
   }
