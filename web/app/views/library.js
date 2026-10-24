@@ -10,7 +10,7 @@ import { avatarHTML } from '../js/avatars.js';
 import { confirmModal } from '../js/modal.js';
 import { stagger } from '../js/motion.js';
 // 复用聊天层的轻量渲染器，避免两处 markdown 行为漂移。
-import { mdRender } from '../js/chat.js';
+import { mdRender } from '../js/markdown.js';
 
 const KINDS = [
   { key: '', label: '全部' },
@@ -204,12 +204,9 @@ function renderContent(a) {
   return `<div class="md">${renderMarkdown(c)}</div>`;
 }
 
-// chat.js 的 mdRender 只认粗体 / 行内代码 / 围栏 / 列表，标书这类文档的
-// 「# 一级标题」会原样留成段落。它的输出已经整体转义过，这里只把
-// 「整段就是一个标题」的 <p> 提升成 h1–h3，其余仍交给它渲染。
+// 渲染器已经原生支持标题、表格、链接等语法，不再需要打补丁。
 function renderMarkdown(src) {
-  return mdRender(src).replace(/<p>(#{1,3})\s+([\s\S]*?)<\/p>/g,
-    (m, hashes, text) => `<h${hashes.length}>${text}</h${hashes.length}>`);
+  return mdRender(src);
 }
 
 async function copyText(text) {

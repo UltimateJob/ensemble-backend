@@ -7,7 +7,8 @@
 import { api, state, esc, icon, toast, humanError } from './core.js';
 import { avatarHTML } from './avatars.js';
 import { trackRun, untrackRun, onRunEvent } from './runs.js';
-import { addMsg, addSysNote, scrollBottom, mdRender } from './chat.js';
+import { addMsg, addSysNote, scrollBottom } from './chat.js';
+import { mdRender } from './markdown.js';
 import { permissionLabel, toolLabel, isExecutable } from './activity.js';
 
 const bubbles = new Map();   // runId -> {el, card, state}
@@ -332,10 +333,16 @@ export async function openArtifact(conv, ref) {
       title: ref.name || ref.path,
       subtitle: (ref.agentName || '') + ' · ' + ref.path,
       render: el => {
+        // 截断了要说：之前固定 limit=400，800 行的文件只显示一半，
+        // 界面上没有任何提示，用户以为文件就这么多。
+        const total = chunk?.totalLines || 0;
+        const shown = total ? Math.min(total, 400) : 0;
+        const cut = chunk?.truncated || total > 400;
         el.innerHTML = `<div class="art-dl-row">
             <button class="btn btn-line btn-sm" data-act="dl">${icon('download', 13)}下载</button>
             <button class="btn btn-line btn-sm" data-act="rev">${icon('git-compare', 13)}看改动</button>
           </div>
+          ${cut ? `<div class="art-cut">文件共 ${total} 行，这里只显示前 ${shown} 行。完整内容请下载。</div>` : ''}
           <pre class="art-pre">${esc(chunk?.content || '(空文件)')}</pre>`;
         el.querySelector('[data-act=dl]').addEventListener('click', download);
         el.querySelector('[data-act=rev]').addEventListener('click', async () => {

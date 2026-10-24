@@ -463,6 +463,8 @@ export function openRoomPanel() {
                <button class="btn btn-primary btn-sm" id="panelWsBtn" style="width:100%;margin-top:10px">选择目录</button>`}
           </div>
         </div>
+        ${ws ? `<div class="panel-sec"><h4>文件</h4><div id="fileTree" class="file-tree">
+          <div class="ft-loading">读取中…</div></div></div>` : ''}
         <div class="panel-sec"><h4>团队任务</h4>
           <button class="btn btn-line btn-sm" id="panelTeamBtn" style="width:100%">交给团队做</button>
         </div>
@@ -475,6 +477,7 @@ export function openRoomPanel() {
       el.querySelector('#panelTeamBtn')?.addEventListener('click', () => openTeamTask(state.cur, activity, {
         onBound: () => refreshWork(),
       }));
+      if (ws) renderFileTree(el.querySelector('#fileTree'), state.cur.workspace?.id);
       import('../js/chat.js').then(m => {
         m.renderMembers?.();
         m.renderPipeline?.(true);
@@ -484,4 +487,76 @@ export function openRoomPanel() {
       fillArtifacts(state.cur.id);
     },
   });
+}
+
+/* ---------------- 工作区文件树 ---------------- */
+
+// 之前工作区里有什么，用户只能靠聊天里的产物 chip 猜。
+// 后端 /tree 一直可用，只是没有界面。
+const ftOpen = new Set();
+
+async function renderFileTree(box, wsId) {
+  if (!box || !wsId) return;
+  let data;
+  try {
+    data = await api(`/v1/workspaces/${encodeURIComponent(wsId)}/tree`);
+  } catch (e) {
+    box.innerHTML = `<div class="ft-err">${esc(e.message || '读不到目录')}</div>`;
+    return;
+  }
+  box.innerHTML = '';
+  const entries = (data?.entries || []).slice().sort((a, b) => {
+    // 目录在前，同类按名字
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  if (!entries.length) {
+    box.innerHTML = '<div class="ft-empty">这个目录是空的</div>';
+    return;
+  }
+  renderLevel(box, entries, data.path || '', wsId, 0);
+}
+
+function renderLevel(box, entries, basePath, wsId, depth) {
+  for (const e of entries) {
+    const rel = basePath ? basePath.replace(/\/$/, '') + '/' + e.name : e.name;
+    const row = document.createElement('button');
+    row.className = 'ft-row' + (e.isDir ? ' dir' : '');
+    row.style.paddingLeft = (10 + depth * 14) + 'px';
+    row.innerHTML = `<span class="ft-ic">${icon(e.isDir ? 'folder' : 'file-text', 14)}</span>` +
+      `<span class="ft-name">${esc(e.name)}</span>` +
+      (e.isDir ? `<span class="ft-chev">${icon('chevron-right', 13)}</span>` : '');
+    row.title = rel;
+    box.appendChild(row);
+
+    const children = document.createElement('div');
+    children.className = 'ft-children';
+    box.appendChild(children);
+
+    row.addEventListener('click', async () => {
+      if (!e.isDir) {
+        const { openArtifact } = await import('../js/exec.js');
+        openArtifact(state.cur, { path: rel, name: e.name });
+        return;
+      }
+      const open = children.classList.toggle('on');
+      row.classList.toggle('open', open);
+      if (open && !children.dataset.loaded) {
+        children.dataset.loaded = '1';
+        children.innerHTML = '<div class="ft-loading">读取中…</div>';
+        try {
+          const d = await api(`/v1/workspaces/${encodeURIComponent(wsId)}/tree?path=` + encodeURIComponent(rel));
+          children.innerHTML = '';
+          const kids = (d?.entries || []).slice().sort((a, b) => {
+            if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+            return (a.name || '').localeCompare(b.name || '');
+          });
+          if (!kids.length) { children.innerHTML = '<div class="ft-empty">空目录</div>'; return; }
+          renderLevel(children, kids, rel, wsId, depth + 1);
+        } catch (err) {
+          children.innerHTML = `<div class="ft-err">${esc(err.message || '读取失败')}</div>`;
+        }
+      }
+    });
+  }
 }
