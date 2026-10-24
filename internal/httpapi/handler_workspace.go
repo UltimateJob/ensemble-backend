@@ -542,6 +542,11 @@ func (s *Server) handleBindConvWorkspace(w http.ResponseWriter, r *http.Request)
 		badRequest(w, err.Error())
 		return
 	}
+	// 重复绑同一个目录不该再写一条系统提示。
+	//
+	// 前端在打开选择面板、保存设置、切回房间等好几个地方都会调这个接口，
+	// 每次落一条「已绑定工作区」，聊天气泡里就堆了三条一模一样的。
+	alreadyBound := conv.Workspace != nil && conv.Workspace.Root == bw.Root
 	if label == "" {
 		label = filepath.Base(bw.Root)
 	}
@@ -561,7 +566,9 @@ func (s *Server) handleBindConvWorkspace(w http.ResponseWriter, r *http.Request)
 		serverErr(w, err.Error())
 		return
 	}
-	s.chat.AppendSystemNote(conv.ID, "已绑定本地工作区："+bw.Root+"\n目录只是就位，还没有人派活。要说清楚要做什么。")
+	if !alreadyBound {
+		s.chat.AppendSystemNote(conv.ID, "已绑定本地工作区："+bw.Root+"\n目录只是就位，还没有人派活。要说清楚要做什么。")
+	}
 	ok(w, conv)
 }
 
