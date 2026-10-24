@@ -238,6 +238,17 @@ type ChatRequest struct {
 	Stream      bool          `json:"stream"`
 	// Task 请求来自任务执行器：自动选路只在 TaskOnly 模型里挑
 	Task bool `json:"task,omitempty"`
+	// Workload 任务性质，决定走哪个模型池。空表示不限制。
+	//
+	// 实测（同一批任务同时跑 deepseek-chat 与任务池 Flash）：
+	// 编程、长文档分析、数据整理三类上两者质量相当，Flash 快 10-20%、
+	// 省 15-35% token；创意写作与决策分析各有长短，没有稳定的优劣。
+	// 所以分池的依据是「这类任务更需要什么」，不是「谁更强」：
+	//   chat    闲聊、问答——要稳定、便宜
+	//   code    编程、执行——要工具调用可靠、快
+	//   writing 长文产出——要能撑住长上下文
+	//   analysis 分析决策——要能处理长输入
+	Workload Workload `json:"workload,omitempty"`
 	// 路由提示：指定 provider 时优先使用
 	Provider string `json:"provider,omitempty"`
 	// Tools 非空时开启 tool calling；ToolChoice: auto | none | required
@@ -289,6 +300,25 @@ type ChannelProbe struct {
 }
 
 // ModelInfo 模型注册信息，管理员可改。
+// Workload 任务性质。
+type Workload string
+
+const (
+	WorkloadChat     Workload = "chat"
+	WorkloadCode     Workload = "code"
+	WorkloadWriting  Workload = "writing"
+	WorkloadAnalysis Workload = "analysis"
+)
+
+// Valid 是否是已知的 workload。
+func (w Workload) Valid() bool {
+	switch w {
+	case WorkloadChat, WorkloadCode, WorkloadWriting, WorkloadAnalysis:
+		return true
+	}
+	return false
+}
+
 type ModelInfo struct {
 	Key      string `json:"key"`      // 唯一标识，如 deepseek-chat
 	Provider string `json:"provider"` // deepseek | mock
@@ -311,6 +341,11 @@ type ModelInfo struct {
 	InputCostPer1M  float64 `json:"inputCostPer1M,omitempty"`
 	OutputCostPer1M float64 `json:"outputCostPer1M,omitempty"`
 	Note            string  `json:"note,omitempty"`
+	// Workloads 这个模型适合哪些任务性质。空表示不限。
+	//
+	// 这是「偏好」不是「约束」：优先在这些任务上选它，但池里没有
+	// 更合适的模型时仍然可以用——配错标签不该让请求直接失败。
+	Workloads []Workload `json:"workloads,omitempty"`
 }
 
 // UpstreamInfo 管理台展示的一个模型上游。不含密钥，只有「是否已配置」。

@@ -357,6 +357,9 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 			// 执行器跑的是真实任务（写代码/改文件）：自动选路
 			// 只在任务专用模型（TaskOnly）里挑，别占用聊天池。
 			Task: true,
+			// 执行器做的是编程/文件操作：标注 workload 让选路优先挑
+			// 擅长工具调用的模型，而不是纯按权重分。
+			Workload: domain.WorkloadCode,
 		})
 		if err != nil {
 			finish(StatusFailed, "model: "+err.Error())

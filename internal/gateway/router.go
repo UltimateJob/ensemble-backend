@@ -157,6 +157,19 @@ func (t *ModelTable) PickAmong(cands []domain.ModelInfo) domain.ModelInfo {
 // 跳过 TaskOnly（聊天默认只走对话模型，任务专用渠道不掺和）。
 // 对应池为空时回退全部启用模型：标错池不该让请求直接失败。
 func (t *ModelTable) Candidates(prefer string, task bool) ([]domain.ModelInfo, bool) {
+	return t.CandidatesFor(prefer, task, "")
+}
+
+// CandidatesFor 在 Candidates 的基础上再按任务性质排序。
+//
+// workload 是「偏好」不是「约束」：
+//   - 明说自己适合这类任务的模型排前面
+//   - 没标 workload 的模型排在中间（默认可用，不惩罚）
+//   - 标了别类任务的模型排最后
+//
+// 这样即使某个渠道标错了标签、或者只配了一类模型，请求也不会失败，
+// 只是没走最优路径。硬性过滤在「配置不全」时会直接变成不可用。
+func (t *ModelTable) CandidatesFor(prefer string, task bool, workload domain.Workload) ([]domain.ModelInfo, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if prefer != "" {
@@ -178,13 +191,35 @@ func (t *ModelTable) Candidates(prefer string, task bool) ([]domain.ModelInfo, b
 	if len(out) == 0 {
 		out = other
 	}
-	// 按排名排序：rank 小优先；未设置（0）排在有排名的之后，
-	// 同 rank 内按 key 稳定排序，再由 Weight 做加权轮询。
 	sortByRank(out)
+	if workload != "" && workload.Valid() {
+		sortByWorkload(out, workload)
+	}
 	if len(out) == 0 {
 		return nil, false
 	}
 	return out, true
+}
+
+// sortByWorkload 把匹配 workload 的模型提到前面，保持组内原有顺序。
+//
+// 用稳定排序：同档内的 rank / weight 语义不能被 workload 打乱，
+// 否则「官方优先」这类既定策略会失效。
+func sortByWorkload(list []domain.ModelInfo, want domain.Workload) {
+	rank := func(m domain.ModelInfo) int {
+		if len(m.Workloads) == 0 {
+			return 1 // 没标：中间
+		}
+		for _, w := range m.Workloads {
+			if w == want {
+				return 0 // 明说适合
+			}
+		}
+		return 2 // 标的是别的
+	}
+	sort.SliceStable(list, func(i, j int) bool {
+		return rank(list[i]) < rank(list[j])
+	})
 }
 
 // sortByRank 按 rank 升序排列；rank=0 视为「未指定」，排在有 rank 的后面。
@@ -483,13 +518,13 @@ func (g *Gateway) failoverModel(prefer string, task bool, tried map[string]bool,
 //     高并发时不会把请求全堆在一个渠道上等排队。
 //  4. 熔断渠道不接新流量；全部熔断时退回全量候选，让 Allow 给出明确错误。
 func (g *Gateway) pickModel(req domain.ChatRequest, allowed []string) (domain.ModelInfo, string, bool) {
-	cands, ok := g.models.Candidates(req.Model, req.Task)
+	cands, ok := g.models.CandidatesFor(req.Model, req.Task, req.Workload)
 	if !ok {
 		return domain.ModelInfo{}, "", false
 	}
 	if len(allowed) > 0 {
 		if req.Model != "" && !containsModel(allowed, req.Model) {
-			cands, ok = g.models.Candidates("", req.Task)
+			cands, ok = g.models.CandidatesFor("", req.Task, req.Workload)
 			if !ok {
 				return domain.ModelInfo{}, "", false
 			}

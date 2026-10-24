@@ -2802,6 +2802,13 @@ async function openModelForm(m){
         '<div class="field"><label>输出成本 / 1M Token（¥）</label><input id="fmCout" type="number" min="0" step="0.0001" value="'+esc(m&&m.outputCostPer1M!=null&&Number(m.outputCostPer1M)>0?m.outputCostPer1M:(m&&m.costPer1k?Number(m.costPer1k)*1000:1))+'"></div>'+
       '</div>'+
       '<div class="hint" style="font-size:11px;line-height:1.6;color:var(--tx-4);margin:-4px 0 14px">按渠道实际结算价填写（人民币 / 1M Token）。留空回退到旧的每 1K 单价；输入/输出分开才能算准毛利。</div>'+
+      '<div class="field"><label>擅长任务</label>'+
+        '<div class="chip-row" id="fmWorkloads">'+
+          [['code','编程'],['writing','长文'],['analysis','分析'],['chat','闲聊']].map(([k,label])=>
+            '<button type="button" class="chip'+((m&&(m.workloads||[]).includes(k))?' on':'')+'" data-wl="'+k+'">'+label+'</button>'
+          ).join('')+
+        '</div>'+
+        '<div class="hint">可多选。选路时优先挑匹配这类任务的模型；不选表示通用，排在匹配之后、不匹配之前。</div></div>'+
       '<div class="field"><label>备注</label><input id="fmNote" placeholder="可选" autocomplete="off" value="'+esc(m?m.note||'':'')+'"></div>'+
       '<div class="field-row">'+
         '<div class="field"><label>状态</label><button type="button" class="switch '+(editing&&!m.enabled?'':'on')+'" id="fmEnabled" aria-label="启用"></button></div>'+
@@ -2833,7 +2840,8 @@ async function openModelForm(m){
         inputCostPer1M:costIn,outputCostPer1M:costOut,
         costPer1k:editing&&m?m.costPer1k:0,
         note:$('#fmNote').value.trim(),
-        taskOnly:$('#fmTask').classList.contains('on')
+        taskOnly:$('#fmTask').classList.contains('on'),
+        workloads:[...document.querySelectorAll('#fmWorkloads .chip.on')].map(b=>b.dataset.wl)
       }});
       closeModal(true); toast(editing?'已保存 '+key:'已创建模型 '+key,'ok');
       await loadPage('models',true);
@@ -3014,6 +3022,9 @@ function openUpstreamForm(u){
       closeModal(true); toast(editing?'已保存 '+body.name:'已新增上游 '+body.name,'ok');
       await loadPage('upstreams',true);
     }
+  });
+  document.querySelectorAll('#fmWorkloads .chip').forEach(b=>{
+    b.addEventListener('click',()=>b.classList.toggle('on'));
   });
   if(!editing){
     $('#fuPreset').addEventListener('change',()=>{

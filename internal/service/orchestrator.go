@@ -639,7 +639,15 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 		reqModel = ""
 		taskFlag = true
 	}
-	stream, err := o.gw.Stream(ctx, domain.ChatRequest{Model: reqModel, Messages: msgs, Stream: true, Task: taskFlag})
+	stream, err := o.gw.Stream(ctx, domain.ChatRequest{
+		Model:    reqModel,
+		Messages: msgs,
+		Stream:   true,
+		Task:     taskFlag,
+		// 按场景标注任务性质。选路是偏好不是约束：标错不会让请求失败，
+		// 只是没走最优路径。
+		Workload: workloadFor(conv.Studio),
+	})
 	if err != nil {
 		if o.slow != nil {
 			o.slow.MaybeRecord(SlowEntry{
@@ -896,4 +904,23 @@ func hasWorkAgents(agents []Agent) bool {
 		}
 	}
 	return false
+}
+
+// workloadFor 把场景映射成任务性质。
+//
+// 依据是实测：编程/数据整理/长文档分析这几类 chat 与 Flash 质量相当，
+// 差异在速度与成本；创意写作和决策分析各有长短，没有稳定优劣。
+// 所以按「这类任务更吃模型的哪一面」来标，而不是按「谁更强」。
+func workloadFor(studio string) domain.Workload {
+	switch studio {
+	case "code":
+		return domain.WorkloadCode
+	case "xhs":
+		return domain.WorkloadWriting
+	case "research", "bid":
+		return domain.WorkloadAnalysis
+	case "anime", "companion":
+		return domain.WorkloadChat
+	}
+	return ""
 }
