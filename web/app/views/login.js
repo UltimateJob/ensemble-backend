@@ -3,12 +3,17 @@
 import { $, api, state, toast } from '../js/core.js';
 
 /**
- * 把登录令牌同步给本地后端。
+ * 把线上令牌同步给本地后端。
  *
  * 浏览器模式（纯本地开发）没有这个端点，404 就静默跳过；
- * 桌面端则由本地后端转发模型调用到线上。
+ * 桌面端则由本地后端用它转发模型调用到线上。
+ *
+ * 令牌同时存一份到 localStorage：本地后端每次启动都是新进程，
+ * 不重新注入的话，重开 App 后聊天会直接失败。
  */
-async function syncRemoteToken(token) {
+export async function syncRemoteToken(token) {
+  if (token) localStorage.setItem('ens_remote_token', token);
+  else localStorage.removeItem('ens_remote_token');
   try {
     await api('/v1/remote/token', { method: 'POST', body: { token } });
   } catch (e) {

@@ -166,6 +166,10 @@ function bind() {
       danger: true,
     })) return;
     localStorage.removeItem('ens_token');
+    localStorage.removeItem('ens_remote_token');
+    // 本地后端也清掉线上令牌，否则退出后它还会拿旧令牌去调模型
+    const { syncRemoteToken } = await import('./login.js');
+    await syncRemoteToken('');
     state.token = '';
     location.reload();
   });

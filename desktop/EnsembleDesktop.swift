@@ -316,10 +316,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         if env["BIND_LOCAL_ONLY"] == nil {
             env["BIND_LOCAL_ONLY"] = "1"
         }
-
         let p = Process()
         p.executableURL = bin
         p.environment = env
+        // 壳被强杀时不留孤儿：让后端自己盯着父进程，壳一没就退出。
+        // 用参数而不是环境变量——macOS 的 Process 在部分场景会过滤
+        // 自定义环境变量，参数没有这个风险。
+        p.arguments = ["--exit-with-parent"]
         p.currentDirectoryURL = Bundle.main.bundleURL
 
         let logURL = supportDir.appendingPathComponent("ensemble.log")
