@@ -122,6 +122,7 @@ export function GroupInfoPanel({
   onOpenGoals,
   onOpenConnect,
   onOpenTask,
+  onOpenMemory,
 }: {
   visible: boolean;
   conv: Conversation | null;
@@ -141,6 +142,7 @@ export function GroupInfoPanel({
   onOpenGoals: () => void;
   onOpenConnect: () => void;
   onOpenTask: () => void;
+  onOpenMemory: () => void;
 }) {
   const t = useTheme();
   const { width } = useWindowDimensions();
@@ -209,6 +211,7 @@ export function GroupInfoPanel({
     { icon: 'image-outline' as const, label: '图片', tint: FILE_COLORS.image, onPress: onOpenLibrary },
     { icon: 'cube-outline' as const, label: '产物', tint: FILE_COLORS.artifact, onPress: onOpenLibrary },
     { icon: 'aperture-outline' as const, label: '目标', tint: FILE_COLORS.goal, onPress: onOpenGoals },
+    { icon: 'sparkles-outline' as const, label: '记忆', tint: FILE_COLORS.artifact, onPress: onOpenMemory },
     {
       icon: 'git-network-outline' as const,
       label: '连接器',

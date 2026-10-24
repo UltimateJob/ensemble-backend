@@ -21,6 +21,7 @@ import { AgentPanel } from '../../src/components/AgentPanel';
 import { ApprovalTray } from '../../src/components/ApprovalTray';
 import { Avatar } from '../../src/components/Avatar';
 import { GroupInfoPanel } from '../../src/components/GroupInfoPanel';
+import { MemorySheet } from '../../src/components/MemorySheet';
 import {
   ChatHeader,
   FileCard,
@@ -85,6 +86,7 @@ export default function Room() {
   const [panelAgent, setPanelAgent] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [approval, setApproval] = useState<{ a: Approval; runId: string } | null>(null);
   const [speaker, setSpeaker] = useState<string | null>(null);
@@ -658,6 +660,8 @@ export default function Room() {
         </View>
       </KeyboardAvoidingView>
 
+      <MemorySheet visible={memoryOpen} convId={id} onClose={() => setMemoryOpen(false)} />
+
       <AddMemberSheet
         visible={addOpen}
         conv={conv}
@@ -746,6 +750,10 @@ export default function Room() {
         onOpenLibrary={() => router.push('/library')}
         onOpenGoals={() => router.push('/goals')}
         onOpenConnect={() => router.push('/connect')}
+        onOpenMemory={() => {
+          setInfoOpen(false);
+          setMemoryOpen(true);
+        }}
         onOpenTask={() => {
           setInfoOpen(false);
           router.push(`/team/task?convId=${id}`);
