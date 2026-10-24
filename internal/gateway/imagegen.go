@@ -39,6 +39,8 @@ type ImageRequest struct {
 	N      int    `json:"n,omitempty"`
 	// SavePath 工作区相对路径。空表示由调用方决定。
 	SavePath string `json:"savePath,omitempty"`
+	// Provider 指定渠道（固定风格）。空表示由上层轮询挑选（随机风格）。
+	Provider string `json:"provider,omitempty"`
 }
 
 // ImageResult 生图结果。
@@ -100,6 +102,9 @@ func NewImageGen(name, base, key, model string, timeout time.Duration) *ImageGen
 }
 
 func (g *ImageGen) Name() string { return g.name }
+
+// Model 该渠道的默认模型名，用于界面区分「哪个渠道用什么模型」。
+func (g *ImageGen) Model() string { return g.model }
 
 // Generate 生成图片并写到 outDir。
 //

@@ -51,10 +51,10 @@ type ImageJob struct {
 
 // ImageJobs 任务表。同一个进程可能同时跑几个生图，用 mutex 保护。
 type ImageJobs struct {
-	mu     sync.Mutex
-	rows   map[string]*ImageJob
-	order  []string // 保留插入顺序，列表时新任务在前
-	gens   []*gateway.ImageGen
+	mu    sync.Mutex
+	rows  map[string]*ImageJob
+	order []string // 保留插入顺序，列表时新任务在前
+	gens  []*gateway.ImageGen
 	// rr 轮询游标。多个生图渠道时轮流用，而不是全压在一个上——
 	// 中转站的限流和额度是按 key 算的，摊开能多撑一会儿。
 	rr     int
@@ -75,19 +75,39 @@ func NewImageJobs(gens []*gateway.ImageGen, outDir string) *ImageJobs {
 	}
 }
 
-// pickGen 选一个渠道。
+// pickGen 按风格模式选一个渠道。
 //
-// 轮询而不是纯随机：纯随机在小样本下会连续抽中同一个，
-// 起不到分摊限流的作用。轮询保证 N 个渠道严格轮流。
-func (j *ImageJobs) pickGen() *gateway.ImageGen {
-	j.muRR.Lock()
-	defer j.muRR.Unlock()
+// pref 是用户点名的渠道名（固定风格）；为空表示随机风格——
+// 这时按轮询而不是纯随机分配：纯随机在小样本下会连续抽中同一个，
+// 摊不开限流，也容易让用户觉得「随机」其实没生效。
+func (j *ImageJobs) pickGen(pref string) *gateway.ImageGen {
 	if len(j.gens) == 0 {
 		return nil
 	}
+	if pref != "" {
+		for _, g := range j.gens {
+			if g.Name() == pref {
+				return g
+			}
+		}
+		// 点名的渠道已经没了（运维台删了 / 停用了）：
+		// 退回轮询，总比让用户拿到一个「渠道不存在」好。
+	}
+	j.muRR.Lock()
+	defer j.muRR.Unlock()
 	g := j.gens[j.rr%len(j.gens)]
 	j.rr++
 	return g
+}
+
+// Gen 按名字查渠道，供「固定风格」列表展示模型名。
+func (j *ImageJobs) Gen(name string) *gateway.ImageGen {
+	for _, g := range j.gens {
+		if g.Name() == name {
+			return g
+		}
+	}
+	return nil
 }
 
 // Providers 列出当前可用的生图渠道名，供界面展示与排障。
@@ -117,7 +137,7 @@ func (j *ImageJobs) Submit(userID string, req gateway.ImageRequest) (*ImageJob, 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	gen := j.pickGen()
+	gen := j.pickGen(req.Provider)
 	if gen == nil {
 		cancel()
 		return nil, ErrImageDisabled

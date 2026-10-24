@@ -36,6 +36,8 @@ func (s *Server) handleImageSubmit(w http.ResponseWriter, r *http.Request) {
 		Size   string `json:"size"`
 		N      int    `json:"n"`
 		Model  string `json:"model"`
+		// Provider 固定风格时点名渠道；空表示随机（后端轮询）。
+		Provider string `json:"provider"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
@@ -51,10 +53,11 @@ func (s *Server) handleImageSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job, err := s.imageJobs.Submit(u.ID, gateway.ImageRequest{
-		Prompt: strings.TrimSpace(req.Prompt),
-		Size:   req.Size,
-		N:      req.N,
-		Model:  req.Model,
+		Prompt:   strings.TrimSpace(req.Prompt),
+		Size:     req.Size,
+		N:        req.N,
+		Model:    req.Model,
+		Provider: strings.TrimSpace(req.Provider),
 	})
 	if err != nil {
 		serverErr(w, err.Error())
@@ -90,10 +93,22 @@ func (s *Server) handleImageJobs(w http.ResponseWriter, r *http.Request) {
 		ok(w, map[string]any{"enabled": false, "items": []any{}, "providers": []string{}})
 		return
 	}
+	type provView struct {
+		Name  string `json:"name"`
+		Model string `json:"model"`
+	}
+	var provs []provView
+	for _, name := range s.imageJobs.Providers() {
+		v := provView{Name: name}
+		if g := s.imageJobs.Gen(name); g != nil {
+			v.Model = g.Model()
+		}
+		provs = append(provs, v)
+	}
 	ok(w, map[string]any{
 		"enabled":   s.imageJobs.Enabled(),
 		"items":     s.imageJobs.List(u.ID, 20),
-		"providers": s.imageJobs.Providers(),
+		"providers": provs,
 	})
 }
 

@@ -807,3 +807,10 @@
 .panel-sec .md blockquote{
   margin:8px 0;padding-left:11px;border-left:2.5px solid var(--hair);color:var(--ink-3);
 }
+
+/* 固定风格的说明：只在选了具体模型时出现 */
+.img-style-note{
+  margin-top:10px;padding:9px 12px;
+  background:var(--paper-2);border-radius:var(--r-sm);
+  font-size:11.5px;line-height:1.65;color:var(--ink-3);
+}
