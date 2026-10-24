@@ -364,6 +364,11 @@ export default function Main() {
             pending={pending}
             onOpen={openTeam}
             onNew={() => router.push('/team/new')}
+            onStartIdea={(studio, title) =>
+              router.push(
+                `/team/new?studio=${studio}&title=${encodeURIComponent(title)}` as any,
+              )
+            }
           />
 
           <MePage
@@ -791,6 +796,7 @@ function ChatPage({
   pending,
   onOpen,
   onNew,
+  onStartIdea,
 }: {
   convs: Conversation[];
   recent: Record<string, Message>;
@@ -798,6 +804,8 @@ function ChatPage({
   pending: { conv: Conversation; count: number } | null;
   onOpen: (id: string) => void;
   onNew: () => void;
+  /** 带预填标题开一个新团队（首页「可以这样用」的入口）。 */
+  onStartIdea: (studio: string, title: string) => void;
 }) {
   const t = useTheme();
   const now = new Date();
@@ -886,6 +894,57 @@ function ChatPage({
             ))}
           </Surface>
         )}
+
+        {/* 只有一两个群时，列表下方是大片空白，而且新用户不知道
+            下一步能做什么。用「能派什么活」补上这块，每个都能直接开做。 */}
+        {convs.length <= 2 ? (
+          <>
+            <Row
+              style={{ justifyContent: 'space-between', marginTop: 26, marginBottom: 10 }}
+            >
+              <T size={ts.caption} color={t.ink3} weight="650">
+                可以这样用
+              </T>
+            </Row>
+            <View style={{ gap: 9 }}>
+              {[
+                {
+                  icon: 'document-text-outline' as const,
+                  text: '把这周的进展整理成周报',
+                  studio: 'research',
+                },
+                {
+                  icon: 'code-slash-outline' as const,
+                  text: '给登录接口补上参数校验',
+                  studio: 'code',
+                },
+                {
+                  icon: 'search-outline' as const,
+                  text: '查一下这三个竞品最近的动作',
+                  studio: 'research',
+                },
+              ].map((it) => (
+                <Pressable
+                  key={it.text}
+                  onPress={() => onStartIdea(it.studio, it.text)}
+                  accessibilityRole="button"
+                  accessibilityLabel={it.text}
+                  style={({ pressed }) => [
+                    s.ideaRow,
+                    { backgroundColor: t.card, borderColor: t.line },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  <Icon name={it.icon} size={18} color={t.ink3} />
+                  <T size={ts.sub} color={t.ink2} style={{ flex: 1 }} numberOfLines={1}>
+                    {it.text}
+                  </T>
+                  <Icon name="arrow-forward" size={14} color={t.ink4} />
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
       </ScrollView>
 
       {/* 底部主按钮：墨黑单色。
@@ -1678,6 +1737,16 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
+  ideaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+
   miniStack: {
     width: 46,
     height: 46,

@@ -52,12 +52,13 @@ export default function NewTeam() {
   const t = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ scenario?: string }>();
+  const params = useLocalSearchParams<{ scenario?: string; studio?: string; title?: string }>();
   const scenarios = useApp((s) => s.scenarios);
   const upsertConv = useApp((s) => s.upsertConv);
 
-  const [title, setTitle] = useState('');
-  const [studio, setStudio] = useState(params.scenario ?? '');
+  // 支持预填：首页「可以这样用」的入口会带着任务名进来。
+  const [title, setTitle] = useState(params.title ?? '');
+  const [studio, setStudio] = useState(params.studio ?? params.scenario ?? '');
   const [perm, setPerm] = useState<PermKey>('approval');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -70,12 +71,13 @@ export default function NewTeam() {
   // 模板到达后默认选第一个，并把名字带进输入框
   useEffect(() => {
     if (studio || templates.length === 0) return;
-    const first = templates.find((sc) => sc.key === params.scenario) ?? templates[0];
+    const want = params.studio ?? params.scenario;
+    const first = templates.find((sc) => sc.key === want) ?? templates[0];
     setStudio(first.key);
     setTitle((v) => v || first.name);
     // templates 每次渲染都是新数组，不能进依赖；只跟数据长度与参数走
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templates.length, params.scenario]);
+  }, [templates.length, params.scenario, params.studio]);
 
   function pick(sc: Scenario) {
     setStudio(sc.key);

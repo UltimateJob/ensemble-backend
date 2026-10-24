@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
@@ -74,6 +75,10 @@ export default function Room() {
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [activity, setActivity] = useState<AgentActivity[]>([]);
   const [busy, setBusy] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [failedText, setFailedText] = useState('');
+  const lastSentRef = useRef('');
   const [input, setInput] = useState('');
   const inputRef = useRef<TextInput>(null);
   const [err, setErr] = useState('');
@@ -108,18 +113,51 @@ export default function Room() {
   const blockedCount = activity.filter((a) => a.state === 'blocked').length;
 
   /* ---------- 加载 ---------- */
+  const PAGE = 60;
+
   const loadConv = useCallback(async () => {
     try {
       const c = await get<Conversation>(`/v1/conversations/${id}`);
       setConv(c);
-      const m = await get<{ messages?: Message[] } | Message[]>(
-        `/v1/conversations/${id}/messages?page=1&limit=60`,
+      const m = await get<{ messages?: Message[]; hasMore?: boolean } | Message[]>(
+        `/v1/conversations/${id}/messages?page=1&limit=${PAGE}`,
       );
       setMsgs(Array.isArray(m) ? m : (m?.messages ?? []));
+      setHasMore(!Array.isArray(m) && !!m?.hasMore);
     } catch (e) {
       setErr(humanError(e));
     }
   }, [id]);
+
+  /**
+   * 向上翻页。
+   *
+   * 后端一直支持 `before` 游标 + hasMore，但前端只拉过第一页就再没管过——
+   * 一个群聊超过 60 条以后，更早的消息等于永久消失。这里补上。
+   */
+  const loadOlder = useCallback(async () => {
+    const oldest = msgs[0];
+    if (!oldest || loadingOlder || !hasMore) return;
+    setLoadingOlder(true);
+    try {
+      const r = await get<{ messages?: Message[]; hasMore?: boolean }>(
+        `/v1/conversations/${id}/messages?limit=${PAGE}&before=${encodeURIComponent(oldest.createdAt)}`,
+      );
+      const older = r?.messages ?? [];
+      setHasMore(!!r?.hasMore);
+      if (older.length) {
+        // 去重：分页边界上可能和已加载的重复一条
+        setMsgs((cur) => {
+          const seen = new Set(cur.map((m) => m.id));
+          return [...older.filter((m) => !seen.has(m.id)), ...cur];
+        });
+      }
+    } catch {
+      /* 翻页失败保持现状，用户可以再滑一次 */
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [id, msgs, hasMore, loadingOlder]);
 
   /**
    * 一轮轮询同时拿两样东西：角色状态 + 待审批。
@@ -177,10 +215,12 @@ export default function Room() {
   useEffect(() => () => abortRef.current?.(), []);
 
   /* ---------- 发送 ---------- */
-  async function send() {
-    const text = input.trim();
+  async function send(retryText?: string) {
+    const text = (retryText ?? input).trim();
     if (!text || busy) return;
-    setInput('');
+    if (!retryText) setInput('');
+    // 手动发新消息时把失败条收掉
+    setFailedText('');
     setErr('');
     setBusy(true);
     setMentionOpen(false);
@@ -199,6 +239,7 @@ export default function Room() {
         createdAt: new Date().toISOString(),
       },
     ]);
+    lastSentRef.current = text;
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
 
     abortRef.current = await stream(`/v1/conversations/${id}/orchestrate`, { content: text }, handleEvent);
@@ -267,11 +308,15 @@ export default function Room() {
         setErr('本月额度已用完。');
         break;
       case '__error':
+        // 记下这句，输入行上方给一个重发入口。
+        // 消息已经落在列表里了，没重试的话用户只能自己再打一遍。
         setErr(ev.message ?? '连接断了');
+        setFailedText(lastSentRef.current);
         break;
       case '__closed':
         setBusy(false);
         setSpeaker(null);
+
         loadConv();
         loadActivity();
         break;
@@ -450,6 +495,28 @@ export default function Room() {
         onContentSizeChange={() => {
           if (busy) listRef.current?.scrollToEnd({ animated: true });
         }}
+        // 下拉到顶就往前翻一页。聊天记录是倒序加载的，
+        // 没有这个交互，超过 60 条的历史就再也看不到了。
+        onStartReached={() => void loadOlder()}
+        onStartReachedThreshold={0.4}
+        ListHeaderComponent={
+          hasMore ? (
+            <Pressable
+              onPress={() => void loadOlder()}
+              accessibilityRole="button"
+              accessibilityLabel="加载更早的消息"
+              style={{ alignItems: 'center', paddingVertical: 12 }}
+            >
+              {loadingOlder ? (
+                <ActivityIndicator color={t.ink4} />
+              ) : (
+                <T size={type.caption} color={t.ink4}>
+                  加载更早的消息
+                </T>
+              )}
+            </Pressable>
+          ) : null
+        }
       />
 
       {/* 建议 chips：官方群给新手引导语，其余群给常用指令。
@@ -518,6 +585,28 @@ export default function Room() {
             </>
           ) : null}
 
+          {/* 发送失败：这句话已经落在消息列表里了，但没送到。
+              给一个明确的「重发」，否则用户只能自己再打一遍。 */}
+          {failedText && !busy ? (
+            <>
+              <Pressable
+                onPress={() => void send(failedText)}
+                accessibilityRole="button"
+                accessibilityLabel="重新发送上一条消息"
+                style={[s.retryBar, { backgroundColor: t.badSoft }]}
+              >
+                <Icon name="alert-circle" size={15} color={t.bad} />
+                <T size={type.caption} color={t.bad} style={{ flex: 1 }} numberOfLines={1}>
+                  发送失败 · {failedText}
+                </T>
+                <T size={type.caption} weight={weight.semibold} color={t.bad}>
+                  重发
+                </T>
+              </Pressable>
+              <View style={[s.dockDivider, { backgroundColor: t.hairline }]} />
+            </>
+          ) : null}
+
           {/* 输入行：图标直接落在板上，输入框不描边不填底 */}
           <View style={s.inputRow}>
             <TextInput
@@ -549,7 +638,7 @@ export default function Room() {
               </Pressable>
             ) : (
               <Pressable
-                onPress={input.trim() ? send : undefined}
+                onPress={input.trim() ? () => void send() : undefined}
                 hitSlop={8}
                 style={s.iconBtn}
                 disabled={!input.trim()}
@@ -994,6 +1083,16 @@ const s = StyleSheet.create({
     ...shadow.tray,
   },
   dockDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16 },
+  retryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 10,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
 
   inputRow: {
     flexDirection: 'row',
