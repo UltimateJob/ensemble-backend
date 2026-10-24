@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"net/http"
+
+	"github.com/UltimateJob/ensemble-backend/internal/pkg/logx"
 )
 
 // 连接器的 OAuth 授权接口。
@@ -58,9 +60,13 @@ func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	conn, back, err := s.conns.Exchange(r.Context(), state, code)
 	if err != nil {
+		// 一定要记日志：回调是浏览器发起的，用户只看到跳回错误页，
+		// 没有日志就完全不知道是换令牌失败、还是落库失败。
+		logx.L().Warn("连接器 OAuth 失败", "platform", kind, "err", err.Error())
 		http.Redirect(w, r, "/app/#/connectors?oauth=error&msg="+urlEscape(err.Error()), http.StatusFound)
 		return
 	}
+	logx.L().Info("连接器 OAuth 成功", "platform", kind, "conn", conn.ID, "user", conn.UserID)
 	http.Redirect(w, r, back+"?oauth=ok&platform="+kind+"&id="+conn.ID, http.StatusFound)
 }
 
