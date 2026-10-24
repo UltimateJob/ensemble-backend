@@ -30,7 +30,11 @@ func (j *ImageJobs) Generate(ctx context.Context, userID, workspaceRoot, prompt,
 		return nil, err
 	}
 
-	res, err := j.gen.Generate(ctx, gateway.ImageRequest{
+	gen := j.pickGen()
+	if gen == nil {
+		return nil, errors.New("没有配置生图渠道")
+	}
+	res, err := gen.Generate(ctx, gateway.ImageRequest{
 		Prompt: prompt, Size: size, N: n,
 	}, outDir)
 	if err != nil {

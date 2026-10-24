@@ -87,12 +87,13 @@ func (s *Server) handleImageJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.imageJobs == nil {
-		ok(w, map[string]any{"enabled": false, "items": []any{}})
+		ok(w, map[string]any{"enabled": false, "items": []any{}, "providers": []string{}})
 		return
 	}
 	ok(w, map[string]any{
-		"enabled": s.imageJobs.Enabled(),
-		"items":   s.imageJobs.List(u.ID, 20),
+		"enabled":   s.imageJobs.Enabled(),
+		"items":     s.imageJobs.List(u.ID, 20),
+		"providers": s.imageJobs.Providers(),
 	})
 }
 

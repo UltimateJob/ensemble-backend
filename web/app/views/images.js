@@ -151,6 +151,15 @@ async function loadList() {
     grid.innerHTML = `<div class="panel-empty">${esc(humanError(e))}</div>`;
     return;
   }
+  // 多渠道路由时告诉用户现在是哪几个模型在轮，
+  // 出图风格不一致时这是唯一的线索。
+  const provs = data.providers || [];
+  if (provs.length > 1) {
+    $('#imgHint').textContent = '当前有 ' + provs.length + ' 个生图渠道，轮流使用：' + provs.join('、');
+  } else if (provs.length === 1) {
+    $('#imgHint').textContent = '生图渠道：' + provs[0];
+  }
+
   if (!data.enabled) {
     grid.innerHTML = `<div class="panel-empty">还没有配置生图渠道。到运维台的「上游渠道」里新增一个图片生成类型的渠道。</div>`;
     $('#imgHint').textContent = '生图渠道还没配，现在提交会失败。';

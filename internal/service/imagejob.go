@@ -54,20 +54,52 @@ type ImageJobs struct {
 	mu     sync.Mutex
 	rows   map[string]*ImageJob
 	order  []string // 保留插入顺序，列表时新任务在前
-	gen    *gateway.ImageGen
+	gens   []*gateway.ImageGen
+	// rr 轮询游标。多个生图渠道时轮流用，而不是全压在一个上——
+	// 中转站的限流和额度是按 key 算的，摊开能多撑一会儿。
+	rr     int
+	muRR   sync.Mutex
 	outDir string
 	// maxKeep 最多保留多少条已完成任务，防止内存无限增长
 	maxKeep int
 }
 
 // NewImageJobs 创建任务表。outDir 是图片落盘目录。
-func NewImageJobs(gen *gateway.ImageGen, outDir string) *ImageJobs {
+// gens 为空表示没有配置生图渠道。
+func NewImageJobs(gens []*gateway.ImageGen, outDir string) *ImageJobs {
 	return &ImageJobs{
 		rows:    make(map[string]*ImageJob),
-		gen:     gen,
+		gens:    gens,
 		outDir:  outDir,
 		maxKeep: 200,
 	}
+}
+
+// pickGen 选一个渠道。
+//
+// 轮询而不是纯随机：纯随机在小样本下会连续抽中同一个，
+// 起不到分摊限流的作用。轮询保证 N 个渠道严格轮流。
+func (j *ImageJobs) pickGen() *gateway.ImageGen {
+	j.muRR.Lock()
+	defer j.muRR.Unlock()
+	if len(j.gens) == 0 {
+		return nil
+	}
+	g := j.gens[j.rr%len(j.gens)]
+	j.rr++
+	return g
+}
+
+// Providers 列出当前可用的生图渠道名，供界面展示与排障。
+func (j *ImageJobs) Providers() []string {
+	if j == nil {
+		return nil
+	}
+	out := make([]string, 0, len(j.gens))
+	for _, g := range j.gens {
+		out = append(out, g.Name())
+	}
+	return out
 }
 
 var (
@@ -76,7 +108,7 @@ var (
 )
 
 // Enabled 是否配了生图渠道。
-func (j *ImageJobs) Enabled() bool { return j != nil && j.gen != nil }
+func (j *ImageJobs) Enabled() bool { return j != nil && len(j.gens) > 0 }
 
 // Submit 提交一个任务并立即返回 id。真正的生成在后台 goroutine 里跑。
 func (j *ImageJobs) Submit(userID string, req gateway.ImageRequest) (*ImageJob, error) {
@@ -84,6 +116,12 @@ func (j *ImageJobs) Submit(userID string, req gateway.ImageRequest) (*ImageJob, 
 		return nil, ErrImageDisabled
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+
+	gen := j.pickGen()
+	if gen == nil {
+		cancel()
+		return nil, ErrImageDisabled
+	}
 
 	job := &ImageJob{
 		ID:        store.NewID("img"),
@@ -93,7 +131,7 @@ func (j *ImageJobs) Submit(userID string, req gateway.ImageRequest) (*ImageJob, 
 		N:         req.N,
 		Model:     req.Model,
 		Status:    "pending",
-		Provider:  j.gen.Name(),
+		Provider:  gen.Name(),
 		CreatedAt: time.Now(),
 		cancel:    cancel,
 	}
@@ -104,16 +142,16 @@ func (j *ImageJobs) Submit(userID string, req gateway.ImageRequest) (*ImageJob, 
 	j.trimLocked()
 	j.mu.Unlock()
 
-	go j.run(ctx, job, req)
+	go j.run(ctx, job, req, gen)
 	return job, nil
 }
 
-func (j *ImageJobs) run(ctx context.Context, job *ImageJob, req gateway.ImageRequest) {
+func (j *ImageJobs) run(ctx context.Context, job *ImageJob, req gateway.ImageRequest, gen *gateway.ImageGen) {
 	j.mu.Lock()
 	job.Status = "running"
 	j.mu.Unlock()
 
-	res, err := j.gen.Generate(ctx, req, j.outDir)
+	res, err := gen.Generate(ctx, req, j.outDir)
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
