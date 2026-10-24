@@ -20,7 +20,7 @@ say "1. 确认在 main 上编译"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 REV=$(git rev-parse --short HEAD)
 if [ "$BRANCH" != "main" ]; then
-  echo "  ✗ 当前分支是 $BRANCH，线上版本必须基于 main 构建"
+  echo "  ✗ 当前分支是 ${BRANCH}，线上版本必须基于 main 构建"
   echo "    先合并再部署：git checkout main && git merge <分支>"
   exit 1
 fi
@@ -29,7 +29,7 @@ if [ -n "$(git status --porcelain -- cmd internal web)" ]; then
   git status --short -- cmd internal web | head -5
   exit 1
 fi
-echo "  分支 main @ $REV"
+echo "  分支 main @ ${REV}"
 
 say "2. 编译 linux/amd64"
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/ensemble-new ./cmd/server
