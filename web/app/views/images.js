@@ -59,6 +59,8 @@ export async function mount(host) {
         </div>
       </section>
 
+      <section class="edit-box hidden" id="editBox"></section>
+
       <section class="sec">
         <h2 class="sec-h">最近生成</h2>
         <div id="imgList" class="img-grid"></div>
@@ -217,6 +219,9 @@ async function loadList() {
   grid.querySelectorAll('[data-job]').forEach(b => {
     b.addEventListener('click', () => download(b.dataset.job, b.dataset.idx, b.dataset.name));
   });
+  grid.querySelectorAll('[data-edit]').forEach(b => {
+    b.addEventListener('click', () => startEdit(b.dataset.edit));
+  });
   grid.querySelectorAll('[data-thumb]').forEach(async box => {
     try {
       const res = await fetch(`/v1/images/${encodeURIComponent(box.dataset.thumb)}/file?i=0`,
@@ -252,8 +257,11 @@ function jobCard(j) {
       <span class="ellip" title="${esc(j.prompt || '')}">${esc(j.prompt || '')}</span>
       <span class="img-state">${esc(fmtSize(f.size))}</span>
     </div>
-    <button class="btn btn-line btn-sm img-dl" data-job="${esc(j.id)}" data-idx="0"
-      data-name="${esc(basename(f.path))}">${icon('download', 13)}下载</button>
+    <div class="img-acts">
+      <button class="btn btn-line btn-sm" data-job="${esc(j.id)}" data-idx="0"
+        data-name="${esc(basename(f.path))}">${icon('download', 13)}下载</button>
+      <button class="btn btn-line btn-sm" data-edit="${esc(j.id)}">${icon('pencil', 13)}改造</button>
+    </div>
   </div>`;
 }
 
@@ -290,4 +298,102 @@ function fmtSize(n) {
 
 function basename(p) {
   return String(p || '').split('/').pop() || 'image.png';
+}
+
+/* ---------------- 图生图 ---------------- */
+
+// 改造入口：把原图取回来放进表单，用户写「改成什么」再提交。
+// 不做独立的编辑页——一次改图就是「选原图 + 写一句」，多一步跳转
+// 反而让人找不到从哪开始。
+let editState = null;   // { jobId, dataUrl }
+
+async function startEdit(jobId) {
+  const box = $('#editBox');
+  if (!box) return;
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="ed-loading"><span class="spinner"></span>正在取原图…</div>`;
+  try {
+    const res = await fetch(`/v1/images/${encodeURIComponent(jobId)}/file?i=0`,
+      { headers: { Authorization: 'Bearer ' + (state.token || '') } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    // FileReader 转 dataURL：提交时就是 base64，省一次编码
+    const dataUrl = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result));
+      fr.onerror = () => reject(new Error('读取失败'));
+      fr.readAsDataURL(blob);
+    });
+    editState = { jobId, dataUrl };
+    renderEditBox();
+  } catch (e) {
+    box.innerHTML = `<div class="ed-error">取原图失败：${esc(e.message || '')}</div>`;
+  }
+}
+
+function renderEditBox() {
+  const box = $('#editBox');
+  if (!box || !editState) return;
+  box.innerHTML = `
+    <div class="ed-head">
+      <b>改造这张图</b>
+      <button class="icon-btn" id="edClose" title="关闭">${icon('x', 15)}</button>
+    </div>
+    <div class="ed-body">
+      <img class="ed-thumb" src="${editState.dataUrl}" alt="原图">
+      <div class="ed-form">
+        <label class="field" style="margin:0"><span>改什么</span>
+          <textarea id="edPrompt" rows="3"
+            placeholder="比如：整体改成蓝色调，背景换成纯白"></textarea>
+        </label>
+        <div class="ed-row">
+          <select id="edStyle" class="ed-style"></select>
+          <button class="btn btn-primary btn-sm" id="edGo">开始改造</button>
+        </div>
+        <div class="hint" id="edHint"></div>
+      </div>
+    </div>`;
+
+  // 风格沿用主表单的选项，改图同样需要「风格一致」控制
+  const mainSel = $('#imgStyle');
+  const edSel = $('#edStyle');
+  if (mainSel && edSel) edSel.innerHTML = mainSel.innerHTML;
+
+  box.querySelector('#edClose').addEventListener('click', () => {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    editState = null;
+  });
+  box.querySelector('#edGo').addEventListener('click', submitEdit);
+}
+
+async function submitEdit() {
+  if (!editState) return;
+  const prompt = $('#edPrompt').value.trim();
+  if (!prompt) { toast('写一句要改什么', { type: 'err' }); return; }
+  const btn = $('#edGo');
+  btn.disabled = true;
+  $('#edHint').textContent = '提交中…';
+  try {
+    const job = await api('/v1/images', {
+      method: 'POST',
+      body: {
+        prompt,
+        imageBase64: editState.dataUrl,
+        provider: $('#edStyle').value || '',
+        size: $('#imgSize').value,
+        n: 1,   // nano 只接受 1 张，改图也不需要多张
+      },
+    });
+    $('#edHint').textContent = '已提交，生成中…';
+    // 复用主列表的轮询：新任务出现在「最近生成」里
+    await loadList();
+    $('#editBox').classList.add('hidden');
+    $('#editBox').innerHTML = '';
+    editState = null;
+    toast('改造任务已提交', { type: 'ok' });
+  } catch (e) {
+    $('#edHint').textContent = e.message || '提交失败';
+    btn.disabled = false;
+  }
 }

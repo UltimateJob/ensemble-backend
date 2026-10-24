@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,6 +32,22 @@ import (
 //   1. data[0].b64_json  —— 直接给图，省一次下载
 //   2. data[0].url       —— 给临时链接，要再 GET 一次
 
+// imageDataItem 上游返回的一张图。b64_json 与 url 二选一，
+// 取决于上游和 response_format。
+type imageDataItem struct {
+	B64JSON       string `json:"b64_json"`
+	URL           string `json:"url"`
+	RevisedPrompt string `json:"revised_prompt"`
+}
+
+// imageResponse 生成与编辑接口共用的响应形状。
+type imageResponse struct {
+	Data  []imageDataItem `json:"data"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
 // ImageRequest 一次生图请求。
 type ImageRequest struct {
 	Model  string `json:"model,omitempty"`
@@ -41,6 +58,11 @@ type ImageRequest struct {
 	SavePath string `json:"savePath,omitempty"`
 	// Provider 指定渠道（固定风格）。空表示由上层轮询挑选（随机风格）。
 	Provider string `json:"provider,omitempty"`
+	// SourceImage 图生图的输入图（PNG/JPEG 原始字节）。
+	// 非空时改走 /images/edits，用 multipart 上传。
+	SourceImage []byte `json:"-"`
+	// SourceName 上传时的文件名，影响部分网关的 MIME 推断。
+	SourceName string `json:"-"`
 }
 
 // ImageResult 生图结果。
@@ -162,16 +184,7 @@ func (g *ImageGen) Generate(ctx context.Context, req ImageRequest, outDir string
 		return nil, fmt.Errorf("image: %d %s", resp.StatusCode, snippet)
 	}
 
-	var out struct {
-		Data []struct {
-			B64JSON       string `json:"b64_json"`
-			URL           string `json:"url"`
-			RevisedPrompt string `json:"revised_prompt"`
-		} `json:"data"`
-		Error *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
+	var out imageResponse
 	if err := json.Unmarshal(payload, &out); err != nil {
 		return nil, fmt.Errorf("image: 上游返回了无法解析的内容")
 	}
@@ -182,12 +195,19 @@ func (g *ImageGen) Generate(ctx context.Context, req ImageRequest, outDir string
 		return nil, errors.New("image: 上游没有返回图片")
 	}
 
+	return g.decodeAndSave(ctx, out.Data, model, outDir)
+}
+
+// decodeAndSave 把上游返回的 data[] 落盘。生成和编辑共用——
+// 两者的响应形状完全一样，各写一份迟早走样。
+func (g *ImageGen) decodeAndSave(ctx context.Context, items []imageDataItem, model, outDir string) (*ImageResult, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return nil, err
 	}
 
+	var err error
 	res := &ImageResult{Model: model}
-	for i, d := range out.Data {
+	for i, d := range items {
 		var data []byte
 		switch {
 		case d.B64JSON != "":
@@ -217,6 +237,86 @@ func (g *ImageGen) Generate(ctx context.Context, req ImageRequest, outDir string
 		return nil, errors.New("image: 没有可用的图片数据")
 	}
 	return res, nil
+}
+
+// Edit 在已有图片上做修改（图生图）。
+//
+// 走 /images/edits，multipart 上传：OpenAI 的编辑接口只收表单，
+// 不收 JSON。两个渠道实测都支持，响应形状和生成一致。
+//
+// 为什么不复用 Generate：生成是 JSON 请求，编辑是 multipart，
+// 传输层完全不同；硬塞进一个函数会让两条路径都读不顺。
+func (g *ImageGen) Edit(ctx context.Context, req ImageRequest, outDir string) (*ImageResult, error) {
+	if strings.TrimSpace(req.Prompt) == "" {
+		return nil, errors.New("提示词不能为空")
+	}
+	if len(req.SourceImage) == 0 {
+		return nil, errors.New("缺少原图")
+	}
+	model := req.Model
+	if model == "" {
+		model = g.model
+	}
+	size := req.Size
+	if size == "" {
+		size = "1024x1024"
+	}
+	name := req.SourceName
+	if name == "" {
+		name = "source.png"
+	}
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("model", model)
+	_ = mw.WriteField("prompt", req.Prompt)
+	_ = mw.WriteField("size", size)
+	_ = mw.WriteField("response_format", "b64_json")
+	fw, err := mw.CreateFormFile("image", name)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fw.Write(req.SourceImage); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		g.base+"/images/edits", &buf)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", mw.FormDataContentType())
+	httpReq.Header.Set("Authorization", "Bearer "+g.key)
+
+	resp, err := g.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	payload, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if resp.StatusCode != http.StatusOK {
+		snippet := strings.TrimSpace(string(payload))
+		if len([]rune(snippet)) > 300 {
+			snippet = string([]rune(snippet)[:300]) + "…"
+		}
+		return nil, fmt.Errorf("image: %d %s", resp.StatusCode, snippet)
+	}
+
+	var out imageResponse
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return nil, errors.New("image: 上游返回了无法解析的内容")
+	}
+	if out.Error != nil && out.Error.Message != "" {
+		return nil, errors.New(out.Error.Message)
+	}
+	if len(out.Data) == 0 {
+		return nil, errors.New("image: 上游没有返回图片")
+	}
+	return g.decodeAndSave(ctx, out.Data, model, outDir)
 }
 
 // download 取回 url 指向的图片。中转站常用短时签名链接，

@@ -41,10 +41,12 @@ type ImageJob struct {
 	// Files 完成后落盘的图片（绝对路径 + 大小）
 	Files []gateway.ImageFile `json:"files,omitempty"`
 	// RevisedPrompt 上游改写后的提示词
-	RevisedPrompt string    `json:"revisedPrompt,omitempty"`
-	Provider      string    `json:"provider,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
-	EndedAt       time.Time `json:"endedAt,omitempty"`
+	RevisedPrompt string `json:"revisedPrompt,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	// Edit 这次任务是在改图（图生图）而不是从零生成。
+	Edit      bool      `json:"edit,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	EndedAt   time.Time `json:"endedAt,omitempty"`
 
 	cancel context.CancelFunc
 }
@@ -147,6 +149,7 @@ func (j *ImageJobs) Submit(userID string, req gateway.ImageRequest) (*ImageJob, 
 		ID:        store.NewID("img"),
 		UserID:    userID,
 		Prompt:    req.Prompt,
+		Edit:      len(req.SourceImage) > 0,
 		Size:      req.Size,
 		N:         req.N,
 		Model:     req.Model,
@@ -171,7 +174,15 @@ func (j *ImageJobs) run(ctx context.Context, job *ImageJob, req gateway.ImageReq
 	job.Status = "running"
 	j.mu.Unlock()
 
-	res, err := gen.Generate(ctx, req, j.outDir)
+	var (
+		res *gateway.ImageResult
+		err error
+	)
+	if len(req.SourceImage) > 0 {
+		res, err = gen.Edit(ctx, req, j.outDir)
+	} else {
+		res, err = gen.Generate(ctx, req, j.outDir)
+	}
 
 	j.mu.Lock()
 	defer j.mu.Unlock()

@@ -814,3 +814,30 @@
   background:var(--paper-2);border-radius:var(--r-sm);
   font-size:11.5px;line-height:1.65;color:var(--ink-3);
 }
+
+/* ---------- 图生图 ---------- */
+.edit-box{
+  background:var(--sheet);border-radius:var(--r-lg);
+  padding:18px 20px;box-shadow:var(--sh-1);margin-bottom:24px;
+}
+.ed-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.ed-head b{font-size:14.5px;color:var(--ink)}
+.ed-body{display:flex;gap:18px;align-items:flex-start}
+.ed-thumb{
+  width:150px;height:150px;object-fit:cover;
+  border-radius:var(--r-md);flex:0 0 150px;
+  box-shadow:var(--sh-1);
+}
+.ed-form{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.ed-row{display:flex;gap:10px;align-items:center}
+.ed-style{
+  flex:1;height:36px;padding:0 10px;border-radius:var(--r-sm);
+  background:var(--paper-2);font-size:12.5px;color:var(--ink-2);
+}
+.ed-loading,.ed-error{
+  padding:18px;text-align:center;font-size:12.5px;color:var(--ink-3);
+  display:flex;align-items:center;justify-content:center;gap:9px;
+}
+.ed-error{color:var(--bad)}
+.img-acts{display:flex;gap:6px}
+.img-acts .btn{flex:1}
