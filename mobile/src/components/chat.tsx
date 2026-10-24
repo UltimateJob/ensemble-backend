@@ -47,7 +47,7 @@ export function ChatHeader({
           {title}
         </T>
         {statusLine ? (
-          <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 2 }}>
+          <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 4 }}>
             {statusLine}
           </T>
         ) : null}
@@ -64,6 +64,9 @@ export function ChatHeader({
    ============================================================ */
 
 export type MemberState = 'working' | 'done' | 'blocked' | 'idle';
+
+/** 成员条里头像的本体尺寸。发言放大只加白环，不改这个值。 */
+const AVATAR_BASE = 36;
 
 export interface BarMember {
   key: string;
@@ -108,9 +111,24 @@ export function MemberBar({
             member={m}
             i={i}
             isSpeaker={m.key === speakerKey}
-            zIndex={m.key === speakerKey ? 10 : 4 - i}
           />
         ))}
+        {/* 超过 4 人时给个 +N：只摆 4 个头像又不说话，
+            用户会以为群里就这几个人。 */}
+        {members.length > 4 ? (
+          <View
+            style={[
+              styles.memberOverflow,
+              // 用墨色底 + 白字：和彩色头像同权重，读起来是「还有 N 个人」，
+              // 而不是一块洗淡的灰点。
+              { backgroundColor: t.ink, borderColor: t.slab },
+            ]}
+          >
+            <T size={11} weight={weight.semibold} color={t.dark ? '#141518' : '#FFFFFF'}>
+              +{members.length - 4}
+            </T>
+          </View>
+        ) : null}
       </View>
       <Pressable onPress={onOpenInfo} style={{ flex: 1, marginLeft: 14 }} hitSlop={6}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -133,12 +151,10 @@ function SpeakerAvatar({
   member,
   i,
   isSpeaker,
-  zIndex,
 }: {
   member: BarMember;
   i: number;
   isSpeaker: boolean;
-  zIndex: number;
 }) {
   const t = useTheme();
   const grow = useRef(new Animated.Value(isSpeaker ? 1 : 0)).current;
@@ -164,7 +180,11 @@ function SpeakerAvatar({
     }
   }, [isSpeaker, grow]);
 
-  const size = grow.interpolate({ inputRange: [0, 1], outputRange: [36, 46] });
+  // 布局尺寸恒定为 36，说话时只做 transform 缩放。
+  // 之前是动 width/height——每次有人开口，整个成员条都会重排，
+  // 而且缩放量吃掉了重叠量，导致圆与圆的间距忽大忽小。
+  // 现在布局不动，只有视觉上放大 1.16 倍（36 → 41.8）。
+  const scale = grow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.16] });
   const dot = Math.max(9, 9);
   const dotColor =
     member.state === 'done'
@@ -178,34 +198,52 @@ function SpeakerAvatar({
   return (
     <Animated.View
       style={{
-        width: size,
-        height: size,
-        // 后一个压前一个；第一个不留负边距
-        // 重叠 10px：36px 头像露出 26px，和设计图的比例一致。
-        // 再大就会把字压住（规范 §5.3 明确说不得超过 7px 的字宽）
-        marginLeft: i === 0 ? 0 : -10,
-        // 发言者永远在最前：zIndex 由 isSpeaker 决定，不靠位置推算
-        zIndex: isSpeaker ? 99 : 10 - i,
-        // 白色分隔环——设计图里头像之间那道边就是这个
+        width: AVATAR_BASE,
+        height: AVATAR_BASE,
+        transform: [{ scale }],
+        // 重叠 8px：36px 的圆露出 28px，字的左右各有约 6px 留白。
+        // 之前重叠 10px 时字会贴到邻居的环上。
+        marginLeft: i === 0 ? 0 : -8,
+        // 左边的圆压住右边的圆（i 越小 zIndex 越高）——这是头像组的常规做法，
+        // 每个圆只露出右侧一条，文字区始终完整。
+        // 之前是反过来（10 - i），后一个圆压住前一个，正好压掉别人半个字。
+        // 发言者仍然永远在最前。
+        zIndex: isSpeaker ? 99 : 20 - i,
         borderRadius: 999,
-        borderWidth: 2.5,
-        borderColor: t.card,
-        backgroundColor: t.card,
+        // 这里不填底色。容器本身是透明的，只有头像那一圈上色，
+        // 重叠时才不会出现「一块白色月牙盖住邻居」的缺口。
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
-      {/* 关键：裁成正圆。Avatar 内部是圆角矩形，直接放进来会露出方角 */}
-      <Animated.View
+      {/* 白色外环 + 内层头像：环和头像一起被裁成同心圆，
+          所以从任何角度看，边缘都是完整的白色弧线。 */}
+      <View
         style={{
-          width: size,
-          height: size,
+          width: AVATAR_BASE,
+          height: AVATAR_BASE,
           borderRadius: 999,
-          overflow: 'hidden',
+          backgroundColor: t.card,
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Avatar name={member.name} size={46} index={member.index} tint={member.color} />
-      </Animated.View>
+        <View
+          style={{
+            width: AVATAR_BASE - 4,
+            height: AVATAR_BASE - 4,
+            borderRadius: 999,
+            overflow: 'hidden',
+          }}
+        >
+          <Avatar
+            name={member.name}
+            size={AVATAR_BASE - 4}
+            index={member.index}
+            tint={member.color}
+          />
+        </View>
+      </View>
 
       {/* 状态点：右下角，带与底色同色的描边环（规范 §5.3） */}
       {member.state !== 'idle' ? (
@@ -405,10 +443,13 @@ export function withAlpha(hex: string, a: number): string {
 
 const styles = StyleSheet.create({
   header: {
-    height: 56,
+    // 两行标题（群名 + 「N 位成员」）在 56 里会挤在一起。
+    // 62 给两行各留够行高，副标题离主标题也有一点呼吸。
+    minHeight: 62,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
+    paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
@@ -426,7 +467,17 @@ const styles = StyleSheet.create({
     ...shadow.slab,
   },
   // 左侧留 2px：容器有圆角 + overflow hidden，第一个头像贴边会被裁
-  memberStack: { flexDirection: 'row', alignItems: 'center', paddingLeft: 2 },
+  memberStack: { flexDirection: 'row', alignItems: 'center', paddingLeft: 2, flexShrink: 0 },
+  memberOverflow: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // 和头像同样的重叠量，否则 +N 会比头像突出半截
+    marginLeft: -8,
+  },
 
   memberBubble: {
     borderRadius: radius.bubble,

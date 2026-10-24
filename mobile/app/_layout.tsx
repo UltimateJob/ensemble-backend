@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { loadBaseURL } from '../src/lib/api';
@@ -17,6 +17,21 @@ export default function RootLayout() {
   const [phase, setPhase] = useState<'booting' | 'done'>('booting');
   // 字体加载失败不阻塞启动——退回系统字体，界面仍然可用
   const [fontsLoaded] = useFonts(FONT_ASSETS);
+
+  // Web 预览专用：去掉浏览器给输入框加的黑色焦点描边。
+  // App 里没有这个东西，出现在网页版会显得很粗糙。
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const style = document.createElement('style');
+    style.textContent =
+      'input,textarea,[contenteditable]{outline:none !important;box-shadow:none !important}' +
+      'input:focus,textarea:focus,[contenteditable]:focus{outline:none !important;box-shadow:none !important}' +
+      '::-webkit-scrollbar{width:0;height:0}';
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {

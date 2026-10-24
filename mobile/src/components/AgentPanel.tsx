@@ -51,6 +51,7 @@ export function AgentPanel({
   convId,
   workspaceId,
   onClose,
+  onDirect,
 }: {
   visible: boolean;
   agent: { key: string; name: string; title?: string; color?: string } | null;
@@ -58,6 +59,8 @@ export function AgentPanel({
   convId: string;
   workspaceId?: string;
   onClose: () => void;
+  /** 「单独发指令」：关掉面板，把 @他 填进输入框，光标落在后面。 */
+  onDirect?: (agentName: string) => void;
 }) {
   const th = useTheme();
   const s = useMemo(() => mkStyles(th), [th]);
@@ -304,14 +307,15 @@ export function AgentPanel({
 
           {/* 人设 / 权限 / 模型 */}
           <View style={s.card}>
+            {/* 人设只读展示：这是角色卡上的设定，不从这里改。
+                右侧的箭头以前暗示可以点进去，实际点了没反应，已去掉。 */}
             <View style={s.settingRow}>
               <T size={type.card} weight={weight.strong} style={{ flex: 1 }}>
                 人设
               </T>
               <T size={type.caption} color={th.ink3} numberOfLines={1} style={{ maxWidth: '60%' }}>
-                简洁直接 · 先结论后展开
+                {agent?.title || '跟随角色设定'}
               </T>
-              <Icon name="chevron-forward" size={13} color={th.ink4} />
             </View>
 
             <View style={[s.hair, { backgroundColor: th.line }]} />
@@ -361,9 +365,8 @@ export function AgentPanel({
                 使用模型
               </T>
               <T size={type.caption} color={th.ink3} numberOfLines={1} style={{ maxWidth: '60%' }}>
-                {run?.model || '自动 · 擅长长文'}
+                {run?.model || '按任务自动选择'}
               </T>
-              <Icon name="chevron-forward" size={13} color={th.ink4} />
             </View>
           </View>
 
@@ -414,7 +417,15 @@ export function AgentPanel({
               </T>
             </View>
           </PressableScale>
-          <PressableScale scaleTo={0.97} accessibilityLabel="单独发指令" style={{ flex: 1 }}>
+          <PressableScale
+            onPress={() => {
+              if (!agent || !onDirect) return onClose();
+              onDirect(agent.name);
+            }}
+            scaleTo={0.97}
+            accessibilityLabel="单独发指令"
+            style={{ flex: 1 }}
+          >
             <View style={[s.btnPrimary, { backgroundColor: th.primaryBg }]}>
               <T size={type.card} weight={weight.semibold} color={th.primaryInk}>
                 单独发指令

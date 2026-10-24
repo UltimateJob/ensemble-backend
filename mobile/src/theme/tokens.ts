@@ -17,48 +17,52 @@
    浅色
    ============================================================ */
 export const light = {
-  /* 表面 */
-  bg: '#F6F6F4',
+  /* 表面 —— 全部是同一个暖纸色系，色相统一在 40° 左右。
+     之前底色是暖灰（#F6F6F4）但文字和发丝线是冷灰（#17181C / rgba(20,24,40)），
+     暖冷混用会让整个界面显得脏。 */
+  bg: '#F7F6F3',
   surface: '#FFFFFF',
-  surfaceSoft: '#F4F4F1',
-  chipBg: '#F4F4F1',
+  surfaceSoft: '#F2F1ED',
+  chipBg: '#F2F1ED',
 
-  /* 文字 */
-  ink: '#17181C',
-  text2: '#5C5C66',
-  text3: '#8A8F98',
-  text4: '#9AA0A8',
-  faint: '#A6ABB5',
+  /* 文字 —— 用同一色相的深暖灰，不是纯黑也不是冷灰 */
+  ink: '#191712',
+  text2: '#57534B',
+  text3: '#8A857A',
+  text4: '#A39E94',
+  faint: '#B8B3A8',
 
   /* 主按钮/用户气泡的纵向微渐变 */
-  inkGrad: ['#2B2C31', '#141518'] as const,
+  inkGrad: ['#2A2721', '#17150F'] as const,
 
-  /* 线 */
-  hairline: 'rgba(20,24,40,.05)',
-  hairlineStrong: 'rgba(20,24,40,.07)',
-  track: '#ECEEF2',
-  toggleOff: '#E3E5E9',
-  radioOff: '#C9CDD4',
+  /* 线 —— 用暖灰而不是蓝灰 */
+  hairline: 'rgba(38,33,24,.06)',
+  hairlineStrong: 'rgba(38,33,24,.09)',
+  track: '#EAE8E2',
+  toggleOff: '#E3E0D8',
+  radioOff: '#C6C1B6',
 
-  /* 语义（全 App 唯一允许的彩色） */
-  wait: '#E8A33D',
-  danger: '#C93A2E',
-  dangerDot: '#D9534A',
-  dangerSoft: '#FDECEA',
-  ok: '#3E7C4F',
-  okDot: '#4C9A6C',
-  goldBg: '#F7F1E3',
-  goldFg: '#96762F',
-  meBlue: '#2B7CD3',
+  /* 语义（全 App 唯一允许的彩色）—— 全部降饱和，
+     让它们和暖纸底融合，而不是跳出来喊。 */
+  wait: '#B8863C',
+  danger: '#B4433A',
+  dangerDot: '#C2554B',
+  dangerSoft: '#F8EBE8',
+  ok: '#4A7355',
+  okDot: '#5C8A68',
+  goldBg: '#F4EEE0',
+  goldFg: '#8A6B32',
+  meBlue: '#8A6A55',
 
-  /* 品牌渐变（附录 A，仅门面页） */
-  brandFrom: '#4E7BFB',
-  brandTo: '#8B5CF6',
+  /* 品牌强调色 —— 单一颜色，不再用紫蓝渐变。
+     赭石红在暖纸底上有足够对比度，又不像蓝紫那样是 AI 设计的默认指纹。 */
+  brand: '#8C4A3C',
+  brandDeep: '#6E3529',
 
   /* 其他 */
-  scrim: 'rgba(16,18,20,.38)',
+  scrim: 'rgba(24,20,14,.42)',
   white: '#FFFFFF',
-  slate: '#5A6B7D',
+  slate: '#5E5A51',
 } as const;
 
 /* ============================================================
@@ -93,25 +97,25 @@ export const dark = {
    成员身份色（大地色系，按成员固定分配，不用 hash）
    ============================================================ */
 export const MEMBER_COLORS = [
-  '#A98A68', // 赭
-  '#B98A5E', // 陶
-  '#64766B', // 松绿
-  '#8A6F5C', // 褐
-  '#6B7A8A', // 岩蓝灰
-  '#7A6B8A', // 紫灰
-  '#5C7A72', // 青
-  '#8A7A5C', // 卡其
+  '#A8734F', // 赭
+  '#7A8B6F', // 苔绿
+  '#6E7F92', // 岩蓝
+  '#9B6B6B', // 陶红
+  '#8A7A5E', // 卡其
+  '#6F7F7A', // 松青
+  '#8C7361', // 褐
+  '#7D7286', // 紫灰
 ] as const;
 
 /* ============================================================
    文件/应用图标底色（低饱和）
    ============================================================ */
 export const FILE_COLORS = {
-  doc: '#7C93A8',
-  image: '#7A9A7E',
-  artifact: '#8B7EC8',
-  goal: '#5F9E72',
-  connector: '#D96C5F',
+  doc: '#6E7F92',
+  image: '#7A8B6F',
+  artifact: '#7D7286',
+  goal: '#5F7A64',
+  connector: '#9B6B5E',
 } as const;
 
 /* ============================================================
@@ -282,14 +286,14 @@ export const color = {
   canvasBottom: light.bg,
   card: light.surface,
   cardSunken: light.surfaceSoft,
-  cardTint: '#FAFAF8',
-  accent: light.brandFrom,
-  accentDeep: light.brandTo,
-  accentText: '#3B5BD6',
-  gradient: [light.brandFrom, '#6A6AF2', light.brandTo] as const,
-  gradientSoft: ['#EEF2FF', '#F5F0FF'] as const,
-  accentSoft: '#EDF2FF',
-  accentFaint: '#F7F9FF',
+  cardTint: '#FBFAF7',
+  accent: light.brand,
+  accentDeep: light.brandDeep,
+  accentText: light.brand,
+  gradient: [light.brand, light.brand, light.brand] as const,
+  gradientSoft: ['#F6EFEC', '#F2E9E5'] as const,
+  accentSoft: '#F4ECE9',
+  accentFaint: '#FAF5F3',
   ink: light.ink,
   ink2: light.text2,
   ink3: light.text3,

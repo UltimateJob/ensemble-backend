@@ -247,7 +247,7 @@ export default function Connect() {
               </T>
               <View style={[s.heroRule, { backgroundColor: withAlpha(t.white, 0.14) }]} />
               <T size={type.caption} color={t.white} style={{ opacity: 0.48 }}>
-                凭据加密保存在你的电脑上 · 不经过云端
+                凭据加密保存在电脑本地，仅调用时由本机使用
               </T>
             </View>
           </FadeInUp>

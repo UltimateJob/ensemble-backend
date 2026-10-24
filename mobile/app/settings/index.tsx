@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,9 +22,10 @@ import {
 } from '../../src/components/ui';
 import { del, get, getBaseURL, humanError, patch, post, setBaseURL } from '../../src/lib/api';
 import { signOut } from '../../src/lib/session';
+import { cacheSize, clearCache } from '../../src/lib/storage';
 import { useApp } from '../../src/lib/store';
-import type { Device, User } from '../../src/lib/types';
-import { useTheme, useThemePref } from '../../src/theme/theme';
+import { isDeviceOnline, paperNo, type Device, type User } from '../../src/lib/types';
+import { useTheme, useThemePref, type FontScale } from '../../src/theme/theme';
 import { PAGE_X, gap, leading, radius, type } from '../../src/theme/tokens';
 
 /**
@@ -56,8 +57,11 @@ const MODES = [
   { key: 'dark' as const, label: '深色', hint: '始终使用深色' },
 ];
 
-const FONT_SIZES = ['小', '标准', '大'] as const;
-const APPROVAL_MODES = ['跟随权限级别', '总是先审批', '从不审批'] as const;
+const FONT_SIZES: { key: FontScale; label: string; hint: string }[] = [
+  { key: 'small', label: '小', hint: '一屏能看更多' },
+  { key: 'normal', label: '标准', hint: '推荐' },
+  { key: 'large', label: '大', hint: '更好读，占位更多' },
+];
 
 export default function Settings() {
   const t = useTheme();
@@ -66,6 +70,8 @@ export default function Settings() {
   const setUser = useApp((s) => s.setUser);
   const pref = useThemePref((s) => s.pref);
   const setPref = useThemePref((s) => s.setPref);
+  const fontScale = useThemePref((s) => s.fontScale);
+  const setFontScale = useThemePref((s) => s.setFontScale);
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [err, setErr] = useState('');
@@ -74,11 +80,14 @@ export default function Settings() {
   const [notify, setNotify] = useState(true);
   const [approvalNotify, setApprovalNotify] = useState(true);
 
-  const [fontSize, setFontSize] = useState<(typeof FONT_SIZES)[number]>('标准');
-  const [approvalMode, setApprovalMode] = useState<(typeof APPROVAL_MODES)[number]>('跟随权限级别');
-  const [cache, setCache] = useState('24 MB');
+  const [cache, setCache] = useState('—');
 
-  const [sheet, setSheet] = useState<'theme' | 'level' | 'font' | 'approval' | 'devices' | 'server' | 'account' | null>(null);
+  // 支持从别处深链直接打开某个面板：/settings?sheet=devices
+  // 「我」页的「我的设备」就是走这条，省得用户进来还要再找一次。
+  const params = useLocalSearchParams<{ sheet?: string }>();
+  const [sheet, setSheet] = useState<'theme' | 'level' | 'font' | 'devices' | 'server' | 'account' | null>(
+    (params.sheet as any) ?? null,
+  );
   const [host, setHost] = useState(getBaseURL());
   const [hostBusy, setHostBusy] = useState(false);
 
@@ -100,6 +109,7 @@ export default function Settings() {
 
   useEffect(() => {
     loadDevices();
+    void formatCacheSize().then(setCache);
   }, [loadDevices]);
 
   useEffect(() => {
@@ -114,6 +124,10 @@ export default function Settings() {
         if (p.notify === 'true') setNotify(true);
         if (p.approvalNotify === 'false') setApprovalNotify(false);
         if (p.approvalNotify === 'true') setApprovalNotify(true);
+        if (p.fontScale === 'small' || p.fontScale === 'normal' || p.fontScale === 'large') {
+          setFontScale(p.fontScale);
+        }
+        if (p.theme === 'auto' || p.theme === 'light' || p.theme === 'dark') setPref(p.theme);
         const u = (d?.user ?? d) as User | undefined;
         if (u?.id) setUser(u);
       })
@@ -174,9 +188,17 @@ export default function Settings() {
   }
 
   const activeDevices = devices.filter((d) => !d.revokedAt);
-  const computerValue = activeDevices.length ? '已连接 · 在线' : '未连接';
+  // 配过对不等于在线：要看设备最后一次心跳。电脑关机时应显示「已连接 · 离线」。
+  const onlineDevice = activeDevices.find((d) => isDeviceOnline(d));
+  /** 「执行前审批」作用于当前这台设备；有多台时取最近活跃的那台。 */
+  const currentDevice = onlineDevice ?? activeDevices[0];
+  const computerValue = activeDevices.length
+    ? onlineDevice
+      ? '已连接 · 在线'
+      : '已连接 · 离线'
+    : '未连接';
   const levelLabel = LEVELS.find((l) => l.key === level)?.label ?? '工作区内修改';
-  const paperId = user?.id ? `zt-${hash4(user.id)}` : 'zt-1024';
+  const paperId = paperNo(user?.id);
   const planLabel = user?.plan === 'pro' ? 'PRO 版' : user?.plan === 'team' ? '团队版' : '免费版';
   const hostLabel = host.replace(/^https?:\/\//, '') || '未设置';
 
@@ -207,16 +229,20 @@ export default function Settings() {
                     <T size={type.title} weight="600" color={t.white} numberOfLines={1}>
                       {user?.name ?? '纸团'}
                     </T>
-                    <LinearGradient
-                      colors={grad(t.gradient)}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={s.pro}
-                    >
-                      <T size={10.5} weight="700" color={t.white} tracking={1}>
-                        PRO
-                      </T>
-                    </LinearGradient>
+                    {/* 只有付费套餐才挂徽章。以前无条件渲染，免费账号也顶着
+                        「PRO」而下一行写着「免费版」，自相矛盾。 */}
+                    {user?.plan === 'pro' || user?.plan === 'team' ? (
+                      <LinearGradient
+                        colors={grad(t.gradient)}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={s.pro}
+                      >
+                        <T size={10.5} weight="700" color={t.white} tracking={1}>
+                          {user?.plan === 'team' ? 'TEAM' : 'PRO'}
+                        </T>
+                      </LinearGradient>
+                    ) : null}
                   </Row>
                   <T size={type.caption} color="rgba(255,255,255,0.62)" style={{ marginTop: 3 }} numberOfLines={1}>
                     纸团号 {paperId} · {planLabel}
@@ -232,7 +258,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="shield-checkmark"
-              tint={t.accent}
+              tint={t.slate}
               label="默认权限级别"
               value={levelLabel}
               onPress={() => setSheet('level')}
@@ -240,7 +266,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="notifications"
-              tint={t.warn}
+              tint={t.slate}
               label="消息通知"
               right={
                 <Toggle
@@ -255,7 +281,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="shield-half"
-              tint={t.bad}
+              tint={t.slate}
               label="审批提醒"
               last
               right={
@@ -286,7 +312,7 @@ export default function Settings() {
               icon="text"
               tint={t.slate}
               label="字体大小"
-              value={fontSize}
+              value={FONT_SIZES.find((f) => f.key === fontScale)?.label ?? '标准'}
               last
               onPress={() => setSheet('font')}
             />
@@ -297,7 +323,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="desktop"
-              tint={t.ok}
+              tint={t.slate}
               label="我的电脑"
               value={computerValue}
               onPress={() => setSheet('devices')}
@@ -305,10 +331,17 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="shield-checkmark-outline"
-              tint={t.ok}
+              tint={t.slate}
               label="执行前审批"
-              value={approvalMode}
-              onPress={() => setSheet('approval')}
+              value={
+                currentDevice ? (currentDevice.requireApproval ? '总是先问我' : '不强制审批') : '未连接电脑'
+              }
+              onPress={() => {
+                // 这是「这台手机远程操作电脑时要不要先问我」——是设备属性，
+                // 不是账号偏好，所以写 devices 接口而不是 preferences。
+                if (!currentDevice) return setSheet('devices');
+                void toggleApproval(currentDevice, !currentDevice.requireApproval);
+              }}
             />
             <Divider />
             <SettingRow
@@ -317,16 +350,23 @@ export default function Settings() {
               label="清除缓存"
               value={cache}
               onPress={() =>
-                Alert.alert('清除缓存', `将清掉 ${cache} 的本地缓存，不影响账号与设备配对。`, [
+                Alert.alert('清除缓存', `将清掉 ${cache} 本地记录，不会退出登录，也不影响设备配对。`, [
                   { text: '取消', style: 'cancel' },
-                  { text: '清除', style: 'destructive', onPress: () => setCache('0 B') },
+                  {
+                    text: '清除',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await clearCache();
+                      setCache(await formatCacheSize());
+                    },
+                  },
                 ])
               }
             />
             <Divider />
             <SettingRow
               icon="git-network-outline"
-              tint={t.accent}
+              tint={t.slate}
               label="服务器地址"
               value={hostLabel}
               last
@@ -353,7 +393,7 @@ export default function Settings() {
               tint={t.slate}
               label="关于纸团"
               last
-              onPress={() => Alert.alert('关于纸团', '把一件事，揉成一群人。\n团队跑在你的电脑上，数据不经过任何第三方服务器。')}
+              onPress={() => Alert.alert('关于纸团', '把一件事，揉成一群人。\n工作区与文件留在你自己的电脑上；模型推理由所选模型服务商提供。')}
             />
           </Surface>
 
@@ -398,6 +438,7 @@ export default function Settings() {
               on={pref === m.key}
               onPress={() => {
                 setPref(m.key);
+                savePref('theme', m.key);
                 setSheet(null);
               }}
             />
@@ -428,34 +469,21 @@ export default function Settings() {
         </Sheet>
 
         {/* ---------------- 字体大小 ---------------- */}
-        <Sheet visible={sheet === 'font'} title="字体大小" onClose={() => setSheet(null)}>
-          {FONT_SIZES.map((f) => (
-            <ChoiceRow
-              key={f}
-              label={f}
-              on={fontSize === f}
-              onPress={() => {
-                setFontSize(f);
-                setSheet(null);
-              }}
-            />
-          ))}
-        </Sheet>
-
-        {/* ---------------- 执行前审批 ---------------- */}
         <Sheet
-          visible={sheet === 'approval'}
-          title="执行前审批"
-          subtitle="设备级开关，决定这台手机远程发起操作时是否先问你。"
+          visible={sheet === 'font'}
+          title="字体大小"
+          subtitle="只影响文字。图标和间距不变，排版不会被撑歪。"
           onClose={() => setSheet(null)}
         >
-          {APPROVAL_MODES.map((m) => (
+          {FONT_SIZES.map((f) => (
             <ChoiceRow
-              key={m}
-              label={m}
-              on={approvalMode === m}
+              key={f.key}
+              label={f.label}
+              hint={f.hint}
+              on={fontScale === f.key}
               onPress={() => {
-                setApprovalMode(m);
+                setFontScale(f.key);
+                savePref('fontScale', f.key);
                 setSheet(null);
               }}
             />
@@ -634,12 +662,16 @@ function SettingRow({
   const body = (
     <View style={[s.row, last && { paddingBottom: 15 }]}>
       <IconBrick icon={icon} tint={tint} iconTint={iconTint} />
-      <T size={type.body} weight="550" style={{ flex: 1 }} numberOfLines={1}>
+      {/* 标签可压缩、取值不压缩：取值通常是「未连接」「跟随系统」这类
+          短词，截断后完全读不出意思；标签即使截断也还有图标和上下文
+          兜底。两者都参与压缩时会互相抢，最后两边都读不全。 */}
+      <T size={type.body} weight="550" numberOfLines={1} style={{ flexShrink: 1 }}>
         {label}
       </T>
+      <View style={{ flex: 1, minWidth: 0 }} />
       {right}
       {value ? (
-        <T size={type.sub} color={t.ink3} numberOfLines={1} style={{ maxWidth: '46%', textAlign: 'right' }}>
+        <T size={type.sub} color={t.ink3} numberOfLines={1} style={{ flexShrink: 0, textAlign: 'right' }}>
           {value}
         </T>
       ) : null}
@@ -781,11 +813,11 @@ function ChoiceRow({
    工具
    ============================================================ */
 
-/** 从用户 ID 推出一个稳定的四位纸团号（后端 ID 是 u_ + 16 位 hex）。 */
-function hash4(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return String(1000 + (h % 9000));
+/** 本地缓存大小的可读文案。真算一遍，不再写死一个数字骗人。 */
+async function formatCacheSize(): Promise<string> {
+  const bytes = await cacheSize();
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
 function ago(iso: string) {

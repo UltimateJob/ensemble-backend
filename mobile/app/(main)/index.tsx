@@ -30,7 +30,7 @@ import {
   type IoniconName,
 } from '../../src/components/ui';
 import { normalizeActivity } from '../../src/lib/activity';
-import { del, get, hasDeviceToken, humanError, patch, post } from '../../src/lib/api';
+import { del, get, humanError, patch, post } from '../../src/lib/api';
 import { getItem, setItem } from '../../src/lib/storage';
 import { useApp } from '../../src/lib/store';
 import type {
@@ -42,6 +42,7 @@ import type {
   Goal,
   Message,
 } from '../../src/lib/types';
+import { isDeviceOnline, paperNo } from '../../src/lib/types';
 import { useTheme } from '../../src/theme/theme';
 import { MEMBER_COLORS, type as ts } from '../../src/theme/tokens';
 
@@ -375,9 +376,10 @@ export default function Main() {
             connected={connected}
             devices={devices}
             onOpenGoals={() => router.push('/goals')}
+            onOpenSolo={() => router.push('/solo')}
             onOpenLibrary={() => router.push('/library')}
             onOpenConnect={() => router.push('/connect')}
-            onOpenDevices={() => router.push('/settings')}
+            onOpenDevices={() => router.push('/settings?sheet=devices')}
             onOpenSettings={() => router.push('/settings')}
           />
         </Pager>
@@ -474,8 +476,12 @@ function TeamsPage({
     });
   }, [convs, states, officialConv, pinned]);
 
-  const hero = convs.length ? ranked[0] : null;
-  const others = convs.length ? ranked.slice(1) : [];
+  // 「一主卡 + 两列小卡」只在卡够多时才成立：
+  // 只有两个团队时，主卡占满一行、第二张孤零零卡在左半边，看着像断版。
+  // 两张就并排等宽，三张以上才让第一张当主视觉。
+  const useHero = ranked.length >= 3;
+  const hero = useHero ? ranked[0] : null;
+  const others = useHero ? ranked.slice(1) : ranked;
   /** 目标进度：优先用这个群在做的目标，没有就退到全局第一个进行中的 */
   const goalFor = (c: Conversation): Goal | undefined =>
     goals.find((g) => g.conversationId === c.id && g.status === 'doing') ??
@@ -882,17 +888,19 @@ function ChatPage({
         )}
       </ScrollView>
 
-      {/* 底部：品牌渐变主按钮 + 从模板开始（B3 的最后两样） */}
+      {/* 底部主按钮：墨黑单色。
+          之前是紫蓝渐变，换成赭红后又像警示按钮。iOS 的主操作
+          基本都是墨黑或系统色，不用高饱和实心色。 */}
       <View style={[s.chatFooter, { backgroundColor: t.canvas[1] }]}>
         <PressableScale onPress={onNew} scaleTo={0.97} accessibilityLabel="新建团队">
           <LinearGradient
-            colors={grad(t.gradient)}
+            colors={grad(t.primaryGrad)}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+            end={{ x: 0, y: 1 }}
             style={[s.primaryBtn, { shadowColor: t.brandShadow }]}
           >
-            <Icon name="add" size={18} color="#FFFFFF" />
-            <T size={ts.body} weight="700" color="#FFFFFF">
+            <Icon name="add" size={18} color={t.primaryInk} />
+            <T size={ts.body} weight="700" color={t.primaryInk}>
               新建团队
             </T>
           </LinearGradient>
@@ -989,24 +997,47 @@ function OfficialAvatar({ size = 46 }: { size?: number }) {
   );
 }
 
-/** 4 人 2x2 小头像组（设计图里团队头像就是这种拼贴）。 */
+/**
+ * 会话行左侧的 2×2 头像组（设计图里团队头像就是这种拼贴）。
+ *
+ * 位置只有 46px，单排叠放塞不下 3 个以上头像——试过会溢出、
+ * 计数被挤成竖排。所以保持 2×2，第四个位置在人多时显示 +N。
+ */
 function MiniStack({ names, tints }: { names: string[]; tints: string[] }) {
   const t = useTheme();
+  // 超过 4 人时右下角那格换成 +N：四个人刚好填满 2×2，
+  // 再加一格会溢出容器，把第五个人直接省略又等于没说。
+  const overflow = names.length > 4;
+  const shown = overflow ? names.slice(0, 3) : names.slice(0, 4);
+  const cell = (n: string, tint: string, i: number) => (
+    <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
+      <Avatar name={n} tint={tint} size={24} />
+    </View>
+  );
   return (
     <View style={[s.miniStack, { backgroundColor: t.cardSunken }]}>
       <View style={{ flexDirection: 'row' }}>
-        {names.slice(0, 2).map((n, i) => (
-          <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
-            <Avatar name={n} tint={tints[i]} size={24} />
-          </View>
-        ))}
+        {shown.slice(0, 2).map((n, i) => cell(n, tints[i], i))}
       </View>
       <View style={{ flexDirection: 'row', marginTop: 2 }}>
-        {names.slice(2, 4).map((n, i) => (
-          <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
-            <Avatar name={n} tint={tints[i + 2]} size={24} />
+        {shown.slice(2, 4).map((n, i) => cell(n, tints[i + 2], i))}
+        {overflow ? (
+          <View
+            style={{
+              marginLeft: -6,
+              width: 24,
+              height: 24,
+              borderRadius: 8,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: t.track,
+            }}
+          >
+            <T size={9} weight="700" color={t.ink3}>
+              +{names.length - 3}
+            </T>
           </View>
-        ))}
+        ) : null}
       </View>
     </View>
   );
@@ -1043,6 +1074,7 @@ function MePage({
   connected,
   devices,
   onOpenGoals,
+  onOpenSolo,
   onOpenLibrary,
   onOpenConnect,
   onOpenDevices,
@@ -1057,6 +1089,7 @@ function MePage({
   connected?: Connector;
   devices: Device[];
   onOpenGoals: () => void;
+  onOpenSolo: () => void;
   onOpenLibrary: () => void;
   onOpenConnect: () => void;
   onOpenDevices: () => void;
@@ -1067,7 +1100,10 @@ function MePage({
   const used = Math.max(0, user?.used ?? 0);
   const remainPct = Math.max(0, Math.min(100, Math.round(((quota - used) / quota) * 100)));
   const myDevice = devices.find((d) => !d.revokedAt);
-  const online = hasDeviceToken() || !!myDevice;
+  // 在线必须看设备最后一次心跳，不能只看「有没有配过对」：
+  // 后端每 10 分钟落一次 LastSeen，两次心跳间隔的 2.5 倍算离线，
+  // 留够余量避免手机切后台回来时闪一下「离线」。
+  const online = isDeviceOnline(myDevice);
   const prefLevel = (user as { preferences?: Record<string, string> } | null)?.preferences
     ?.defaultPermission;
   const defaultLevel = prefLevel ?? convs.find((c) => c.defaultPermission)?.defaultPermission;
@@ -1115,7 +1151,7 @@ function MePage({
                   numberOfLines={1}
                   style={{ marginTop: 3 }}
                 >
-                  纸团号 {shortId(user?.id)} · {online ? '电脑在线' : '电脑离线'}
+                  纸团号 {paperNo(user?.id)} · {online ? '电脑在线' : '电脑离线'}
                 </T>
               </View>
               <Pressable onPress={onOpenSettings} hitSlop={12} accessibilityLabel="账号设置">
@@ -1169,15 +1205,24 @@ function MePage({
       <Surface outerRadius={24} style={{ marginTop: 14 }}>
         <MenuRow
           icon="flag"
-          colors={['#6A6AF2', '#4E7BFB']}
+          colors={[t.ink, t.ink]}
           label="我的目标"
           value={`进行中 ${doing} 个`}
           onPress={onOpenGoals}
         />
         <Divider inset={60} />
+        {/* 单聊入口：一个群只有你和一位角色。简单任务用不上整队人。 */}
+        <MenuRow
+          icon="person-circle"
+          colors={[t.slate, t.slate]}
+          label="单聊角色"
+          value="找一个人干"
+          onPress={onOpenSolo}
+        />
+        <Divider inset={60} />
         <MenuRow
           icon="folder-open"
-          colors={['#7C93A8', '#5F7E99']}
+          colors={[t.slate, t.slate]}
           label="资料库"
           value={`${artifacts.length} 个文件`}
           onPress={onOpenLibrary}
@@ -1185,7 +1230,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="git-network"
-          colors={['#8B7EC8', '#6C5DAE']}
+          colors={[t.slate, t.slate]}
           label="连接器"
           value={connected ? `${connected.name} 已连接` : connectors.length ? '未连接' : '未设置'}
           onPress={onOpenConnect}
@@ -1193,7 +1238,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="laptop"
-          colors={['#64766B', '#4C6154']}
+          colors={[t.slate, t.slate]}
           label="我的设备"
           value={online ? `${myDevice?.name ?? '这台电脑'} · 在线` : '未连接'}
           onPress={onOpenDevices}
@@ -1201,17 +1246,18 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="shield-checkmark"
-          colors={['#B98A5E', '#9A6E45']}
+          colors={[t.slate, t.slate]}
           label="默认权限级别"
           value={levelLabel(defaultLevel)}
-          onPress={onOpenDevices}
+          // 权限级别在设置页里改；以前这里跳到设备页，点进去找不到这个设置。
+          onPress={onOpenSettings}
         />
       </Surface>
 
       <Surface outerRadius={24} style={{ marginTop: 12 }}>
         <MenuRow
           icon="settings"
-          colors={['#9AA0B4', '#6E7488']}
+          colors={[t.slate, t.slate]}
           label="设置"
           onPress={onOpenSettings}
           last
@@ -1502,13 +1548,6 @@ function nextResetLabel(): string {
   const now = new Date();
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   return `${next.getMonth() + 1} 月 ${next.getDate()} 日`;
-}
-
-/** 纸团号：从用户 ID 里取后四位，稳定、可读。 */
-function shortId(id?: string): string {
-  const raw = (id ?? '').replace(/[^a-zA-Z0-9]/g, '');
-  const tail = raw.slice(-4).toLowerCase();
-  return tail ? `zt-${tail}` : 'zt-1024';
 }
 
 function lightenHex(hex: string, amount: number): string {

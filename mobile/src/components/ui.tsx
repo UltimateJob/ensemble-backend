@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Breathe, PressableScale } from './motion';
 import { Glass } from './Glass';
-import { useTheme, type Theme } from '../theme/theme';
+import { useFontScaleValue, useTheme, type Theme } from '../theme/theme';
 import { fontFamily } from '../theme/fonts';
 import { gap, icon as iconSize, leading, radius, type } from '../theme/tokens';
 
@@ -71,7 +71,8 @@ export function floatShadow(t: Theme) {
  */
 export function accentShadow(t: Theme) {
   return {
-    shadowColor: t.dark ? '#3D5FD0' : '#4E7BFB',
+    // 跟着强调色走，不再写死一支蓝
+    shadowColor: t.accentDeep,
     shadowOpacity: t.dark ? 0.22 : 0.16,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -107,17 +108,21 @@ export function T({
   tracking?: number;
 }) {
   const t = useTheme();
+  // 设置里的「字体大小」在这里生效：只缩放文字本身，行高同步缩放，
+  // 间距和图标不动——否则小屏会把卡片撑破。
+  const k = useFontScaleValue();
+  const fs = Math.round(size * k * 10) / 10;
   return (
     <Text
       onPress={onPress}
       numberOfLines={numberOfLines}
       style={[
         {
-          fontSize: size,
+          fontSize: fs,
           color: color ?? t.ink,
           fontWeight: weight as any,
           fontFamily: fontFamily(weight),
-          lineHeight: lh ?? Math.round(size * 1.45),
+          lineHeight: Math.round((lh ?? size * 1.45) * k),
           textAlign: align,
           letterSpacing: tracking ?? (size >= type.title ? -0.45 : 0),
         },
@@ -234,8 +239,11 @@ export function Button({
   full?: boolean;
 }) {
   const t = useTheme();
-  const h = size === 'md' ? 52 : 40;
-  const opacity = disabled ? 0.45 : 1;
+  // 44 是触控目标下限（HIG）。40 的「小按钮」在一列列表里很难点准。
+  const h = size === 'md' ? 52 : 44;
+  // 禁用态靠底色与字色表达，不再整体降透明度——
+  // 0.45 会让本来就浅的灰底按钮上的字彻底看不见。
+  const opacity = 1;
 
   if (variant === 'primary') {
     return (
@@ -248,7 +256,7 @@ export function Button({
         style={[{ alignSelf: full ? 'stretch' : 'auto' }, style]}
       >
         <LinearGradient
-          colors={grad(disabled ? (t.dark ? ['#2A2C38', '#2A2C38'] : ['#CBD5E8', '#CBCDE4']) : t.gradient)}
+          colors={grad(disabled ? [t.toggleOff, t.toggleOff] : t.gradient)}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[
@@ -258,11 +266,21 @@ export function Button({
           ]}
         >
           {loading ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={disabled ? t.ink3 : '#FFFFFF'} />
           ) : (
             <View style={styles.btnRow}>
-              {leadingIcon ? <Icon name={leadingIcon} size={16} color="#FFFFFF" /> : null}
-              <Text style={{ color: '#FFFFFF', fontSize: size === 'md' ? type.body : type.sub, fontWeight: '700' }}>
+              {leadingIcon ? (
+                <Icon name={leadingIcon} size={16} color={disabled ? t.ink3 : '#FFFFFF'} />
+              ) : null}
+              {/* 禁用时用中性字色：浅灰底 + 白字几乎看不见，
+                  用户读不出按钮上写的是什么，只会觉得界面坏了。 */}
+              <Text
+                style={{
+                  color: disabled ? t.ink3 : '#FFFFFF',
+                  fontSize: size === 'md' ? type.body : type.sub,
+                  fontWeight: '700',
+                }}
+              >
                 {label}
               </Text>
             </View>
@@ -315,7 +333,8 @@ export function Button({
 export function IconButton({
   name,
   onPress,
-  size = 40,
+  // 44 是 HIG 的触控下限；40 的返回键在导航栏边缘很难点中
+  size = 44,
   tint,
   bg,
   accessibilityLabel,
@@ -616,11 +635,13 @@ export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) =
           padding: 2.5,
           justifyContent: 'center',
           overflow: 'hidden',
-          backgroundColor: on ? t.accent : t.cardSunken,
+          // 开着用墨色。之前跟强调色走，强调色改成赭红后，
+          // 所有开关看着都像「危险操作已启用」。
+          backgroundColor: on ? t.ink : t.cardSunken,
         }}
       >
         {on ? (
-          <LinearGradient colors={grad(t.gradient)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={grad([t.ink, t.ink])} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
         ) : null}
         <View style={[styles.knob, { alignSelf: on ? 'flex-end' : 'flex-start' }]} />
       </View>

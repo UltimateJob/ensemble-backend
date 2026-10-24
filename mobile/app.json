@@ -42,6 +42,12 @@
     },
     "extra": {
       "defaultBaseURL": "https://teamwise.cn"
+    },
+    "web": {
+      "name": "纸团",
+      "shortName": "纸团",
+      "themeColor": "#F6F6F4",
+      "backgroundColor": "#F6F6F4"
     }
   }
 }
