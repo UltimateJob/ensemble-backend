@@ -428,8 +428,11 @@ func main() {
 	})
 
 	// 生图渠道：和对话渠道共用一张表，按 Kind 区分。
-	// 取第一个启用的 image 渠道——生图不需要路由池，一个够用。
-	var imageGen *gateway.ImageGen
+	//
+	// 全部收集，不是只取第一个：不同渠道背后是不同模型和不同 key，
+	// 各自有独立的限流额度。轮着用能分摊，也能在某个渠道挂掉时
+	// 还有别的可用——单渠道时一次 429 就是全线不可用。
+	var imageGens []*gateway.ImageGen
 	if upstreams != nil {
 		for _, rec := range upstreams.List() {
 			if rec.Kind != "image" || !rec.Enabled {
@@ -439,12 +442,14 @@ func main() {
 			if key == "" {
 				continue
 			}
-			imageGen = gateway.NewImageGen(rec.Name, rec.BaseURL, key, rec.Model, 5*time.Minute)
+			imageGens = append(imageGens, gateway.NewImageGen(rec.Name, rec.BaseURL, key, rec.Model, 5*time.Minute))
 			log.Info("已启用生图渠道", "name", rec.Name, "model", rec.Model)
-			break
 		}
 	}
-	imageJobs := service.NewImageJobs(imageGen, filepath.Join(dataDir, "images"))
+	if len(imageGens) > 1 {
+		log.Info("生图渠道将轮询使用", "数量", len(imageGens))
+	}
+	imageJobs := service.NewImageJobs(imageGens, filepath.Join(dataDir, "images"))
 	srv.SetImageJobs(imageJobs)
 
 	agentMgr.SetModel(gw)
