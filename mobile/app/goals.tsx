@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgGradient, Stop, Text as SvgText } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AvatarStack } from '../src/components/Avatar';
@@ -20,7 +20,7 @@ import {
   T,
   TextButton,
 } from '../src/components/ui';
-import { get, humanError, patch, post } from '../src/lib/api';
+import { del, get, humanError, patch, post } from '../src/lib/api';
 import { useApp } from '../src/lib/store';
 import type { Conversation, Goal, GoalStatus } from '../src/lib/types';
 import { useTheme } from '../src/theme/theme';
@@ -188,6 +188,25 @@ export default function Goals() {
     }
   }
 
+  /** 删除目标。后端支持，但之前前端没有任何入口——建错了删不掉。 */
+  function removeGoal(g: GoalView) {
+    Alert.alert('删除目标', `「${g.title}」会被删除，步骤和进度一起没掉。`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await del(`/v1/goals/${g.id}`);
+            setGoals((l) => l.filter((x) => x.id !== g.id));
+          } catch (e) {
+            setErr(humanError(e));
+          }
+        },
+      },
+    ]);
+  }
+
   return (
     <Canvas>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
@@ -259,6 +278,7 @@ export default function Goals() {
               {primary ? (
                 <FadeInUp>
                   <PrimaryGoalCard
+                    onRemove={() => removeGoal(primary)}
                     goal={primary}
                     teamName={convOf(primary)?.title}
                     leader={leaderOf(primary)}
@@ -272,6 +292,7 @@ export default function Goals() {
               {rest.map((g, i) => (
                 <FadeInUp key={g.id} delay={40 + i * 30}>
                   <SecondaryGoalCard
+                    onRemove={() => removeGoal(g)}
                     goal={g}
                     teamName={convOf(g)?.title}
                     onToggleStep={toggleStep}
@@ -338,6 +359,7 @@ function PrimaryGoalCard({
   members,
   ownerOf,
   onToggleStep,
+  onRemove,
 }: {
   goal: GoalView;
   teamName?: string;
@@ -345,6 +367,7 @@ function PrimaryGoalCard({
   members: string[];
   ownerOf: (step?: GoalStep) => string;
   onToggleStep: (g: GoalView, s: GoalStep) => void;
+  onRemove: () => void;
 }) {
   const t = useTheme();
   const steps = goal.steps ?? [];
@@ -365,7 +388,17 @@ function PrimaryGoalCard({
         <T size={10.5} weight={weight.bold} color={t.ink3} tracking={2.2}>
           CURRENT GOAL
         </T>
-        <StatusPill status={goal.status} />
+        <Row gap={8} align="center">
+          <StatusPill status={goal.status} />
+          <Pressable
+            onPress={onRemove}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="删除目标"
+          >
+            <Icon name="ellipsis-horizontal" size={16} color={t.ink4} />
+          </Pressable>
+        </Row>
       </Row>
 
       <Row
@@ -433,10 +466,12 @@ function SecondaryGoalCard({
   goal,
   teamName,
   onToggleStep,
+  onRemove,
 }: {
   goal: GoalView;
   teamName?: string;
   onToggleStep: (g: GoalView, s: GoalStep) => void;
+  onRemove: () => void;
 }) {
   const t = useTheme();
   const [open, setOpen] = useState(false);
@@ -449,11 +484,21 @@ function SecondaryGoalCard({
     >
       <Row style={{ justifyContent: 'space-between' }}>
         <StatusPill status={goal.status} />
-        {teamName ? (
-          <T size={type.caption} color={t.ink4} numberOfLines={1} style={{ maxWidth: '58%' }}>
-            {teamName}
-          </T>
-        ) : null}
+        <Row gap={8} align="center" style={{ flexShrink: 1 }}>
+          {teamName ? (
+            <T size={type.caption} color={t.ink4} numberOfLines={1} style={{ maxWidth: '58%' }}>
+              {teamName}
+            </T>
+          ) : null}
+          <Pressable
+            onPress={onRemove}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="删除目标"
+          >
+            <Icon name="ellipsis-horizontal" size={15} color={t.ink4} />
+          </Pressable>
+        </Row>
       </Row>
       <Row style={{ justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 10 }}>
         <T
@@ -664,12 +709,18 @@ function GradNum({ value, size }: { value: number; size: number }) {
   const height = Math.round(size * 1.2);
   const id = `goal-grad-${size}`;
 
+  // 0% 用强调色会像在报警——它只是「还没开始」。
+  // 没进度时退回中性色，有进度才用品牌色表达「在推进」。
+  const started = value > 0;
+  const from = started ? t.accent : t.ink3;
+  const to = started ? t.accentDeep : t.ink4;
+
   return (
     <Svg width={width} height={height}>
       <Defs>
         <SvgGradient id={id} x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0" stopColor={t.accent} />
-          <Stop offset="1" stopColor={t.accentDeep} />
+          <Stop offset="0" stopColor={from} />
+          <Stop offset="1" stopColor={to} />
         </SvgGradient>
       </Defs>
       <SvgText
