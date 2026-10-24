@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
@@ -93,6 +94,35 @@ func (s *Server) handleImageJobs(w http.ResponseWriter, r *http.Request) {
 		"enabled": s.imageJobs.Enabled(),
 		"items":   s.imageJobs.List(u.ID, 20),
 	})
+}
+
+// handleImageFile 返回生成好的图片文件。
+//
+// 按 job id + 序号取，不接受任意路径——否则等于开了个能读服务器
+// 任意文件的接口。鉴权和其它接口一致。
+func (s *Server) handleImageFile(w http.ResponseWriter, r *http.Request) {
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	if s.imageJobs == nil {
+		notFound(w, "未启用生图")
+		return
+	}
+	idx := 0
+	if v := r.URL.Query().Get("i"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			idx = n
+		}
+	}
+	path, err := s.imageJobs.File(u.ID, r.PathValue("id"), idx)
+	if err != nil {
+		notFound(w, "图片不存在")
+		return
+	}
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	http.ServeFile(w, r, path)
 }
 
 // handleImageCancel 中止一个还在跑的任务。

@@ -201,6 +201,7 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("POST /v1/images", s.handleImageSubmit)
 	userMux.HandleFunc("GET /v1/images", s.handleImageJobs)
 	userMux.HandleFunc("GET /v1/images/{id}", s.handleImageJob)
+	userMux.HandleFunc("GET /v1/images/{id}/file", s.handleImageFile)
 	userMux.HandleFunc("DELETE /v1/images/{id}", s.handleImageCancel)
 	userMux.HandleFunc("GET /v1/characters", s.handleSearchCharacters)
 	userMux.HandleFunc("POST /v1/characters/to-agent", s.handleCharacterToAgent)

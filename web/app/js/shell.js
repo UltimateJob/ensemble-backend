@@ -10,6 +10,7 @@ export const NAV = [
   { key: 'goals',      label: '目标看板', ic: 'trending-up' },
   { key: 'connectors', label: '连接器',   ic: 'share-2' },
   { key: 'library',    label: '资料库',   ic: 'book-open' },
+  { key: 'images',     label: '画板',     ic: 'image' },
   { key: 'settings',   label: '设置',     ic: 'settings' },
 ];
 
@@ -67,7 +68,7 @@ export function renderNav(convs = []) {
   setActiveNav(currentName());
 }
 
-const KNOWN = ['lobby', 'room', 'goals', 'connectors', 'library', 'settings'];
+const KNOWN = ['lobby', 'room', 'goals', 'connectors', 'library', 'settings', 'images'];
 
 // 未知路由一律当作 notfound：否则 #/nope 这类地址会让导航失去高亮，
 // 用户会以为自己「不在任何页面里」。
