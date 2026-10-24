@@ -67,16 +67,6 @@
 }
 .av-cell{position:relative}
 
-.mode-btn{
-  display:inline-flex;align-items:center;gap:5px;height:28px;
-  padding:0 10px;border-radius:var(--r-pill);
-  font-size:12px;color:var(--ink-3);
-  transition:background var(--t-fast),color var(--t-fast);
-}
-.mode-btn:hover{background:rgba(23,23,26,.06);color:var(--ink)}
-.mode-btn.on{background:var(--pri-soft);color:var(--pri-deep);font-weight:560}
-.mode-btn .ic{width:13px;height:13px}
-
 .team-badge{
   display:inline-flex;align-items:center;gap:5px;height:26px;
   padding:0 9px;margin-right:4px;border-radius:var(--r-pill);

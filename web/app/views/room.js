@@ -16,8 +16,6 @@ let root = null;
 let actTimer = null;
 let convId = '';
 let activity = { agents: [], runs: [], workspace: { bound: false }, defaultPermission: '' };
-let mode = 'chat';   // chat | exec
-let modeTouched = false;
 
 export async function mount(host, params, query) {
   root = host;
@@ -88,9 +86,6 @@ export async function mount(host, params, query) {
           <div class="composer-bar">
             <button class="icon-btn" id="attachBtn" title="附件">${icon('paperclip', 16)}</button>
             <button class="icon-btn" id="mentionBtn" title="@ 角色">${icon('at-sign', 16)}</button>
-            <button class="mode-btn" id="modeBtn" title="切换：派活给角色执行 / 只是群聊讨论">
-              ${icon('terminal', 13)}<span id="modeLabel">讨论</span>
-            </button>
             <button class="send" id="sendBtn" title="发送">${icon('arrow-up', 16)}</button>
           </div>
         </div>
@@ -104,9 +99,6 @@ export async function mount(host, params, query) {
   // chat.js 会读 state.agents / 渲染到 #msgWrap
   await openConv(conv.id);
   renderEmptyState();
-  modeTouched = false;
-  mode = workspacePath(state.cur) ? 'exec' : 'chat';
-  syncMode();
   await refreshWork();
   actTimer = setInterval(refreshWork, 5000);
 
@@ -208,19 +200,9 @@ function wireComposer() {
     composeSend();
   });
 
-  // 派活 / 讨论：输入框以 @ 开头时自动切到派活。
-  ta?.addEventListener('input', () => {
-    if (/^\s*[@＠]/.test(ta.value) && mode !== 'exec') { mode = 'exec'; syncMode(); }
-  });
-  $('#modeBtn')?.addEventListener('click', () => {
-    modeTouched = true;
-    mode = mode === 'exec' ? 'chat' : 'exec';
-    syncMode();
-    if (mode === 'exec' && !workspacePath(state.cur)) {
-      openWorkspaceDialog(state.cur, { onDone: () => refreshWork() });
-      toast('先绑定工作区，才能派给角色执行', { type: 'info' });
-    }
-  });
+  // @ 是派活的唯一入口，不需要再点一个模式按钮。
+  // 手动切换按钮既占地方，又和「@ 就是指定谁去做」的直觉重复：
+  // 用户想派活会自然地 @ 角色，不想派活就是普通群聊。
 
   // 发送/停止后按钮状态由 chat.js 的 setBusyUI 通知，这里再补一次
   document.addEventListener('round:state', sync);
@@ -291,16 +273,6 @@ function openMention(ta, anchor) {
 
 /* ---------------- 发送分流 ---------------- */
 
-function syncMode() {
-  const b = $('#modeBtn');
-  const l = $('#modeLabel');
-  if (!b) return;
-  const exec = mode === 'exec';
-  b.classList.toggle('on', exec);
-  if (l) l.textContent = exec ? '派活' : '讨论';
-  b.title = exec ? '当前：派给角色执行（点击切回讨论）' : '当前：群聊讨论（点击切到派活）';
-}
-
 function hasMention(text) {
   const agents = state.agents || [];
   return agents.some(a => text.includes('@' + a.name) || text.includes('＠' + a.name) ||
@@ -313,10 +285,9 @@ async function composeSend() {
   const text = ta.value.trim();
   if (!text) return;
   const bound = !!workspacePath(state.cur);
-  // 派活：显式模式，或工作类群里 @ 了角色。讨论不受 @ 影响，
-  // 免得在竞标/研报群里想点名说话却被当成执行任务。
+  // 派活只由 @ 触发，没有别的开关。@ 谁，就是让谁去做。
   const work = bound || state.cur.studio === 'code' || state.cur.studio === 'custom';
-  const shouldExec = mode === 'exec' || (work && hasMention(text));
+  const shouldExec = work && hasMention(text);
   if (shouldExec && !bound) {
     openWorkspaceDialog(state.cur, { onDone: () => refreshWork() });
     toast('先选一个本地工作区，再派活', { type: 'info' });
@@ -346,17 +317,6 @@ async function refreshWork() {
   // 单聊没有「团队」可交；隐藏入口而不是让用户点了才被拒。
   const teamBtn = $('#teamBtn');
   if (teamBtn) teamBtn.style.display = (state.agents || []).length >= 2 ? '' : 'none';
-  // 只有代码/自定义群（或已绑工作区的群）才有「派活」语义。
-  const mb = $('#modeBtn');
-  if (mb) {
-    const work = state.cur.studio === 'code' || state.cur.studio === 'custom' || !!workspacePath(state.cur);
-    mb.style.display = work ? '' : 'none';
-  }
-  // 绑定工作区后默认进入「派活」；用户手动切过就尊重他的选择。
-  if (workspacePath(state.cur) && !modeTouched && mode !== 'exec') {
-    mode = 'exec';
-    syncMode();
-  }
   await renderAvatarRow();
   renderWorkspaceBanner();
   await renderTeamSlot();
