@@ -235,6 +235,29 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "too_many", "一个群最多 12 个自定义角色")
 			return
 		}
+		// agents 是整组替换，不是「按 key 合并」。
+		//
+		// 这个语义容易踩：想改某个角色的设定，只把那一个发过来，
+		// 其余角色会被静默删掉（实测：4 人组发 1 人 → 只剩 1 人，
+		// 编排器下一轮就只点得到这一个）。
+		//
+		// 所以只要群原本有角色、而新数组把它们删掉了一部分，
+		// 就要求显式说明这是删除。主动删人走 /agents/{key} DELETE，
+		// 那里有明确的语义和确认流程。
+		// 用运行时解析出的角色：模板群的 conv.Agents 是空的，
+		// 真正生效的是场景预设，拿 conv.Agents 判断会漏掉。
+		_, current := service.ResolveAgents(conv)
+		// 空数组是「恢复场景预设」的既定语义（见字段注释），不是删除，
+		// 必须放行——否则这个能力就没了。
+		before := len(current)
+		if before > 0 && len(*req.Agents) > 0 && len(*req.Agents) < before {
+			if missing := missingAgents(current, *req.Agents); len(missing) > 0 {
+				fail(w, 400, "agents_truncated",
+					"这次提交会从群里删掉 "+strings.Join(missing, "、")+
+						"。"+"改设定请提交完整的角色列表；要删人请用「移除角色」")
+				return
+			}
+		}
 		conv.Agents = *req.Agents
 	}
 	if err := s.chat.Update(conv); err != nil {
@@ -432,4 +455,27 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			"latency": latency,
 		})
 	}
+}
+
+// missingAgents 返回「本次提交会删掉的角色」。
+//
+// key 和 name 都参与匹配：前端有时只带 name（从角色库拖进来的角色
+// 未必有稳定的 key），只按 key 比会把它们误判成被删。
+func missingAgents(current []service.Agent, submitted []domain.ConvAgent) []string {
+	kept := make(map[string]bool, len(submitted)*2)
+	for _, a := range submitted {
+		if a.Key != "" {
+			kept[a.Key] = true
+		}
+		if a.Name != "" {
+			kept[a.Name] = true
+		}
+	}
+	var missing []string
+	for _, a := range current {
+		if !kept[a.Key] && !kept[a.Name] {
+			missing = append(missing, a.Name)
+		}
+	}
+	return missing
 }
