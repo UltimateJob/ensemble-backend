@@ -16,28 +16,44 @@ DRY=0
 
 say() { printf '\n=== %s ===\n' "$*"; }
 
-say "1. 编译 linux/amd64"
+say "1. 确认在 main 上编译"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+REV=$(git rev-parse --short HEAD)
+if [ "$BRANCH" != "main" ]; then
+  echo "  ✗ 当前分支是 $BRANCH，线上版本必须基于 main 构建"
+  echo "    先合并再部署：git checkout main && git merge <分支>"
+  exit 1
+fi
+if [ -n "$(git status --porcelain -- cmd internal web)" ]; then
+  echo "  ✗ 工作区有未提交改动（cmd/internal/web），构建产物会与 main 不一致"
+  git status --short -- cmd internal web | head -5
+  exit 1
+fi
+echo "  分支 main @ $REV"
+
+say "2. 编译 linux/amd64"
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/ensemble-new ./cmd/server
 ls -lh /tmp/ensemble-new | awk '{print "  " $5, $9}'
+echo "  版本标记：$(grep -a -o 'vcs.revision=[a-f0-9]*' /tmp/ensemble-new | head -1)"
 
 if [ "$DRY" = "1" ]; then
   say "dry-run：不实际上传"
   exit 0
 fi
 
-say "2. 备份线上二进制"
+say "3. 备份线上二进制"
 bash scripts/ssh-run.sh "cp -a $REMOTE_DIR/ensemble $REMOTE_DIR/ensemble.bak-\$(date +%Y%m%d-%H%M%S) && ls -1t $REMOTE_DIR/ensemble.bak-* | head -3"
 
-say "3. 上传"
+say "4. 上传"
 scp -q /tmp/ensemble-new root@64.90.17.217:/tmp/ensemble-new
 bash scripts/ssh-run.sh "install -m 755 /tmp/ensemble-new $REMOTE_DIR/ensemble && rm -f /tmp/ensemble-new && ls -la $REMOTE_DIR/ensemble"
 
-say "4. 同步前端资源"
+say "5. 同步前端资源"
 rsync -az --delete web/app/ root@64.90.17.217:$REMOTE_DIR/web/app/
 rsync -az --delete web/site/ root@64.90.17.217:$REMOTE_DIR/web/site/
 echo "  web/app、web/site 已同步"
 
-say "5. 重启并等待健康"
+say "6. 重启并等待健康"
 bash scripts/ssh-run.sh "systemctl restart $SERVICE && sleep 3 && systemctl is-active $SERVICE"
 for i in $(seq 1 20); do
   if curl -sf -o /dev/null --max-time 3 https://teamwise.cn/healthz; then
@@ -48,5 +64,5 @@ for i in $(seq 1 20); do
   [ "$i" = "20" ] && { echo "  ✗ 健康检查失败，回滚"; bash scripts/ssh-run.sh "cp -a \$(ls -1t $REMOTE_DIR/ensemble.bak-* | head -1) $REMOTE_DIR/ensemble && systemctl restart $SERVICE"; exit 1; }
 done
 
-say "6. 端到端验证"
+say "7. 端到端验证"
 bash scripts/check-remote.sh
