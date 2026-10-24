@@ -13,6 +13,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -125,7 +126,10 @@ type Approval struct {
 
 // Run 一次任务执行。
 type Run struct {
-	ID             string     `json:"id"`
+	ID string `json:"id"`
+	// connActions 本次 Run 可用的连接器动作，按完整工具名索引。
+	// 不落盘：它来自用户当前的连接器配置，重启后按当时配置重建。
+	connActions    map[string]ConnectorAction
 	WorkspaceID    string     `json:"workspaceId"`
 	ConversationID string     `json:"conversationId"`
 	UserID         string     `json:"userId"`
@@ -248,8 +252,35 @@ type Manager struct {
 	usage UsageRecorder
 	// model 主模型引用（复审 Run 复用同一个网关）
 	model Model
+	// connectors 连接器执行器。为 nil 时 Agent 只有本地文件工具。
+	// 由 main 注入，按 UserID 取该用户可用的动作。
+	connectors ConnectorRunner
 	// statePath 状态落盘路径；空表示纯内存
 	statePath string
+}
+
+// ConnectorRunner 把连接器动作暴露给 Agent。
+//
+// 定义在 agent 包而不是直接依赖 service：agent 是工作层，
+// 不该反向依赖业务层。实现方（service.Connectors）在 main 里注入。
+type ConnectorRunner interface {
+	// Actions 列出该用户当前可用的动作（已按连接器实例展开）。
+	Actions(userID string) []ConnectorAction
+	// Run 执行一次动作。connID 为该连接器实例 id。
+	Run(ctx context.Context, userID, connID, action string, args map[string]any) (string, error)
+}
+
+// ConnectorAction Agent 侧看到的连接器动作。
+type ConnectorAction struct {
+	// Name 完整工具名，形如 github_search_code__c_abc
+	Name        string
+	Description string
+	Params      json.RawMessage
+	Risk        string // read | write
+	// ConnID 这个动作属于哪个连接器实例
+	ConnID string
+	// Base 不带实例后缀的动作名，执行时用
+	Base string
 }
 
 // NewManager 创建管理器。
@@ -271,6 +302,13 @@ func newID(prefix string) string {
 		return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 	}
 	return prefix + "_" + hex.EncodeToString(b)
+}
+
+// SetConnectors 注入连接器执行器。须在开始接请求前调用。
+func (m *Manager) SetConnectors(c ConnectorRunner) {
+	m.mu.Lock()
+	m.connectors = c
+	m.mu.Unlock()
 }
 
 // SetModel 注入模型（复审轮复用）。
@@ -715,7 +753,16 @@ func permissionFor(p Permission, tool string, risk string, forceApproval bool) (
 }
 
 func permissionForBase(p Permission, tool string, risk string) (allowed bool, needApproval bool, reason string) {
-	readOnlyTool := tool == "read" || tool == "list" || tool == "glob" || tool == "grep"
+	// 只读白名单是本地文件工具 + 连接器动作。
+	//
+	// 连接器动作名是运行时插进来的（github_search_code__c_xxx），
+	// 写死列表会把只读查询当成写操作拒掉，所以按命名约定认出来，
+	// 并以动作自己声明的 risk 兜底。
+	//
+	// 注意不把「risk == read 就放行」当通用规则：run 工具跑只读命令
+	// 虽然也算 read，但在「逐项批准」下依然该先问一句。
+	readOnlyTool := tool == "read" || tool == "list" || tool == "glob" || tool == "grep" ||
+		(isConnectorTool(tool) && risk == workspace.RiskRead)
 	switch p {
 	case PermissionReadonly:
 		if readOnlyTool {

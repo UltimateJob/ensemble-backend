@@ -392,6 +392,9 @@ func main() {
 	orch.SetLibrary(library)
 
 	agentMgr.SetModel(gw)
+	// 连接器动作注入 Agent：配了 GitHub/Notion/飞书，执行器才看得见那些工具。
+	// 没配就是空列表，模型不会幻想出 github_search_code 这类工具。
+	agentMgr.SetConnectors(conns)
 	// 工作区与最近 100 个 Run 落盘：重启后不用重新绑目录
 	stateFile := filepath.Join(dataDir, "agent-state.json")
 	if err := agentMgr.Load(stateFile); err != nil {

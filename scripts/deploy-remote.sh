@@ -53,6 +53,16 @@ rsync -az --delete web/app/ root@64.90.17.217:$REMOTE_DIR/web/app/
 rsync -az --delete web/site/ root@64.90.17.217:$REMOTE_DIR/web/site/
 echo "  web/app、web/site 已同步"
 
+# 手机端 Web 构建产物（Expo 导出）。目录不存在就跳过——
+# 有些部署不需要手机端，硬要求会让整个部署失败。
+if [ -d web/m ] && [ -f web/m/index.html ]; then
+  rsync -az --delete web/m/ root@64.90.17.217:$REMOTE_DIR/web/m/
+  echo "  web/m 已同步（$(du -sh web/m | cut -f1)）"
+else
+  echo "  跳过 web/m：没有构建产物"
+  echo "    要部署手机端先跑：cd mobile && npx expo export --platform web --output-dir ../web/m"
+fi
+
 say "6. 重启并等待健康"
 bash scripts/ssh-run.sh "systemctl restart $SERVICE && sleep 3 && systemctl is-active $SERVICE"
 for i in $(seq 1 20); do

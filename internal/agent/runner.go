@@ -76,9 +76,12 @@ const (
 // Tools 返回暴露给模型的工具声明。
 //
 // 只给「能落地」的工具：聊天里说「我来改」不算执行，Run 里调用写工具才算。
-func Tools() []domain.Tool {
+//
+// extras 是外部注入的工具（目前是连接器动作）。它们由会话层按用户
+// 实际配置的连接器生成——没配 GitHub 就不该看到 github_* 工具。
+func Tools(extras ...domain.Tool) []domain.Tool {
 	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
-	return []domain.Tool{
+	base := []domain.Tool{
 		{
 			Name:        ToolRead,
 			Description: "读取工作区内一个文本文件，按行分页。offset 从 0 开始，limit 为行数。",
@@ -125,6 +128,7 @@ func Tools() []domain.Tool {
 			Parameters:  raw(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer"},"shell":{"type":"boolean"}},"required":["argv"]}`),
 		},
 	}
+	return append(base, extras...)
 }
 
 // DefaultSystemPrompt operator 的默认提示。
@@ -309,6 +313,13 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		{Role: "user", Content: req.Task},
 	}
 
+	// 工具集在整轮里固定：本地文件工具 + 该用户已配置的连接器动作。
+	// 每步重新生成会让模型看到的工具列表前后不一致。
+	allTools, connActions := m.toolsetFor(r.UserID)
+	m.mu.Lock()
+	r.connActions = connActions
+	m.mu.Unlock()
+
 	for step := 1; step <= r.MaxSteps; step++ {
 		select {
 		case <-ctx.Done():
@@ -325,7 +336,7 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		ch, err := model.Stream(ctx, domain.ChatRequest{
 			Model:      r.Model,
 			Messages:   msgs,
-			Tools:      Tools(),
+			Tools:      allTools,
 			ToolChoice: "auto",
 			Stream:     true,
 			// 执行器跑的是真实任务（写代码/改文件）：自动选路
@@ -526,6 +537,12 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 	}
 
 	risk := toolRisk(call)
+	// 连接器动作自带风险等级（read/write），以它为准：
+	// webhook_post、notion_append 这类写外部系统的操作
+	// 必须走审批，不能因为工具名不在本地白名单里就被归成读。
+	if ca, ok := m.connectorAction(r, call.Name); ok && ca.Risk != "" {
+		risk = ca.Risk
+	}
 	record.Risk = risk
 	allowed, needApproval, reason := permissionFor(r.Permission, call.Name, risk, r.ForceApproval)
 
@@ -655,7 +672,16 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 		_ = scope
 	}
 
-	out, diff, exitCode, err := runTool(ctx, w, call)
+	// 连接器动作和本地工具走同一套审批，但执行入口不同：
+	// 本地工具碰文件系统，连接器动作调外部 API。
+	var out, diff string
+	var exitCode int
+	var err error
+	if ca, ok := m.connectorAction(r, call.Name); ok {
+		out, err = m.runConnector(ctx, r.UserID, ca, call.Arguments)
+	} else {
+		out, diff, exitCode, err = runTool(ctx, w, call)
+	}
 	m.mu.Lock()
 	record.EndedAt = time.Now()
 	record.DurationMS = time.Since(started).Milliseconds()
