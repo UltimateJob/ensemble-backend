@@ -181,7 +181,13 @@ export default function Connect() {
         text: '删除',
         style: 'destructive',
         onPress: async () => {
-          await del(`/v1/connectors/${c.id}`).catch(() => {});
+          // 之前这里 .catch(() => {}) 把失败吞掉了：界面看起来删成功了，
+          // 刷新一下它又回来，用户完全不知道发生了什么。
+          try {
+            await del(`/v1/connectors/${c.id}`);
+          } catch (e) {
+            Alert.alert('删除失败', humanError(e));
+          }
           load();
         },
       },

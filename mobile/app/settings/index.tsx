@@ -183,7 +183,13 @@ export default function Settings() {
         text: '吊销',
         style: 'destructive',
         onPress: async () => {
-          await del(`/v1/devices/${d.id}`).catch(() => {});
+          // 吊销是安全操作。失败必须说出来——静默失败会让用户以为
+          // 那台设备已经被踢掉，实际上它还能继续操作这台电脑。
+          try {
+            await del(`/v1/devices/${d.id}`);
+          } catch (e) {
+            Alert.alert('吊销失败', humanError(e));
+          }
           loadDevices();
         },
       },
