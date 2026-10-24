@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -27,7 +28,7 @@ import {
   grad,
   withAlpha,
 } from '../src/components/ui';
-import { get, humanError } from '../src/lib/api';
+import { del, get, humanError } from '../src/lib/api';
 import type { Artifact } from '../src/lib/types';
 import { useTheme } from '../src/theme/theme';
 import { fontFamily } from '../src/theme/fonts';
@@ -114,6 +115,25 @@ export default function Library() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** 删除一份产出。后端有 DELETE /v1/library/{id}，之前前端没有入口。 */
+  function removeItem(a: Artifact) {
+    Alert.alert('删除产出', `「${a.title}」会从资料库移除，群聊里的记录不受影响。`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await del(`/v1/library/${a.id}`);
+            setItems((l) => l.filter((x) => x.id !== a.id));
+          } catch (e) {
+            setErr(humanError(e));
+          }
+        },
+      },
+    ]);
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -206,6 +226,17 @@ export default function Library() {
                 </T>
               ) : null}
 
+              {/* 长按删除没有任何视觉线索，不写一句用户永远发现不了 */}
+              {filtered.length > 0 ? (
+                <T
+                  size={type.micro}
+                  color={t.ink4}
+                  style={{ marginHorizontal: 4, marginBottom: gap.sm }}
+                >
+                  长按任意一项可删除
+                </T>
+              ) : null}
+
               {filtered.length === 0 ? (
                 <View style={{ paddingVertical: gap.xxxl, alignItems: 'center' }}>
                   <T size={type.sub} color={t.ink3}>
@@ -232,6 +263,7 @@ export default function Library() {
                         item={a}
                         last={i === filtered.length - 1}
                         onPress={() => router.push(`/artifact/${a.id}` as any)}
+                        onDelete={() => removeItem(a)}
                       />
                     </FadeInUp>
                   ))}
@@ -385,10 +417,12 @@ function FileRow({
   item,
   last,
   onPress,
+  onDelete,
 }: {
   item: Artifact;
   last: boolean;
   onPress: () => void;
+  onDelete: () => void;
 }) {
   const t = useTheme();
   const k = KIND[item.kind] ?? FALLBACK;
@@ -396,8 +430,12 @@ function FileRow({
   return (
     <Pressable
       onPress={onPress}
+      // 长按删除。列表里塞一个常驻删除按钮太重，
+      // 但完全没有删除入口的话，存错的东西永远清不掉。
+      onLongPress={onDelete}
+      delayLongPress={420}
       accessibilityRole="button"
-      accessibilityLabel={item.title}
+      accessibilityLabel={`${item.title}，长按可删除`}
       style={({ pressed }) => ({ backgroundColor: pressed ? t.cardSunken : 'transparent' })}
     >
       <View style={s.fileRow}>
