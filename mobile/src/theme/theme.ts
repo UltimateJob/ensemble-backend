@@ -81,6 +81,15 @@ export interface Theme {
   radioOff: string;
   chipBg: string;
   slate: string;
+  /**
+   * 图标砖专用色阶。
+   *
+   * 功能图标是「凸起、可点」的东西，需要比卡片亮一档；但不能用 slate——
+   * 浅色模式下 slate 是中灰，深色模式下如果沿用同一个值就会变成一屏白块。
+   * 单独给一对，两套主题各取所需。
+   */
+  brickBg: string;
+  brickInk: string;
   scrim: string;
   white: string;
   cardBorder: string;
@@ -148,6 +157,8 @@ export const LIGHT: Theme = {
   radioOff: light.radioOff,
   chipBg: light.chipBg,
   slate: light.slate,
+  brickBg: '#6E6A61',
+  brickInk: '#FFFFFF',
   scrim: light.scrim,
   white: light.white,
   cardBorder: 'transparent',
@@ -214,6 +225,9 @@ export const DARK: Theme = {
   // 图标砖在中性化之后只剩这一个色源。深色下如果用浅灰，
   // 一屏九个白块会盖过真正的文字层级——压到比卡片略高的灰。
   slate: '#5A5A62',
+  // 深色下比卡片 (#242428) 亮一档：看得出是凸起的按钮，又不刺眼
+  brickBg: '#3C3C43',
+  brickInk: '#E8E8EC',
   scrim: 'rgba(0,0,0,0.58)',
   white: '#FFFFFF',
   cardBorder: 'rgba(255,255,255,0.06)',

@@ -263,7 +263,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="shield-checkmark"
-              tint={t.slate}
+              tint={t.brickBg}
               label="默认权限级别"
               value={levelLabel}
               onPress={() => setSheet('level')}
@@ -271,7 +271,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="notifications"
-              tint={t.slate}
+              tint={t.brickBg}
               label="消息通知"
               right={
                 <Toggle
@@ -286,7 +286,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="shield-half"
-              tint={t.slate}
+              tint={t.brickBg}
               label="审批提醒"
               last
               right={
@@ -306,7 +306,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="moon"
-              tint={t.dark ? t.chipBg : t.ink}
+              tint={t.dark ? t.brickBg : t.ink}
               iconTint={t.dark ? t.ink : t.white}
               label="深浅模式"
               value={pref === 'auto' ? '跟随系统' : pref === 'light' ? '浅色' : '深色'}
@@ -315,7 +315,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="text"
-              tint={t.slate}
+              tint={t.brickBg}
               label="字体大小"
               value={FONT_SIZES.find((f) => f.key === fontScale)?.label ?? '标准'}
               last
@@ -328,7 +328,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="desktop"
-              tint={t.slate}
+              tint={t.brickBg}
               label="我的电脑"
               value={computerValue}
               onPress={() => setSheet('devices')}
@@ -336,7 +336,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="shield-checkmark-outline"
-              tint={t.slate}
+              tint={t.brickBg}
               label="执行前审批"
               value={
                 currentDevice ? (currentDevice.requireApproval ? '总是先问我' : '不强制审批') : '未连接电脑'
@@ -351,7 +351,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="server"
-              tint={t.slate}
+              tint={t.brickBg}
               label="清除缓存"
               value={cache}
               onPress={() =>
@@ -371,7 +371,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="git-network-outline"
-              tint={t.slate}
+              tint={t.brickBg}
               label="服务器地址"
               value={hostLabel}
               last
@@ -387,7 +387,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="information-circle"
-              tint={t.slate}
+              tint={t.brickBg}
               label="版本"
               value="v1.1.1"
               onPress={() => Alert.alert('纸团', '当前已是最新版本。')}
@@ -395,7 +395,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="information-circle"
-              tint={t.slate}
+              tint={t.brickBg}
               label="关于纸团"
               last
               onPress={() => Alert.alert('关于纸团', '把一件事，揉成一群人。\n工作区与文件留在你自己的电脑上；模型推理由所选模型服务商提供。')}
@@ -707,13 +707,17 @@ function IconBrick({
   const t = useTheme();
   return (
     <LinearGradient
-      colors={grad([withAlpha(tint, 0.96), withAlpha(tint, 0.74)])}
+      colors={grad([tint, tint])}
       start={{ x: 0.1, y: 0 }}
       end={{ x: 0.9, y: 1 }}
       style={s.brick}
     >
-      <View pointerEvents="none" style={[s.brickGloss, { backgroundColor: t.white }]} />
-      <Icon name={icon} size={20} color={iconTint ?? t.white} />
+      {/* 高光在深色下要收着，否则九个砖各带一块白斑 */}
+      <View
+        pointerEvents="none"
+        style={[s.brickGloss, { backgroundColor: t.dark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.18)' }]}
+      />
+      <Icon name={icon} size={20} color={iconTint ?? t.brickInk} />
     </LinearGradient>
   );
 }

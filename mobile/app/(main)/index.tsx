@@ -1300,7 +1300,7 @@ function MePage({
         {/* 单聊入口：一个群只有你和一位角色。简单任务用不上整队人。 */}
         <MenuRow
           icon="person-circle"
-          colors={[t.slate, t.slate]}
+          colors={[t.brickBg, t.brickBg]}
           label="单聊角色"
           value="找一个人干"
           onPress={onOpenSolo}
@@ -1308,7 +1308,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="folder-open"
-          colors={[t.slate, t.slate]}
+          colors={[t.brickBg, t.brickBg]}
           label="资料库"
           value={`${artifacts.length} 个文件`}
           onPress={onOpenLibrary}
@@ -1316,7 +1316,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="git-network"
-          colors={[t.slate, t.slate]}
+          colors={[t.brickBg, t.brickBg]}
           label="连接器"
           value={connected ? `${connected.name} 已连接` : connectors.length ? '未连接' : '未设置'}
           onPress={onOpenConnect}
@@ -1324,7 +1324,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="laptop"
-          colors={[t.slate, t.slate]}
+          colors={[t.brickBg, t.brickBg]}
           label="我的设备"
           value={online ? `${myDevice?.name ?? '这台电脑'} · 在线` : '未连接'}
           onPress={onOpenDevices}
@@ -1332,7 +1332,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="shield-checkmark"
-          colors={[t.slate, t.slate]}
+          colors={[t.brickBg, t.brickBg]}
           label="默认权限级别"
           value={levelLabel(defaultLevel)}
           // 权限级别在设置页里改；以前这里跳到设备页，点进去找不到这个设置。
@@ -1343,7 +1343,7 @@ function MePage({
       <Surface outerRadius={24} style={{ marginTop: 12 }}>
         <MenuRow
           icon="settings"
-          colors={[t.slate, t.slate]}
+          colors={[t.brickBg, t.brickBg]}
           label="设置"
           onPress={onOpenSettings}
           last
