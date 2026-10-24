@@ -24,11 +24,14 @@ cp -R "$SRC" "$APP"
 
 # 端口上有别的后端在跑时，壳会直接复用、不写新日志，
 # 脚本就会误判「没起来」。先要求端口干净，让测试结果可信。
-if lsof -iTCP:8080 -sTCP:LISTEN -n -P 2>/dev/null | grep -q LISTEN; then
-  echo "✗ 8080 已被占用，冒烟会连到别人的后端。先停掉它："
-  lsof -iTCP:8080 -sTCP:LISTEN -n -P 2>/dev/null | tail -1
-  exit 1
-fi
+# 桌面端从 18080 起探（避开后端开发的 8080），所以检查这一段。
+for P in $(seq 18080 18099); do
+  if lsof -iTCP:$P -sTCP:LISTEN -n -P 2>/dev/null | grep -q LISTEN; then
+    echo "✗ $P 已被占用，冒烟会连到别人的后端。先停掉它："
+    lsof -iTCP:$P -sTCP:LISTEN -n -P 2>/dev/null | tail -1
+    exit 1
+  fi
+done
 
 # 后端日志落在应用支持目录，重启会追加。先把已有内容备份掉，
 # 只从本次启动后新增的行里找端口——否则会读到上一次运行的残留，
@@ -44,12 +47,12 @@ fi
 "$APP/Contents/MacOS/纸团" > "$TMP/app.log" 2>&1 &
 APP_PID=$!
 
-# 端口不写死：壳会自己探 8080–8099，从启动日志的 "addr" 字段读实际值。
+# 端口不写死：壳会自己探 18080–18099，从启动日志的 "addr" 字段读实际值。
 PORT=""
 for i in $(seq 1 60); do
   sleep 0.4
   CAND=$(grep -F "\"msg\":\"纸团后端已启动\"" "$LOG" 2>/dev/null \
-    | tail -1 | grep -oE '"addr":":80[89][0-9]"' | grep -oE '80[89][0-9]')
+    | tail -1 | grep -oE '"addr":":180[89][0-9]"' | grep -oE '180[89][0-9]')
   if [ -n "$CAND" ] && curl -sf -o /dev/null "http://127.0.0.1:${CAND}/healthz"; then
     PORT="$CAND"
     break

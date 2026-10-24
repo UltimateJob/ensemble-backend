@@ -19,12 +19,15 @@ sleep 1
 APP_PID=$!
 echo "App 已启动（pid ${APP_PID}），等后端就绪…"
 
+# 桌面端从 18080 起探空闲端口，逐个试。
 for _ in $(seq 1 60); do
   sleep 0.5
-  if curl -sf -o /dev/null http://127.0.0.1:8080/healthz; then
-    echo "✓ 后端就绪"
-    break
-  fi
+  for P in $(seq 18080 18099); do
+    if curl -sf -o /dev/null "http://127.0.0.1:$P/healthz" 2>/dev/null; then
+      echo "✓ 后端就绪（端口 $P）"
+      break 2
+    fi
+  done
 done
 
 # 给 WKWebView 渲染与字体加载留时间

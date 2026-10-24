@@ -204,8 +204,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
             }
             Thread.sleep(forTimeInterval: 0.35)
         }
-        guard let port = freePort(from: 8080, through: 8099) else {
-            showError("没有可用端口（8080–8099 都被占用了）。关掉一个再试。")
+        // 从 18080 起步，避开 8080：那是后端开发的默认端口，
+        // 本地起服务、别的会话联调、CI 都可能占着它。桌面端抢到 8080
+        // 会让别人的服务起不来，排查起来又很难看出是谁占的。
+        guard let port = freePort(from: 18080, through: 18099) else {
+            showError("没有可用端口（18080–18099 都被占用了）。关掉一个再试。")
             return
         }
         baseURL = "http://127.0.0.1:\(port)"
