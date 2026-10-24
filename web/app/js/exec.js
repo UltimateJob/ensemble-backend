@@ -341,9 +341,41 @@ export async function openArtifact(conv, ref) {
         el.innerHTML = `<div class="art-dl-row">
             <button class="btn btn-line btn-sm" data-act="dl">${icon('download', 13)}下载</button>
             <button class="btn btn-line btn-sm" data-act="rev">${icon('git-compare', 13)}看改动</button>
+            ${cut ? `<button class="btn btn-line btn-sm" data-act="more">加载更多</button>` : ''}
           </div>
-          ${cut ? `<div class="art-cut">文件共 ${total} 行，这里只显示前 ${shown} 行。完整内容请下载。</div>` : ''}
+          ${cut ? `<div class="art-cut">文件共 ${total} 行，当前显示前 ${shown} 行。</div>` : ''}
           <pre class="art-pre">${esc(chunk?.content || '(空文件)')}</pre>`;
+
+        // 翻页：后端支持 offset/limit，之前前端写死 400 行就再也不管了。
+        // 大文件（生成的代码、日志）用户确实需要往下翻。
+        let loaded = shown;
+        const pre = el.querySelector('.art-pre');
+        const moreBtn = el.querySelector('[data-act=more]');
+        const cutBox = el.querySelector('.art-cut');
+        moreBtn?.addEventListener('click', async () => {
+          moreBtn.disabled = true;
+          moreBtn.textContent = '加载中…';
+          try {
+            const next = await api(`/v1/workspaces/${encodeURIComponent(wsId)}/file?path=` +
+              encodeURIComponent(ref.path) + `&offset=${loaded}&limit=400`);
+            const text = next?.content || '';
+            if (!text) { moreBtn.remove(); cutBox?.remove(); return; }
+            pre.textContent += '\n' + text;
+            loaded += 400;
+            if (loaded >= total || !next?.truncated) {
+              moreBtn.remove();
+              cutBox?.remove();
+            } else {
+              moreBtn.disabled = false;
+              moreBtn.textContent = '加载更多';
+              cutBox.textContent = `文件共 ${total} 行，当前显示前 ${Math.min(loaded, total)} 行。`;
+            }
+          } catch (err) {
+            moreBtn.disabled = false;
+            moreBtn.textContent = '加载更多';
+            toast('读取失败：' + (err.message || ''), { type: 'err' });
+          }
+        });
         el.querySelector('[data-act=dl]').addEventListener('click', download);
         el.querySelector('[data-act=rev]').addEventListener('click', async () => {
           if (!ref.runId) return;
