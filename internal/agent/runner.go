@@ -39,8 +39,13 @@ type StartRequest struct {
 	Role        string
 	ParentRunID string
 	Task        string
-	Model       string
-	MaxSteps    int
+	// Context 群聊上下文摘要。和 Task 分开存：Task 是用户那句话，
+	// 界面、执行记录、搜索都按它显示；上下文只是给模型看的背景。
+	// 之前两者拼在同一个字段里，时间线上出现的是
+	// 「@架构 建个文件最近的群聊上下文（从旧到新）：架构：…」。
+	Context  string
+	Model    string
+	MaxSteps int
 	// SystemPrompt 由会话层注入角色人设与协作规则；为空时用默认 operator 提示。
 	SystemPrompt string
 	// ForceApproval 远程设备要求审批（设备策略，见 domain.Device.RequireApproval）。
@@ -322,6 +327,11 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 	system := req.SystemPrompt
 	if strings.TrimSpace(system) == "" {
 		system = DefaultSystemPrompt(req.OperatorName)
+	}
+	// 上下文进系统提示，不进用户那句任务。后者会被显示在时间线、
+	// 执行记录和搜索里，塞进一大段背景等于让用户找不到自己说过什么。
+	if ctx := strings.TrimSpace(req.Context); ctx != "" {
+		system += "\n\n## 群聊背景\n以下是这个群最近的对话，供你理解任务上下文：\n" + ctx
 	}
 	msgs := []domain.ChatMessage{
 		{Role: "system", Content: system},

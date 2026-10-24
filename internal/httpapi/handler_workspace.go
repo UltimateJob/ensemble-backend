@@ -734,9 +734,9 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	if msg != nil {
 		skipID = msg.ID
 	}
-	if digest := s.contextDigest(conv.ID, skipID, 6); digest != "" {
-		task += "\n\n最近的群聊上下文（从旧到新）：\n" + digest
-	}
+	// 上下文单独传，不并进 task：task 会显示在执行记录和时间线上，
+	// 塞进背景后用户看到的是自己没说过的一长串话。
+	digest := s.contextDigest(conv.ID, skipID, 6)
 
 	maxSteps := req.MaxSteps
 	if maxSteps <= 0 {
@@ -782,6 +782,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 			// 本来是给团队并行分工用的，单聊继续限制会让它连前端文件都改不了。
 			Scope:        singleAgentScope(a.Scope, len(targets)),
 			Task:         task,
+			Context:      digest,
 			Model:        conv.Model,
 			MaxSteps:     maxSteps,
 			SystemPrompt: systemPrompt,

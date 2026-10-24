@@ -403,7 +403,7 @@ export function buildMsgEl(o) {
 }
 
 /** 消息里的产物 chip：点开预览 / 下载；文件型产物指向工作区。 */
-function renderAttachments(box, arts) {
+export function renderAttachments(box, arts) {
   if (!box) return;
   box.innerHTML = '';
   arts.forEach(a => {
