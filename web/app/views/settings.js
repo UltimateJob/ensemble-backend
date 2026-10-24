@@ -39,8 +39,10 @@ function prefs() {
 function render() {
   if (!root) return;
   const u = state.user || {};
-  // 本机选的头像优先；没选过才回落到账号自带的。
-  const localAvatar = localStorage.getItem('ens_avatar') || u.avatar || '';
+  // 头像存在账号上，换设备也在。
+  // 后端只接受颜色或 emoji（validAvatar 的限制），不收图片——
+  // 之前这里写 localStorage 存图片，换设备就没了，而且左栏根本不读它。
+  const avatar = u.avatar || '';
   const notifyOn = prefs().notify !== 'false';   // 没设置过就当开启
   const quota = typeof u.quota === 'number' ? u.quota : null;
   const used = typeof u.used === 'number' ? u.used : 0;
@@ -55,17 +57,17 @@ function render() {
       </header>
 
       <section class="profile-card">
-        <div class="pf-av">${localAvatar
-          ? `<img src="${esc(localAvatar)}" alt="头像">`
-          : avatarHTML(u.name || '我', '#8B8377', { size: 64 })}</div>
+        <div class="pf-av" style="${avatar && avatar.startsWith('#') ? 'background:' + esc(avatar) : ''}">${
+          avatar && !avatar.startsWith('#')
+            ? `<span class="pf-av-emoji">${esc(avatar)}</span>`
+            : avatarHTML(u.name || '我', '#8B8377', { size: 64 })
+        }</div>
         <div class="pf-body">
           <div class="pf-name">${esc(u.name || '未命名')}</div>
           <div class="pf-id">${esc(u.phone || u.email || '未绑定手机号或邮箱')} · ${esc(planLabel(u.plan))}</div>
           <div class="pf-usage">剩余额度 ${remaining != null ? esc(remaining) : '-'} 次</div>
         </div>
-        <label class="btn btn-line">更换头像
-          <input type="file" id="avatarUp" accept="image/*" hidden>
-        </label>
+        <button class="btn btn-line" id="avatarPick">${icon('image', 14)}更换头像</button>
       </section>
 
       <section class="quota-card">
@@ -95,20 +97,7 @@ function render() {
 }
 
 function bind() {
-  root.querySelector('#avatarUp')?.addEventListener('change', e => {
-    const f = e.target.files?.[0];
-    e.target.value = '';   // 允许再次选同一张图
-    if (!f) return;
-    if (f.size > 400 * 1024) { toast('图片别超过 400KB', { type: 'err' }); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      localStorage.setItem('ens_avatar', String(reader.result));
-      render();
-      toast('头像已更新', { type: 'ok' });
-    };
-    reader.onerror = () => toast('图片读取失败，换一张试试', { type: 'err' });
-    reader.readAsDataURL(f);
-  });
+  root.querySelector('#avatarPick')?.addEventListener('click', openAvatarPicker);
 
   root.querySelector('[data-act=editName]')?.addEventListener('click', async () => {
     const name = await promptModal({
@@ -194,6 +183,64 @@ function row(ic, title, sub, act, on = null, danger = false) {
 }
 
 /* ---------------- 账号安全：设置 / 修改密码 ---------------- */
+
+// 头像选择：颜色或 emoji。
+//
+// 后端只接受这两类（validAvatar），因为头像是要跟着账号走的——
+// 换台设备还应该在。图片上传需要对象存储、尺寸裁剪、CDN，
+// 那是另一个量级的事，先用「一色一表情」把身份感做出来。
+const AVATAR_COLORS = ['#8B8377', '#2F6BFF', '#DB2777', '#047857', '#B45309', '#7C3AED'];
+const AVATAR_EMOJI = ['🐱', '🐶', '🦊', '🐼', '🐨', '🦁', '🐸', '🐧', '🌱', '🌙', '⭐', '🔥'];
+
+function openAvatarPicker() {
+  const cur = state.user?.avatar || '';
+  openModal({
+    title: '换个头像',
+    width: 460,
+    body: `
+      <p class="hint" style="margin-bottom:12px">选一个底色，或者挑个表情。头像会跟着账号走，换设备也在。</p>
+      <div class="av-sec-h">底色</div>
+      <div class="av-swatches">${AVATAR_COLORS.map(c =>
+        `<button class="av-swatch${cur === c ? ' on' : ''}" data-color="${c}" style="background:${c}"></button>`).join('')}
+      </div>
+      <div class="av-sec-h">表情</div>
+      <div class="av-emos">${AVATAR_EMOJI.map(e =>
+        `<button class="av-emo${cur === e ? ' on' : ''}" data-emo="${e}">${e}</button>`).join('')}
+      </div>`,
+    actions: [
+      ...(cur ? [{ key: 'clear', label: '用回默认', kind: 'line', onClick: async () => {
+        await saveAvatar('');
+        return true;
+      } }] : []),
+      { key: 'cancel', label: '取消', kind: 'line' },
+    ],
+    onMount: el => {
+      el.querySelectorAll('[data-color]').forEach(b => b.addEventListener('click', async () => {
+        await saveAvatar(b.dataset.color);
+      }));
+      el.querySelectorAll('[data-emo]').forEach(b => b.addEventListener('click', async () => {
+        await saveAvatar(b.dataset.emo);
+      }));
+    },
+  });
+}
+
+async function saveAvatar(avatar) {
+  try {
+    const d = await api('/v1/me', { method: 'PATCH', body: { avatar } });
+    const user = d?.user || d;
+    if (user) {
+      state.user = user;
+      if (state.me) state.me.user = user;
+    }
+    const { closeModal } = await import('../js/modal.js');
+    closeModal();
+    render();
+    toast('头像已更新', { type: 'ok' });
+  } catch (e) {
+    toast('保存失败：' + (e.message || ''), { type: 'err' });
+  }
+}
 
 function openPasswordDialog() {
   const has = !!state.me?.hasPassword;

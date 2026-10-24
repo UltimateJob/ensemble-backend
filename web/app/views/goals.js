@@ -261,12 +261,32 @@ function openDetail(id) {
           <div class="seg" id="gdStatus">${COLS.map(c =>
             `<button class="${g.status === c.key ? 'on' : ''}" data-s="${c.key}">${c.label}</button>`).join('')}</div>
         </div>
+        <div class="panel-sec"><h4>进度</h4>
+          <div class="gd-prog">
+            <input type="range" id="gdProg" min="0" max="100" step="5" value="${pct(g)}">
+            <span id="gdProgVal">${pct(g)}%</span>
+          </div>
+          <div class="hint">拖动表示实际进展；拖到 100% 会自动标记完成。</div>
+        </div>
         <div class="panel-sec"><h4>关联任务</h4>
           ${(g.runIds || []).length
             ? (g.runIds || []).map(r => `<div class="gd-run"><code>${esc(r)}</code></div>`).join('')
-            : '<div class="panel-empty">还没有关联任务</div>'}
+            : '<div class="panel-empty">还没有关联任务。在房间里跑完任务后，可以从这里挂上来。</div>'}
         </div>
         <button class="btn btn-line danger" id="gdDel">删除目标</button>`;
+
+      // 手动进度：拖动时就地更新数字，松手才发请求（别每 5% 打一次接口）
+      const slider = el.querySelector('#gdProg');
+      const val = el.querySelector('#gdProgVal');
+      slider?.addEventListener('input', () => { val.textContent = slider.value + '%'; });
+      slider?.addEventListener('change', async () => {
+        const p = Number(slider.value);
+        // 拖到 100 就是做完了，顺手把状态带过去，省得用户再点一次
+        const body = { manualProgress: p };
+        if (p >= 100) body.status = 'done';
+        else if (p > 0 && g.status === 'todo') body.status = 'doing';
+        if (await patch(g.id, body) && panelOpen()) openDetail(g.id);
+      });
 
       el.querySelectorAll('#gdStatus button').forEach(b => {
         b.addEventListener('click', async () => {
