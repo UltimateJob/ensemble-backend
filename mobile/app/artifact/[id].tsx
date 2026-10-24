@@ -266,7 +266,8 @@ export default function ArtifactDetail() {
               <Row gap={9} style={{ marginTop: 14 }}>
                 <PrimaryAction label="在群里打开" onPress={onOpenInGroup} />
                 <SecondaryAction label="分享" onPress={onShare} />
-                <SecondaryAction label="下载" onPress={onDownload} />
+                {/* 这里只做复制。叫「下载」会让人以为存成了文件。 */}
+                <SecondaryAction label="复制全文" onPress={onDownload} />
               </Row>
             </FadeInUp>
 

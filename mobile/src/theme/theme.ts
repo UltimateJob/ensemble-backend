@@ -218,15 +218,35 @@ export const DARK: Theme = {
   primaryGrad: [darkRaw.primary, darkRaw.primary],
 };
 
+/** 字体大小档位。只分三档：再细用户也感知不到，反而难选。 */
+export type FontScale = 'small' | 'normal' | 'large';
+
+/** 相对标准档的倍率。±10% 是移动端不破坏排版的舒适上限。 */
+export const FONT_SCALE: Record<FontScale, number> = {
+  small: 0.9,
+  normal: 1,
+  large: 1.12,
+};
+
 interface ThemeState {
   pref: 'auto' | 'light' | 'dark';
   setPref: (p: 'auto' | 'light' | 'dark') => void;
+  /** 全局字体缩放。文字组件读它，不是每个页面自己算。 */
+  fontScale: FontScale;
+  setFontScale: (f: FontScale) => void;
 }
 
 export const useThemePref = create<ThemeState>((set) => ({
   pref: 'auto',
   setPref: (pref) => set({ pref }),
+  fontScale: 'normal',
+  setFontScale: (fontScale) => set({ fontScale }),
 }));
+
+/** 当前字号倍率。非文字组件（图标、间距）不要用，排版会被撑歪。 */
+export function useFontScaleValue(): number {
+  return FONT_SCALE[useThemePref((s) => s.fontScale)];
+}
 
 export function useTheme(): Theme {
   const sys = useColorScheme();

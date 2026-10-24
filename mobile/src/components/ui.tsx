@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Breathe, PressableScale } from './motion';
 import { Glass } from './Glass';
-import { useTheme, type Theme } from '../theme/theme';
+import { useFontScaleValue, useTheme, type Theme } from '../theme/theme';
 import { fontFamily } from '../theme/fonts';
 import { gap, icon as iconSize, leading, radius, type } from '../theme/tokens';
 
@@ -107,17 +107,21 @@ export function T({
   tracking?: number;
 }) {
   const t = useTheme();
+  // 设置里的「字体大小」在这里生效：只缩放文字本身，行高同步缩放，
+  // 间距和图标不动——否则小屏会把卡片撑破。
+  const k = useFontScaleValue();
+  const fs = Math.round(size * k * 10) / 10;
   return (
     <Text
       onPress={onPress}
       numberOfLines={numberOfLines}
       style={[
         {
-          fontSize: size,
+          fontSize: fs,
           color: color ?? t.ink,
           fontWeight: weight as any,
           fontFamily: fontFamily(weight),
-          lineHeight: lh ?? Math.round(size * 1.45),
+          lineHeight: Math.round((lh ?? size * 1.45) * k),
           textAlign: align,
           letterSpacing: tracking ?? (size >= type.title ? -0.45 : 0),
         },

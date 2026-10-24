@@ -422,13 +422,15 @@ export default function Entry() {
               </Row>
             </FadeInUp>
 
-            {/* 底部说明 */}
+            {/* 底部说明。以前写「局域网直连 · 不经过任何第三方服务器」——
+                连线上团队时两句都不成立，模型调用本来就发给模型服务商。
+                这里只说能担保的事：文件和工作区留在你自己的电脑上。 */}
             <View style={{ marginTop: gap.xxl, alignItems: 'center', gap: 2 }}>
               <T size={type.micro} color={t.ink4} align="center" lh={17}>
-                同一局域网直连 · 数据保存在你自己的电脑上
+                工作区与文件留在你自己的电脑上
               </T>
               <T size={type.micro} color={t.ink4} align="center" lh={17}>
-                不经过任何第三方服务器
+                模型推理由所选模型服务商提供
               </T>
             </View>
           </ScrollView>

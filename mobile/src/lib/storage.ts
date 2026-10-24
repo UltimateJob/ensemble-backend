@@ -59,3 +59,24 @@ export async function deleteItem(key: string): Promise<void> {
     /* ignore */
   }
 }
+
+/**
+ * 清掉可再生的本地数据（当前群、默认群指针），**保留**账号/设备令牌与服务器地址。
+ *
+ * 「清除缓存」的语义就是「不影响登录、下次打开能自动重建」，
+ * 所以令牌和地址必须留着——清了等于把用户踢下线。
+ */
+export async function clearCache(): Promise<void> {
+  await deleteItem('zhituan_current_conv');
+  await deleteItem('zhituan_default_conv');
+}
+
+/** 本地数据的大致体积，用于在设置页显示真实大小。 */
+export async function cacheSize(): Promise<number> {
+  let bytes = 0;
+  for (const k of ['zhituan_current_conv', 'zhituan_default_conv']) {
+    const v = await getItem(k);
+    if (v) bytes += k.length + v.length;
+  }
+  return bytes;
+}

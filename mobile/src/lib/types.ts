@@ -317,3 +317,31 @@ export interface ToolCall {
   exitCode?: number;
   ok?: boolean;
 }
+
+/**
+ * 设备是否在线。
+ *
+ * 后端在设备令牌通过鉴权时每 10 分钟最多落一次 lastSeen，
+ * 所以 25 分钟内有过活动就算在线。不要用「是否配过对」判断——
+ * 电脑关机后那个条件永远为真，界面会一直亮着「在线」。
+ */
+export function isDeviceOnline(d?: Device | null): boolean {
+  if (!d || d.revokedAt) return false;
+  const t = new Date(d.lastSeen).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t < 25 * 60 * 1000;
+}
+
+/**
+ * 纸团号：从用户 ID 推出来的稳定四位展示号。
+ *
+ * 同一个用户在任何页面都必须看到同一个号——之前「我」页取 ID 后四位、
+ * 设置页另做一次哈希，两处对不上，看起来像两个账号。
+ * 只用于展示，不参与鉴权。
+ */
+export function paperNo(id?: string | null): string {
+  if (!id) return 'zt-1024';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return `zt-${1000 + (h % 9000)}`;
+}

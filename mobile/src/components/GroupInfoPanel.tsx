@@ -34,7 +34,7 @@ import {
   type,
   weight,
 } from '../theme/tokens';
-import type { AgentActivity, AgentState, Conversation } from '../lib/types';
+import { paperNo, type AgentActivity, type AgentState, type Conversation } from '../lib/types';
 
 /**
  * 群聊信息面板（设计规范 §6.11）。
@@ -111,14 +111,12 @@ export function GroupInfoPanel({
   members,
   activity,
   goal,
-  muted,
   isOwner,
   onClose,
   onOpenMember,
   onAddMember,
   onRename,
   onSetPermission,
-  onToggleMute,
   onLeave,
   onOpenLibrary,
   onOpenGoals,
@@ -130,7 +128,6 @@ export function GroupInfoPanel({
   activity: AgentActivity[];
   /** 这个群正在做的目标，展示为群公告。 */
   goal: { title: string; status: string } | null;
-  muted: boolean;
   isOwner: boolean;
   onClose: () => void;
   onOpenMember: (key: string) => void;
@@ -138,7 +135,6 @@ export function GroupInfoPanel({
   onAddMember?: () => void;
   onRename: (title: string) => Promise<void>;
   onSetPermission: (level: string) => Promise<void>;
-  onToggleMute: (v: boolean) => void;
   onLeave: () => void;
   onOpenLibrary: () => void;
   onOpenGoals: () => void;
@@ -166,7 +162,6 @@ export function GroupInfoPanel({
 
   const serverLevel = conv?.defaultPermission ?? '';
   const [draftLevel, setDraftLevel] = useState(serverLevel);
-  const [mutedLocal, setMutedLocal] = useState(muted);
 
   useEffect(() => {
     if (visible) setMounted(true);
@@ -193,7 +188,6 @@ export function GroupInfoPanel({
   }, [visible]);
 
   useEffect(() => setDraftLevel(serverLevel), [serverLevel]);
-  useEffect(() => setMutedLocal(muted), [muted]);
 
   if (!mounted) return null;
 
@@ -203,11 +197,8 @@ export function GroupInfoPanel({
   const stateOf = (m: PanelMember): AgentState | undefined =>
     m.state ?? activity.find((a) => a.key === m.key)?.state;
 
-  const ztId =
-    (conv?.id ?? '')
-      .replace(/[^a-zA-Z0-9]/g, '')
-      .slice(0, 4)
-      .toLowerCase() || '----';
+  // 群号用和账号同一套规则，只是种子换成会话 ID，避免两套算法对不上。
+  const ztId = paperNo(conv?.id);
 
   const APPS = [
     { icon: 'folder-outline' as const, label: '文件', tint: FILE_COLORS.doc, onPress: onOpenLibrary },
@@ -324,7 +315,7 @@ export function GroupInfoPanel({
                   {shownTitle}
                 </T>
                 <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 4 }}>
-                  纸团号 zt-{ztId}
+                  纸团号 {ztId}
                   {conv?.createdAt ? ` · 建于 ${fmtDate(conv.createdAt)}` : ''}
                 </T>
               </View>
@@ -624,21 +615,8 @@ export function GroupInfoPanel({
             ) : null}
           </Card>
 
-          {/* 消息免打扰 / 退出群聊 */}
+          {/* 退出群聊。免打扰在推送通道接上之前是空开关，先不摆出来。 */}
           <Card padded={false} style={[s.card, s.cardLines]}>
-            <Row style={[s.line, { borderBottomColor: t.hairline }]}>
-              <T size={type.sub} weight={weight.medium} style={{ flex: 1 }}>
-                消息免打扰
-              </T>
-              <Toggle
-                on={mutedLocal}
-                onChange={(v) => {
-                  setMutedLocal(v);
-                  onToggleMute(v);
-                }}
-              />
-            </Row>
-
             {confirmLeave ? (
               <View style={{ paddingVertical: gap.sm, gap: gap.xs }}>
                 <T size={type.micro} color={t.ink3} lh={leading.micro}>
@@ -713,11 +691,14 @@ const s = StyleSheet.create({
   card: { borderRadius: radius.card, padding: 14 },
   cardLines: { paddingTop: 0, paddingBottom: 0 },
   groupTile: {
-    width: 64,
+    // 三个 26px 头像叠放后宽约 74px。之前写 64，容器不够宽，
+    // 头像组被挤成竖排，看起来像三个孤立的方块。
+    width: 84,
     height: 64,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 12 },
   memberCell: { width: '20%', alignItems: 'center' },

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AddMemberSheet } from '../../src/components/AddMemberSheet';
 import { AgentPanel } from '../../src/components/AgentPanel';
 import { ApprovalTray } from '../../src/components/ApprovalTray';
 import { Avatar } from '../../src/components/Avatar';
@@ -22,7 +24,6 @@ import {
   FileCard,
   MemberBar,
   MemberBubble,
-  TaskCard,
   UserBubble,
   memberColor,
   withAlpha,
@@ -31,10 +32,17 @@ import {
 } from '../../src/components/chat';
 import { TypingDots } from '../../src/components/motion';
 import { Icon, T } from '../../src/components/ui';
-import { get, humanError, post, stream } from '../../src/lib/api';
+import { get, humanError, patch, post, stream } from '../../src/lib/api';
 import type { Approval } from '../../src/lib/runs';
 import { useApp } from '../../src/lib/store';
-import type { AgentActivity, ChatEvent, Conversation, Message } from '../../src/lib/types';
+import type {
+  AgentActivity,
+  ArtifactRef,
+  ChatEvent,
+  Conversation,
+  Goal,
+  Message,
+} from '../../src/lib/types';
 import { useTheme } from '../../src/theme/theme';
 import { gap, lead, radius, shadow, type, weight } from '../../src/theme/tokens';
 
@@ -60,13 +68,17 @@ export default function Room() {
   const officialHints = useApp((s) => s.officialHints);
 
   const [conv, setConv] = useState<Conversation | null>(null);
+  /** 这个群正在做的目标，作为群公告展示。取最新的进行中目标。 */
+  const [goal, setGoal] = useState<Goal | null>(null);
   const [msgs, setMsgs] = useState<Message[]>([]);
   const [activity, setActivity] = useState<AgentActivity[]>([]);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState('');
+  const inputRef = useRef<TextInput>(null);
   const [err, setErr] = useState('');
   const [panelAgent, setPanelAgent] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [approval, setApproval] = useState<{ a: Approval; runId: string } | null>(null);
   const [speaker, setSpeaker] = useState<string | null>(null);
@@ -144,7 +156,15 @@ export default function Room() {
   useEffect(() => {
     loadConv();
     loadActivity();
-  }, [loadConv, loadActivity]);
+    // 群公告取这个群最新的目标。拉不到就保持空，不编一个标题。
+    get<Goal[]>('/v1/goals')
+      .then((list) => {
+        const mine = (Array.isArray(list) ? list : []).filter((g) => g.conversationId === id);
+        mine.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+        setGoal(mine.find((g) => g.status === 'doing') ?? mine[0] ?? null);
+      })
+      .catch(() => {});
+  }, [loadConv, loadActivity, id]);
 
   // 一个 interval 管两件事：状态环 + 审批
   useEffect(() => {
@@ -423,6 +443,7 @@ export default function Room() {
               const found = rawMembers.find((x) => x.name === name);
               if (found) setPanelAgent(found.key);
             }}
+            onOpenFile={(a) => (a?.id ? router.push(`/artifact/${a.id}`) : router.push('/library'))}
           />
         )}
         onContentSizeChange={() => {
@@ -487,10 +508,8 @@ export default function Room() {
 
           {/* 输入行：图标直接落在板上，输入框不描边不填底 */}
           <View style={s.inputRow}>
-            <Pressable hitSlop={8} style={s.iconBtn}>
-              <Icon name="mic-outline" size={22} color={t.ink3} />
-            </Pressable>
             <TextInput
+              ref={inputRef}
               value={input}
               onChangeText={setInput}
               placeholder="发消息，或 @ 指定成员"
@@ -498,6 +517,16 @@ export default function Room() {
               multiline
               style={[s.input, { color: t.ink }]}
               editable={!busy}
+              // 桌面/Web 上回车＝发送。multiline 输入框不会触发
+              // onSubmitEditing，只能从按键事件里拦。
+              // 用输入法组合中的回车（选词）不算发送。
+              onKeyPress={(e: any) => {
+                const ne = e?.nativeEvent ?? {};
+                if (ne.key !== 'Enter' || ne.shiftKey || ne.isComposing) return;
+                if (!input.trim() || busy) return;
+                e.preventDefault?.();
+                void send();
+              }}
             />
             <Pressable onPress={() => setMentionOpen((v) => !v)} hitSlop={8} style={s.iconBtn}>
               <Icon name="at" size={21} color={mentionOpen ? t.ink : t.ink3} />
@@ -528,6 +557,17 @@ export default function Room() {
         </View>
       </KeyboardAvoidingView>
 
+      <AddMemberSheet
+        visible={addOpen}
+        conv={conv}
+        onClose={() => setAddOpen(false)}
+        onAdded={(next) => {
+          setConv(next);
+          setAddOpen(false);
+          loadConv();
+        }}
+      />
+
       <AgentPanel
         visible={!!panelAgent}
         agent={(() => {
@@ -538,6 +578,13 @@ export default function Room() {
         convId={id}
         workspaceId={(conv as any)?.workspaceId}
         onClose={() => setPanelAgent(null)}
+        onDirect={(name) => {
+          // 关面板 → 输入框里预先 @ 他：用户下一步一定是打字，
+          // 不把他带回输入框等于让他自己找一遍。
+          setPanelAgent(null);
+          insertMention(name);
+          inputRef.current?.focus();
+        }}
       />
 
       <GroupInfoPanel
@@ -552,19 +599,49 @@ export default function Room() {
           state: stateOf(activity.find((a) => a.key === m.key)),
         }))}
         activity={activity}
-        goal={null}
-        muted={false}
+        goal={goal ? { title: goal.title, status: goal.status } : null}
         isOwner={conv?.userId === userId}
         onClose={() => setInfoOpen(false)}
         onOpenMember={(key) => {
           setInfoOpen(false);
           setPanelAgent(key);
         }}
-        onAddMember={() => {}}
-        onRename={async () => {}}
-        onSetPermission={async () => {}}
-        onToggleMute={() => {}}
-        onLeave={() => router.back()}
+        onAddMember={() => {
+          setInfoOpen(false);
+          setAddOpen(true);
+        }}
+        onRename={async (title: string) => {
+          // 必须写回服务端：面板会在 await 成功后才显示新名字，
+          // 只改本地状态等于骗用户「改名成功了」。
+          const next = await patch<Conversation>(`/v1/conversations/${id}`, { title });
+          setConv((c) => (c ? { ...c, title: next?.title ?? title } : c));
+        }}
+        onSetPermission={async (level: string) => {
+          const next = await patch<Conversation>(`/v1/conversations/${id}`, {
+            defaultPermission: level,
+          });
+          setConv((c) =>
+            c ? { ...c, defaultPermission: next?.defaultPermission ?? level } : c,
+          );
+        }}
+        onLeave={() => {
+          Alert.alert('退出团队', `退出「${conv?.title ?? ''}」后将不再收到它的消息。`, [
+            { text: '取消', style: 'cancel' },
+            {
+              text: '退出',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await post(`/v1/conversations/${id}/leave`, {});
+                } catch (e) {
+                  Alert.alert('退出失败', humanError(e));
+                  return;
+                }
+                router.replace('/(main)');
+              },
+            },
+          ]);
+        }}
         onOpenLibrary={() => router.push('/library')}
         onOpenGoals={() => router.push('/goals')}
         onOpenConnect={() => router.push('/connect')}
@@ -583,26 +660,30 @@ function MessageRow({
   members,
   streaming,
   onAvatar,
+  onOpenFile,
 }: {
   msg: Message;
   prev?: Message;
   members: { key: string; name: string; color?: string }[];
   streaming: boolean;
   onAvatar: (name: string) => void;
+  onOpenFile: (a?: ArtifactRef) => void;
 }) {
   const t = useTheme();
 
   // 非文本消息（system 角色的富卡片）
   if (msg.role === 'system' && msg.artifacts?.length) {
     const title = msg.artifacts[0];
-    const isTask = /任务|方案|架构/.test(title);
+    // 这里只有「产出了什么」，没有进度也没有审批状态。
+    // 以前写死 step=3/5「等你审批」，等于给每条产物消息编一个假状态。
+    const ref = msg.attachments?.[0];
     return (
       <View style={{ marginVertical: 5, marginLeft: 50 }}>
-        {isTask ? (
-          <TaskCard title={title} step={3} total={5} status="等你审批" statusTone="blocked" />
-        ) : (
-          <FileCard name={title} meta={msg.agent ?? ''} />
-        )}
+        <FileCard
+          name={title}
+          meta={msg.agent ? `${msg.agent} 产出` : '产出'}
+          onPress={() => onOpenFile(ref)}
+        />
       </View>
     );
   }

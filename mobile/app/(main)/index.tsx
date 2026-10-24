@@ -30,7 +30,7 @@ import {
   type IoniconName,
 } from '../../src/components/ui';
 import { normalizeActivity } from '../../src/lib/activity';
-import { del, get, hasDeviceToken, humanError, patch, post } from '../../src/lib/api';
+import { del, get, humanError, patch, post } from '../../src/lib/api';
 import { getItem, setItem } from '../../src/lib/storage';
 import { useApp } from '../../src/lib/store';
 import type {
@@ -42,6 +42,7 @@ import type {
   Goal,
   Message,
 } from '../../src/lib/types';
+import { isDeviceOnline, paperNo } from '../../src/lib/types';
 import { useTheme } from '../../src/theme/theme';
 import { MEMBER_COLORS, type as ts } from '../../src/theme/tokens';
 
@@ -474,8 +475,12 @@ function TeamsPage({
     });
   }, [convs, states, officialConv, pinned]);
 
-  const hero = convs.length ? ranked[0] : null;
-  const others = convs.length ? ranked.slice(1) : [];
+  // 「一主卡 + 两列小卡」只在卡够多时才成立：
+  // 只有两个团队时，主卡占满一行、第二张孤零零卡在左半边，看着像断版。
+  // 两张就并排等宽，三张以上才让第一张当主视觉。
+  const useHero = ranked.length >= 3;
+  const hero = useHero ? ranked[0] : null;
+  const others = useHero ? ranked.slice(1) : ranked;
   /** 目标进度：优先用这个群在做的目标，没有就退到全局第一个进行中的 */
   const goalFor = (c: Conversation): Goal | undefined =>
     goals.find((g) => g.conversationId === c.id && g.status === 'doing') ??
@@ -1067,7 +1072,10 @@ function MePage({
   const used = Math.max(0, user?.used ?? 0);
   const remainPct = Math.max(0, Math.min(100, Math.round(((quota - used) / quota) * 100)));
   const myDevice = devices.find((d) => !d.revokedAt);
-  const online = hasDeviceToken() || !!myDevice;
+  // 在线必须看设备最后一次心跳，不能只看「有没有配过对」：
+  // 后端每 10 分钟落一次 LastSeen，两次心跳间隔的 2.5 倍算离线，
+  // 留够余量避免手机切后台回来时闪一下「离线」。
+  const online = isDeviceOnline(myDevice);
   const prefLevel = (user as { preferences?: Record<string, string> } | null)?.preferences
     ?.defaultPermission;
   const defaultLevel = prefLevel ?? convs.find((c) => c.defaultPermission)?.defaultPermission;
@@ -1115,7 +1123,7 @@ function MePage({
                   numberOfLines={1}
                   style={{ marginTop: 3 }}
                 >
-                  纸团号 {shortId(user?.id)} · {online ? '电脑在线' : '电脑离线'}
+                  纸团号 {paperNo(user?.id)} · {online ? '电脑在线' : '电脑离线'}
                 </T>
               </View>
               <Pressable onPress={onOpenSettings} hitSlop={12} accessibilityLabel="账号设置">
@@ -1204,7 +1212,8 @@ function MePage({
           colors={['#B98A5E', '#9A6E45']}
           label="默认权限级别"
           value={levelLabel(defaultLevel)}
-          onPress={onOpenDevices}
+          // 权限级别在设置页里改；以前这里跳到设备页，点进去找不到这个设置。
+          onPress={onOpenSettings}
         />
       </Surface>
 
@@ -1502,13 +1511,6 @@ function nextResetLabel(): string {
   const now = new Date();
   const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   return `${next.getMonth() + 1} 月 ${next.getDate()} 日`;
-}
-
-/** 纸团号：从用户 ID 里取后四位，稳定、可读。 */
-function shortId(id?: string): string {
-  const raw = (id ?? '').replace(/[^a-zA-Z0-9]/g, '');
-  const tail = raw.slice(-4).toLowerCase();
-  return tail ? `zt-${tail}` : 'zt-1024';
 }
 
 function lightenHex(hex: string, amount: number): string {
