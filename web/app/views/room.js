@@ -60,7 +60,7 @@ export async function mount(host, params, query) {
       <header class="room-head">
         <div class="rh-left">
           <h2 class="rh-title" id="chatTitle">${esc(conv.title)}</h2>
-          <div class="rh-sub" id="chatSub"><span class="dot-live"></span><span>${esc(scName(conv))}</span></div>
+          <div class="rh-sub" id="chatSub"><span class="dot-live"></span><span>${esc(conv.tagline || scName(conv))}</span></div>
         </div>
         <div class="avatar-row" id="avatarRow"></div>
         <div class="rh-right">

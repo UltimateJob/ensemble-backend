@@ -60,6 +60,7 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Title   string             `json:"title"`
 		Studio  string             `json:"studio"`
+		Tagline string             `json:"tagline"`
 		Model   string             `json:"model"`
 		Members []string           `json:"members"`
 		Agents  []domain.ConvAgent `json:"agents"`
@@ -131,6 +132,7 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 		Workspace:         req.Workspace,
 		DefaultPermission: req.DefaultPermission,
 		AgentPermissions:  req.AgentPermissions,
+		Tagline:           req.Tagline,
 	})
 	if err != nil {
 		serverErr(w, err.Error())
@@ -182,8 +184,9 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Title string `json:"title"`
-		Model string `json:"model"`
+		Title   string `json:"title"`
+		Tagline string `json:"tagline"`
+		Model   string `json:"model"`
 		// Agents 用指针区分「没带这个字段」和「带了个空数组」：
 		// 没带＝不动角色；带了空数组＝把群恢复成场景预设（清空自定义角色）。
 		Agents *[]domain.ConvAgent `json:"agents"`
@@ -226,6 +229,13 @@ func (s *Server) handleUpdateConv(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		conv.Title = req.Title
+	}
+	if req.Tagline != "" {
+		if len([]rune(req.Tagline)) > 60 {
+			badRequest(w, "简介太长了（最多 60 字）")
+			return
+		}
+		conv.Tagline = req.Tagline
 	}
 	if req.Model != "" {
 		conv.Model = req.Model

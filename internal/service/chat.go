@@ -32,6 +32,8 @@ type CreateOptions struct {
 	Workspace         *domain.ConvWorkspace
 	DefaultPermission string
 	AgentPermissions  map[string]string
+	// Tagline 一句话简介，显示在房间标题下方。
+	Tagline string
 }
 
 // Create 新建会话。
@@ -58,6 +60,7 @@ func (c *Chat) CreateWithOptions(userID, title, studio, model string, members []
 		Model:             model,
 		Members:           members,
 		Agents:            agents,
+		Tagline:           strings.TrimSpace(opts.Tagline),
 		Workspace:         opts.Workspace,
 		DefaultPermission: defaultPerm,
 		AgentPermissions:  opts.AgentPermissions,

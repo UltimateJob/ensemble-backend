@@ -709,3 +709,12 @@
 
 /* 额度用完时的兑换入口 */
 .quota-redeem{margin:10px auto 0;display:block}
+
+/* 自定义模板卡：和预设卡同骨架，封面用纯色块 + 图标 */
+.tpl-cover{
+  height:132px;display:grid;place-items:center;
+  background:linear-gradient(150deg,var(--pri-soft),rgba(47,107,255,.06));
+  color:var(--pri-deep);
+}
+.tpl-del{color:var(--ink-4);margin-left:-4px}
+.tpl-del:hover{color:var(--bad);background:rgba(220,38,38,.08)}
