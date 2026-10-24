@@ -277,7 +277,10 @@ func (o *Orchestrator) loop(ctx context.Context, conv *domain.Conversation, user
 	promptSc.Agents = agents
 
 	allMessages := o.store.ListMessages(conv.ID, 0)
-	history := trimHistory(allMessages, 6000)
+	// 超出预算时把早期对话压成摘要，而不是直接丢掉——
+	// 群聊一长角色会忘了之前定过什么。
+	// 摘要由 buildHistory 写进 conv.Summary，ask 里统一读
+	_, history := o.buildHistory(ctx, conv, allMessages)
 	now := time.Now()
 	gap := ""
 	if len(history) >= 2 {
@@ -606,6 +609,11 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 		agent.Prompt, sc.Name, agent.Name, agent.Title, otherAgents(sc, agent.Key),
 		worldLine(sc.World), mode, memoryCardLine(memoryCard, timeLine), agent.Name, forceLine(force))
 
+	// 早期对话的摘要接在系统提示后面。放这里而不是塞进 history：
+	// 它是「背景知识」，不是一条消息，模型需要知道这是压缩过的。
+	if block := summaryBlock(conv.Summary); block != "" {
+		sys += block
+	}
 	msgs := []domain.ChatMessage{{Role: "system", Content: sys}}
 	for _, m := range history {
 		who := "用户"
