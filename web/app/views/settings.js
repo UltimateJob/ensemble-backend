@@ -89,6 +89,8 @@ function render() {
         ${row('bell', '消息通知', '审批与任务完成提醒', 'toggleNotify', notifyOn)}
         ${row('shield-alert', '账号安全', hasPassword ? '已设置密码 · 可修改' : '尚未设置密码（仅验证码登录）', 'security')}
         ${row('lock', '隐私设置', '数据与可见范围', 'privacy')}
+        ${row('sparkles', '重新看一遍引导', '了解团队、房间和角色怎么用', 'onboarding')}
+        ${row('info', '关于纸团', '版本与开源信息', 'about')}
         ${row('log-out', '退出登录', '', 'logout', null, true)}
       </section>
     </div>`;
@@ -144,9 +146,13 @@ function bind() {
   });
 
   root.querySelector('[data-act=security]')?.addEventListener('click', () => openPasswordDialog());
-  root.querySelector('[data-act=privacy]')?.addEventListener('click', () => {
-    toast('工作区文件只存在本机，不会上传');
+  root.querySelector('[data-act=privacy]')?.addEventListener('click', openPrivacy);
+  root.querySelector('[data-act=onboarding]')?.addEventListener('click', async () => {
+    const { resetOnboarding } = await import('../js/onboarding.js');
+    resetOnboarding();
+    location.hash = '#/lobby';
   });
+  root.querySelector('[data-act=about]')?.addEventListener('click', openAbout);
   root.querySelector('[data-act=logout]')?.addEventListener('click', async () => {
     if (!await confirmModal({
       title: '退出登录',
@@ -240,6 +246,54 @@ async function saveAvatar(avatar) {
   } catch (e) {
     toast('保存失败：' + (e.message || ''), { type: 'err' });
   }
+}
+
+// 隐私：不是一句 toast，说清楚数据到底在哪。
+// 用户真正关心的是「我的代码会不会被传走」，这个问题值得一屏说明。
+function openPrivacy() {
+  openModal({
+    title: '隐私与数据',
+    width: 520,
+    body: `
+      <div class="pv-sec">
+        <h4>${icon('folder', 15)}工作区文件</h4>
+        <p>代码、文档、执行产生的文件，全部只在你本机的目录里。服务端不保存副本，也不会上传。</p>
+      </div>
+      <div class="pv-sec">
+        <h4>${icon('message-circle', 15)}聊天内容</h4>
+        <p>消息存在你选择的后端。桌面端默认存在本机；如果你连的是团队服务器，消息会在那台服务器上，团队可见范围内的成员能看到。</p>
+      </div>
+      <div class="pv-sec">
+        <h4>${icon('zap', 15)}模型调用</h4>
+        <p>发给模型的只有对话内容和必要的工作区片段。API Key 只存在服务端，客户端不持有。</p>
+      </div>
+      <div class="pv-sec">
+        <h4>${icon('shield-alert', 15)}本地执行</h4>
+        <p>执行命令时以你本人的系统权限运行，不是沙箱。只对信任的目录开启「完全访问」。</p>
+      </div>`,
+    actions: [{ key: 'ok', label: '知道了', kind: 'primary' }],
+  });
+}
+
+function openAbout() {
+  const ver = '1.3.1';
+  openModal({
+    title: '关于纸团',
+    width: 460,
+    body: `
+      <div class="about-box">
+        <img src="/site/brand/logo-mark.png" alt="" class="about-logo">
+        <div>
+          <b>纸团</b>
+          <span>版本 ${esc(ver)}</span>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:14px;line-height:1.7">
+        几个角色分工协作，每一步都落成文件，最后由你确认。<br>
+        桌面端自带本地后端：执行在你机器上，模型调用走服务器。
+      </p>`,
+    actions: [{ key: 'ok', label: '好', kind: 'primary' }],
+  });
 }
 
 function openPasswordDialog() {

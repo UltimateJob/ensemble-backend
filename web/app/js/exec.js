@@ -166,6 +166,19 @@ function setPill(rec, text, kind) {
 function applyRunEvent(rec, ev) {
   const d = ev.data || {};
   switch (ev.type) {
+    // 断流与重连要显式告诉用户：之前断了只 console.warn，
+    // 气泡停在「执行中」，用户不知道是在跑还是已经挂了。
+    case 'stream.reconnecting':
+      setPill(rec, '连接中断，重连中', 'warn');
+      break;
+    case 'stream.reconnected':
+      setPill(rec, '执行中', 'on');
+      rec.now.textContent = '已重新连上，继续接收进度';
+      break;
+    case 'stream.lost':
+      setPill(rec, '连接已断开', 'bad');
+      rec.now.textContent = '实时进度断了（' + (d.reason || '') + '）。任务可能还在后端跑，刷新页面能看到最新状态。';
+      break;
     case 'run.start':
       rec.maxSteps = d.maxSteps || 0;
       rec.step.textContent = '第 0/' + rec.maxSteps + ' 步';
