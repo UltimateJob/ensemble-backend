@@ -122,14 +122,14 @@ async function save(mask) {
   const name = mask.querySelector('#ntName').value.trim();
   if (!name) { toast('先写团队名称', { type: 'err' }); return false; }
   if (!picked.length) { toast('至少加一个角色', { type: 'err' }); return false; }
-  // 简介目前只做界面（会话表没有简介字段），不随请求发送。
+  const tagline = mask.querySelector('#ntDesc')?.value.trim() || '';
 
   const btn = mask.querySelector('[data-x=save]');
   if (btn) { btn.disabled = true; btn.textContent = '创建中…'; }
   try {
     const conv = await api('/v1/conversations', {
       method: 'POST',
-      body: { title: name, studio: 'custom', agents: picked },
+      body: { title: name, studio: 'custom', agents: picked, tagline },
     });
     state.convs = await api('/v1/conversations').catch(() => state.convs);
     renderNav(state.convs);   // 新房间立刻出现在左栏

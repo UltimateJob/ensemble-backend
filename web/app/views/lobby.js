@@ -6,7 +6,8 @@ import { $, api, state, esc, icon, hydrateIcons, emptyState, toast } from '../js
 import { navigate } from '../js/router.js';
 import { avatarHTML, coverUrl } from '../js/avatars.js';
 import { stagger } from '../js/motion.js';
-import { openModal, closeModal } from '../js/modal.js';
+import { openModal, closeModal, confirmModal } from '../js/modal.js';
+import { renderNav } from '../js/shell.js';
 
 // 大厅展示的四个预设：三个工作组 + 草帽团。
 // 「二次元茶话会」是随机抽人的场景，放进大厅会让人以为角色是固定的；
@@ -54,6 +55,28 @@ function presetCard(sc) {
   </article>`;
 }
 
+// 用户保存的模板卡：外观和预设一致，但不是场景，用模板 id 建群。
+function templateCard(t) {
+  const agents = (t.agents || []).slice(0, 5);
+  // 和预设卡保持同一套骨架（封面 + 正文 + 底栏），
+  // 否则两块并排时高度参差，看着像半成品。
+  return `<article class="team-card tpl-card" data-tpl="${esc(t.id)}">
+    <div class="tpl-cover">${icon('bookmark', 26)}</div>
+    <div class="team-body">
+      <h3>${esc(t.name)}</h3>
+      <p>${esc(t.tagline || '自定义模板')}</p>
+      <div class="team-agents">
+        ${agents.map(a => avatarHTML(a.name, a.color, { size: 26 })).join('')}
+      </div>
+    </div>
+    <div class="team-foot">
+      <button class="btn btn-primary" data-usetpl="${esc(t.id)}">用这个模板</button>
+      <button class="icon-btn tpl-del" data-deltpl="${esc(t.id)}" title="删除模板">${icon('trash', 14)}</button>
+      <span class="tf-hint">${agents.length || 0} 个角色</span>
+    </div>
+  </article>`;
+}
+
 function scName(conv) {
   const sc = state.scenarios.find(s => s.key === conv.studio);
   return sc ? sc.name : '自定义';
@@ -90,6 +113,9 @@ function render() {
     .map(k => state.scenarios.find(s => s.key === k))
     .filter(Boolean);
   const mine = state.convs || [];
+  // 用户自己存的模板。之前存完就找不到了——大厅只渲染固定四个预设，
+  // toast 说「可在变体里换人」，但没有任何地方能看到它。
+  const templates = state.studios || [];
 
   root.innerHTML = `
     <div class="page">
@@ -106,6 +132,12 @@ function render() {
       <section class="sec">
         <h2 class="sec-h">我的团队</h2>
         <div class="team-list">${mine.map(teamRow).join('')}</div>
+      </section>` : ''}
+
+      ${templates.length ? `
+      <section class="sec">
+        <h2 class="sec-h">我的模板</h2>
+        <div class="team-grid">${templates.map(templateCard).join('')}</div>
       </section>` : ''}
 
       <section class="sec">
@@ -133,6 +165,45 @@ function render() {
     b.addEventListener('click', e => {
       e.stopPropagation();
       join(b.dataset.join, b);
+    });
+  });
+  root.querySelectorAll('[data-usetpl]').forEach(b => {
+    b.addEventListener('click', async e => {
+      e.stopPropagation();
+      const tpl = (state.studios || []).find(t => t.id === b.dataset.usetpl);
+      if (!tpl) return;
+      b.disabled = true;
+      try {
+        const conv = await api('/v1/conversations', {
+          method: 'POST',
+          body: { title: tpl.name, studio: 'custom', agents: tpl.agents || [], tagline: tpl.tagline || '' },
+        });
+        const list = await api('/v1/conversations').catch(() => []);
+        state.convs = list || state.convs;
+        renderNav(state.convs);
+        location.hash = '#/room/' + encodeURIComponent(conv.id);
+      } catch (err) {
+        toast('创建失败：' + (err.message || ''), { type: 'err' });
+        b.disabled = false;
+      }
+    });
+  });
+  root.querySelectorAll('[data-deltpl]').forEach(b => {
+    b.addEventListener('click', async e => {
+      e.stopPropagation();
+      const yes = await confirmModal({
+        title: '删除这个模板？',
+        text: '只是模板，用它建的群不受影响。',
+        okText: '删除', danger: true,
+      });
+      if (!yes) return;
+      try {
+        await api('/v1/studios/' + encodeURIComponent(b.dataset.deltpl), { method: 'DELETE' });
+        state.studios = (state.studios || []).filter(t => t.id !== b.dataset.deltpl);
+        render();
+      } catch (err) {
+        toast('删除失败：' + (err.message || ''), 'err');
+      }
     });
   });
   root.querySelector('#newTeam')?.addEventListener('click', openNewTeam);

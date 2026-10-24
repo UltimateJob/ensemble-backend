@@ -71,6 +71,8 @@ type Conversation struct {
 	UserID  string   `json:"userId"`
 	Title   string   `json:"title"`
 	Studio  string   `json:"studio,omitempty"` // 工作室模板：bid | code | research | anime | companion | custom
+	// Tagline 一句话简介。新建团队时可以填，显示在房间标题下方。
+	Tagline string `json:"tagline,omitempty"`
 	Model   string   `json:"model"`
 	Members []string `json:"members"` // 场景内置角色的 key
 
