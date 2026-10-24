@@ -20,7 +20,7 @@ export function parse(hash) {
   const [head, id] = parts;
   if (head === 'room') return { name: 'room', params: { id: id || q.get('c') || '' }, query: q };
   if (head === 'c' && id) return { name: 'room', params: { id }, query: q };
-  if (['goals', 'connectors', 'library', 'settings'].includes(head)) {
+  if (['goals', 'connectors', 'library', 'settings', 'images'].includes(head)) {
     return { name: head, params: {}, query: q };
   }
   return { name: 'notfound', params: {}, query: q };

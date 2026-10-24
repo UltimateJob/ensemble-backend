@@ -15,9 +15,10 @@ import * as goals from '../views/goals.js';
 import * as connectors from '../views/connectors.js';
 import * as library from '../views/library.js';
 import * as settings from '../views/settings.js';
+import * as images from '../views/images.js';
 import * as notfound from '../views/notfound.js';
 
-defineViews({ lobby, room, goals, connectors, library, settings, notfound });
+defineViews({ lobby, room, goals, connectors, library, settings, images, notfound });
 initShell();
 
 // Run 事件总线：让各页面共用一条通道（detail: {runId, ev}）

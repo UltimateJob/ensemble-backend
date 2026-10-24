@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -131,6 +132,29 @@ func (j *ImageJobs) run(ctx context.Context, job *ImageJob, req gateway.ImageReq
 	}
 }
 
+// File 返回任务产出的第 i 张图。只有创建者能取。
+//
+// 按任务 + 序号取而不是让调用方传路径：后者等于开了一个能读服务器
+// 任意文件的接口。这里只认自己生成过、且记在任务里的那些文件。
+func (j *ImageJobs) File(userID, id string, i int) (string, error) {
+	j.mu.Lock()
+	job, ok := j.rows[id]
+	j.mu.Unlock()
+	if !ok || job.UserID != userID {
+		return "", ErrJobNotFound
+	}
+	if i < 0 || i >= len(job.Files) {
+		return "", errors.New("没有这张图")
+	}
+	p := job.Files[i].Path
+	// 再确认它确实落在输出目录里：任务表是内存态，
+	// 但路径最终来自上游响应，不该无条件信任。
+	if !strings.HasPrefix(filepath.Clean(p), filepath.Clean(j.outDir)+string(filepath.Separator)) {
+		return "", errors.New("文件路径不合法")
+	}
+	return p, nil
+}
+
 // Get 取一个任务。只有创建者能看。
 func (j *ImageJobs) Get(userID, id string) (*ImageJob, error) {
 	j.mu.Lock()
@@ -211,4 +235,3 @@ func MarshalJob(j *ImageJob) json.RawMessage {
 }
 
 var _ = os.Remove
-var _ = filepath.Join
