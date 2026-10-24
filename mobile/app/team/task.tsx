@@ -122,9 +122,13 @@ export default function TeamTask() {
           ) : null}
 
           <Button
-            label={busy ? '正在启动…' : '开始协作'}
+            label={
+              busy ? '正在启动…' : bound === null ? '检查工作区…' : '开始协作'
+            }
             full
-            disabled={busy || bound === false}
+            // bound 还是 null 时（工作区状态没查完）也不能点，
+            // 否则会绕过检查直接撞后端的 409。
+            disabled={busy || bound !== true}
             style={{ marginTop: gap.lg }}
             onPress={start}
           />

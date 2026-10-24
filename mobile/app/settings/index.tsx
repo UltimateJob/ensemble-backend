@@ -74,6 +74,8 @@ export default function Settings() {
   const setFontScale = useThemePref((s) => s.setFontScale);
 
   const [devices, setDevices] = useState<Device[]>([]);
+  // 加载完成前不能断言「未连接」——那会在打开瞬间闪一下错误状态。
+  const [devicesReady, setDevicesReady] = useState(false);
   const [err, setErr] = useState('');
 
   const [level, setLevel] = useState<PermissionLevel['key']>('approval');
@@ -102,6 +104,7 @@ export default function Settings() {
     try {
       const list = await get<Device[]>('/v1/devices');
       setDevices(Array.isArray(list) ? list : []);
+      setDevicesReady(true);
     } catch (e) {
       setErr(humanError(e));
     }
@@ -192,11 +195,13 @@ export default function Settings() {
   const onlineDevice = activeDevices.find((d) => isDeviceOnline(d));
   /** 「执行前审批」作用于当前这台设备；有多台时取最近活跃的那台。 */
   const currentDevice = onlineDevice ?? activeDevices[0];
-  const computerValue = activeDevices.length
-    ? onlineDevice
-      ? '已连接 · 在线'
-      : '已连接 · 离线'
-    : '未连接';
+  const computerValue = !devicesReady
+    ? '…'
+    : activeDevices.length
+      ? onlineDevice
+        ? '已连接 · 在线'
+        : '已连接 · 离线'
+      : '未连接';
   const levelLabel = LEVELS.find((l) => l.key === level)?.label ?? '工作区内修改';
   const paperId = paperNo(user?.id);
   const planLabel = user?.plan === 'pro' ? 'PRO 版' : user?.plan === 'team' ? '团队版' : '免费版';
