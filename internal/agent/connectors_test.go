@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/UltimateJob/ensemble-backend/internal/domain"
 )
 
 // fakeConnectors 模拟一组连接器动作。
@@ -25,7 +27,7 @@ func (f *fakeConnectors) Run(_ context.Context, _, connID, action string, _ map[
 // 否则模型会去调不存在的 github_search_code，白烧一轮。
 func TestToolsetWithoutConnectors(t *testing.T) {
 	m := NewManager()
-	tools, idx := m.toolsetFor("u1")
+	tools, idx := m.toolsetFor("u1", nil)
 
 	if len(idx) != 0 {
 		t.Fatalf("没配连接器却出现了动作：%v", idx)
@@ -48,7 +50,7 @@ func TestToolsetWithConnectors(t *testing.T) {
 		{Name: "notion_get_page__c2", Description: "[知识库] 读页面", Risk: "read", ConnID: "c2", Base: "notion_get_page"},
 	}})
 
-	tools, idx := m.toolsetFor("u1")
+	tools, idx := m.toolsetFor("u1", nil)
 	if len(idx) != 2 {
 		t.Fatalf("应有 2 个动作，实际 %d", len(idx))
 	}
@@ -100,4 +102,47 @@ func TestRunConnectorRejectsBadArgs(t *testing.T) {
 	if err == nil {
 		t.Fatal("坏参数应该报错")
 	}
+}
+
+// 生图工具必须同时满足两个条件：配了渠道 + 角色被授予 image 能力。
+//
+// 这条是本次改动的核心约束。以前只看「配没配渠道」，结果是一旦运维
+// 加了生图渠道，写文案的角色也能悄悄调用 image_generate 花掉额度。
+func TestImageToolRequiresCapability(t *testing.T) {
+	m := NewManager()
+	m.SetImageGen(&fakeImageRunner{})
+
+	// 配了渠道，但角色没有 image 能力：不该出现生图工具
+	tools, _ := m.toolsetFor("u1", nil)
+	if hasTool(tools, ToolImage) {
+		t.Fatal("没授予 image 能力的角色拿到了 image_generate")
+	}
+
+	// 授予能力后才有
+	tools, _ = m.toolsetFor("u1", []string{"image"})
+	if !hasTool(tools, ToolImage) {
+		t.Fatal("授予 image 能力后仍然没有 image_generate")
+	}
+
+	// 没配渠道时，即使有权限也不给——调了只会报错
+	m2 := NewManager()
+	tools, _ = m2.toolsetFor("u1", []string{"image"})
+	if hasTool(tools, ToolImage) {
+		t.Fatal("没配生图渠道却给了 image_generate")
+	}
+}
+
+func hasTool(tools []domain.Tool, name string) bool {
+	for _, t := range tools {
+		if t.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+type fakeImageRunner struct{}
+
+func (f *fakeImageRunner) Generate(ctx context.Context, userID, root, prompt, size string, n int) ([]ImageFile, error) {
+	return nil, nil
 }

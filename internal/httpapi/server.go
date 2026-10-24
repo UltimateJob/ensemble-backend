@@ -199,9 +199,11 @@ func (s *Server) Handler() http.Handler {
 	// 只能去猜哪里出了问题；现在接口一直在，返回 503 + 一句
 	// 「去运维台加一个图片生成渠道」，指路比隐藏入口有用。
 	userMux.HandleFunc("POST /v1/images", s.handleImageSubmit)
+	// 头像生成：提示词由平台固定，用户只给名字与简介。
+	userMux.HandleFunc("POST /v1/images/avatar", s.handleAvatarSubmit)
 	userMux.HandleFunc("GET /v1/images", s.handleImageJobs)
 	userMux.HandleFunc("GET /v1/images/{id}", s.handleImageJob)
-	userMux.HandleFunc("GET /v1/images/{id}/file", s.handleImageFile)
+
 	userMux.HandleFunc("DELETE /v1/images/{id}", s.handleImageCancel)
 	userMux.HandleFunc("GET /v1/characters", s.handleSearchCharacters)
 	userMux.HandleFunc("POST /v1/characters/to-agent", s.handleCharacterToAgent)
@@ -302,6 +304,10 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	// 配对接口免登录：手机首次配对时还没有任何凭证
+	// 图片文件：<Image> 带不了 Authorization，只能靠 URL 里的签名。
+	// 放在免登录 mux 上，由 handler 自己验签（常规 Bearer 也仍然接受）。
+	mux.HandleFunc("GET /v1/images/{id}/file", s.handleImageFile)
+
 	mux.HandleFunc("POST /v1/devices/pair", s.handlePair)
 
 	// 钱包与兑换码：用户侧只读余额/流水，兑换码由管理员生成。

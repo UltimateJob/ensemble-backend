@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/UltimateJob/ensemble-backend/internal/gateway"
 	"github.com/UltimateJob/ensemble-backend/internal/service"
@@ -79,7 +81,34 @@ func (s *Server) handleImageJob(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "任务不存在")
 		return
 	}
-	ok(w, job)
+	ok(w, s.withImageURLs(u.ID, job))
+}
+
+// withImageURLs 给任务的每张图补一个可直接塞进 <Image> 的地址。
+//
+// 地址里带短时效签名：<Image> 带不了 Authorization 头，
+// 而把接口改成公开又等于谁都能读别人的图。
+func (s *Server) withImageURLs(userID string, job *service.ImageJob) map[string]any {
+	files := make([]map[string]any, 0, len(job.Files))
+	for i, f := range job.Files {
+		u := ""
+		if s.auth != nil {
+			u = fmt.Sprintf("/v1/images/%s/file?i=%d&s=%s", job.ID, i,
+				s.auth.SignImage(userID, job.ID, 30*time.Minute))
+		}
+		files = append(files, map[string]any{"path": f.Path, "size": f.Size, "url": u})
+	}
+	return map[string]any{
+		"id":            job.ID,
+		"status":        job.Status,
+		"prompt":        job.Prompt,
+		"error":         job.Error,
+		"files":         files,
+		"revisedPrompt": job.RevisedPrompt,
+		"provider":      job.Provider,
+		"createdAt":     job.CreatedAt,
+		"endedAt":       job.EndedAt,
+	}
 }
 
 // handleImageJobs 列出该用户的最近任务。
@@ -117,8 +146,20 @@ func (s *Server) handleImageJobs(w http.ResponseWriter, r *http.Request) {
 // 按 job id + 序号取，不接受任意路径——否则等于开了个能读服务器
 // 任意文件的接口。鉴权和其它接口一致。
 func (s *Server) handleImageFile(w http.ResponseWriter, r *http.Request) {
-	u, found := UserFrom(r.Context())
-	if !found {
+	// 两条路进来：
+	//   1. 常规请求，Authorization 头里带令牌
+	//   2. <Image> 标签，带 ?s=<签名>（标签带不了 header）
+	var userID string
+	if u, found := UserFrom(r.Context()); found {
+		userID = u.ID
+	} else if sig := r.URL.Query().Get("s"); sig != "" && s.auth != nil {
+		uid, ok := s.auth.VerifyImageSig(r.PathValue("id"), sig)
+		if !ok {
+			unauthorized(w, "链接已过期")
+			return
+		}
+		userID = uid
+	} else {
 		unauthorized(w, "未登录")
 		return
 	}
@@ -132,7 +173,7 @@ func (s *Server) handleImageFile(w http.ResponseWriter, r *http.Request) {
 			idx = n
 		}
 	}
-	path, err := s.imageJobs.File(u.ID, r.PathValue("id"), idx)
+	path, err := s.imageJobs.File(userID, r.PathValue("id"), idx)
 	if err != nil {
 		notFound(w, "图片不存在")
 		return
@@ -156,3 +197,86 @@ func (s *Server) handleImageCancel(w http.ResponseWriter, r *http.Request) {
 }
 
 var _ = service.ErrImageDisabled
+
+// handleAvatarSubmit 按角色名字 + 简介生成一张头像。
+//
+// 和普通生图分开，因为提示词由平台固定：用户只提供名字和一句简介，
+// 风格、构图、尺寸、负面约束都由模板决定。这样：
+//   - 同一批头像看起来是一套的（都走同一个黏土肖像风格）
+//   - 用户不能借这个接口写任意提示词（它不是一个通用生图入口）
+func (s *Server) handleAvatarSubmit(w http.ResponseWriter, r *http.Request) {
+	u, found := UserFrom(r.Context())
+	if !found {
+		unauthorized(w, "未登录")
+		return
+	}
+	if s.imageJobs == nil || !s.imageJobs.Enabled() {
+		fail(w, 503, "image_disabled", "还没有配置生图渠道，暂时不能生成头像。")
+		return
+	}
+	if !s.allow("img:" + u.ID) {
+		tooManyRequests(w)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+		Bio  string `json:"bio"`
+	}
+	if err := decode(r, &req); err != nil {
+		badRequest(w, "请求格式不正确")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		badRequest(w, "先给角色起个名字")
+		return
+	}
+	// 名字和简介会原样进提示词。不截断的话，一段几万字的输入
+	// 会直接变成上游的 token 账单。
+	nameRunes := []rune(req.Name)
+	if len(nameRunes) > 30 {
+		nameRunes = nameRunes[:30]
+	}
+	bioRunes := []rune(strings.TrimSpace(req.Bio))
+	if len(bioRunes) > 200 {
+		bioRunes = bioRunes[:200]
+	}
+
+	prompt := avatarPrompt(string(nameRunes), string(bioRunes))
+	job, err := s.imageJobs.Submit(u.ID, gateway.ImageRequest{
+		Prompt: prompt,
+		Size:   "1024x1024",
+		N:      1,
+	})
+	if err != nil {
+		serverErr(w, err.Error())
+		return
+	}
+	created(w, job)
+}
+
+// avatarPrompt 平台固定的头像提示词。
+//
+// 三条约束来自实际效果：
+//   - 方形头像构图 + 居中半身，裁成圆形后不会切掉脸
+//   - 柔和单色背景，避免头像在深浅两种主题下都不协调
+//   - 明确负面词，减少文字、水印、多手多眼这类常见崩坏
+func avatarPrompt(name, bio string) string {
+	var sb strings.Builder
+	sb.WriteString("A stylized clay-sculpture portrait avatar of a character named \"")
+	sb.WriteString(name)
+	sb.WriteString("\". ")
+	if bio != "" {
+		sb.WriteString("Personality and role: ")
+		sb.WriteString(bio)
+		sb.WriteString(". ")
+	}
+	sb.WriteString("Head and shoulders centered, facing slightly off-camera, calm confident expression. ")
+	sb.WriteString("Soft matte clay texture with gentle studio lighting, muted warm earth tones, ")
+	sb.WriteString("plain soft beige background, subtle ambient shadow. ")
+	sb.WriteString("Square compose, generous margin around the head so it reads well when cropped to a circle. ")
+	sb.WriteString("Clean, premium, editorial character design. ")
+	sb.WriteString("No text, no watermark, no logo, no frame, no additional people, no extra limbs.")
+	return sb.String()
+}

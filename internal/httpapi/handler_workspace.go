@@ -164,6 +164,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 	operatorName := req.OperatorKey
 	operatorScope := req.Scope
+	var operatorCaps []string
 	// 会话里带了角色时，从角色上读权限与名字；请求体显式给的优先。
 	if bw.ConversationID != "" {
 		if conv, err := s.chat.Get(u.ID, bw.ConversationID); err == nil {
@@ -177,6 +178,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 						perm = agent.Permission(a.Permission)
 					}
 					operatorScope = a.Scope
+					operatorCaps = a.Capabilities
 					break
 				}
 			}
@@ -201,6 +203,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		UserID:         u.ID,
 		OperatorKey:    req.OperatorKey,
 		OperatorName:   operatorName,
+		Capabilities:   operatorCaps,
 		Permission:     perm,
 		Scope:          operatorScope,
 		Task:           req.Task,
@@ -318,6 +321,7 @@ func (s *Server) handleCollab(w http.ResponseWriter, r *http.Request) {
 			UserID:         u.ID,
 			OperatorKey:    a.Key,
 			OperatorName:   a.Name,
+			Capabilities:   a.Capabilities,
 			Permission:     perm,
 			Scope:          a.Scope,
 			Task:           task,
@@ -777,6 +781,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 			UserID:         u.ID,
 			OperatorKey:    a.Key,
 			OperatorName:   a.Name,
+			Capabilities:   a.Capabilities,
 			Permission:     p,
 			// 单聊里用户就是要这个人把整件事做完：内置角色的 scope
 			// 本来是给团队并行分工用的，单聊继续限制会让它连前端文件都改不了。

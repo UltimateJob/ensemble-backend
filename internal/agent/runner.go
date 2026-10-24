@@ -28,7 +28,9 @@ type StartRequest struct {
 	UserID         string
 	OperatorKey    string
 	OperatorName   string
-	Permission     Permission
+	// Capabilities 该角色被授予的能力（如 "image"），决定工具集。
+	Capabilities []string
+	Permission   Permission
 	// Scope 该 agent 允许写的路径（空表示不限）
 	Scope []string
 	// AutoReview 成功后自动起一轮只读复审
@@ -213,6 +215,7 @@ func (m *Manager) Start(ctx context.Context, model Model, req StartRequest) (*Ru
 		UserID:         req.UserID,
 		OperatorKey:    req.OperatorKey,
 		OperatorName:   req.OperatorName,
+		Capabilities:   req.Capabilities,
 		Permission:     req.Permission,
 		Scope:          Scope(req.Scope),
 		AutoReview:     req.AutoReview,
@@ -340,7 +343,7 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 
 	// 工具集在整轮里固定：本地文件工具 + 该用户已配置的连接器动作。
 	// 每步重新生成会让模型看到的工具列表前后不一致。
-	allTools, connActions := m.toolsetFor(r.UserID)
+	allTools, connActions := m.toolsetFor(r.UserID, r.Capabilities)
 	m.mu.Lock()
 	r.connActions = connActions
 	m.mu.Unlock()

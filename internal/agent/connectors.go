@@ -22,12 +22,16 @@ import (
 
 // toolsetFor 生成本次 Run 的工具集。
 // 返回：完整工具列表、按完整工具名索引的连接器动作。
-func (m *Manager) toolsetFor(userID string) ([]domain.Tool, map[string]ConnectorAction) {
+func (m *Manager) toolsetFor(userID string, agentCaps []string) ([]domain.Tool, map[string]ConnectorAction) {
 	m.mu.Lock()
 	cr := m.connectors
 	m.mu.Unlock()
 
-	tools := ToolsWithImage(m.hasImage(), nil...)
+	// 两个条件同时成立才给生图工具：
+	//   1. 运维配了生图渠道（否则调了也只会报错）
+	//   2. 这次执行的角色被显式授予了 image 能力
+	// 以前只看第 1 条，等于配了渠道之后每个角色都能生图。
+	tools := ToolsWithImage(m.hasImage() && hasCap(agentCaps, domain.CapImage), nil...)
 	index := map[string]ConnectorAction{}
 	if cr == nil {
 		return tools, index
@@ -85,6 +89,16 @@ func connectorRisk(r *Run, toolName string) string {
 // 约定：动作名形如 <action>__<connID>。
 func isConnectorTool(name string) bool {
 	return strings.Contains(name, "__")
+}
+
+// hasCap 判断能力列表里是否含某项。
+func hasCap(caps []string, want string) bool {
+	for _, c := range caps {
+		if c == want {
+			return true
+		}
+	}
+	return false
 }
 
 // hasImage 是否配了生图渠道。

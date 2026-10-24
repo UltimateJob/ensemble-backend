@@ -98,10 +98,22 @@ export default function Room() {
   const seenApprovals = useRef<Set<string>>(new Set());
 
   /* ---------- 成员 ---------- */
-  const rawMembers: { key: string; name: string; title?: string; color?: string }[] =
-    conv?.agents?.length
-      ? conv.agents.map((a) => ({ key: a.key, name: a.name, title: a.title, color: a.color }))
-      : activity.map((a) => ({ key: a.key, name: a.name }));
+  const rawMembers: {
+    key: string;
+    name: string;
+    title?: string;
+    color?: string;
+    capabilities?: string[];
+  }[] = conv?.agents?.length
+    ? conv.agents.map((a) => ({
+        key: a.key,
+        name: a.name,
+        title: a.title,
+        color: a.color,
+        capabilities: a.capabilities ?? [],
+      }))
+    // 模板角色由 studio 运行时解析，存储里没有 agents——能力也就无从设置。
+    : activity.map((a) => ({ key: a.key, name: a.name }));
 
   const members: BarMember[] = rawMembers.map((m, i) => ({
     key: m.key,
@@ -695,18 +707,57 @@ export default function Room() {
           setAddOpen(false);
           loadConv();
         }}
+        onNewAgent={() => router.push('/agent/new')}
       />
 
       <AgentPanel
         visible={!!panelAgent}
         agent={(() => {
           const f = rawMembers.find((a) => a.key === panelAgent);
-          return f ? { key: f.key, name: f.name, title: f.title, color: f.color } : null;
+          return f
+            ? {
+                key: f.key,
+                name: f.name,
+                title: f.title,
+                color: f.color,
+                capabilities: f.capabilities ?? [],
+              }
+            : null;
         })()}
         activity={activity.find((a) => a.key === panelAgent)}
         convId={id}
         workspaceId={(conv as any)?.workspaceId}
         onClose={() => setPanelAgent(null)}
+        onToggleCapability={async (cap, on) => {
+          // 后端 PATCH agents 会整组替换。两个坑：
+          //   1. 要把现有角色原样带回去，只改目标那一个，否则其他人被删
+          //   2. 模板群的 conv.agents 是空的（角色由 studio 运行时解析），
+          //      直接传空数组会把整队人清空——这里先补成解析后的列表
+          const base =
+            conv?.agents?.length
+              ? conv.agents
+              : rawMembers.map((m) => ({
+                  key: m.key,
+                  name: m.name,
+                  title: m.title ?? '',
+                  emoji: [...m.name][0] ?? '人',
+                  color: m.color ?? '',
+                  prompt: '',
+                  capabilities: m.capabilities ?? [],
+                }));
+          const agents = base.map((a) =>
+            a.key === panelAgent
+              ? {
+                  ...a,
+                  capabilities: on
+                    ? Array.from(new Set([...(a.capabilities ?? []), cap]))
+                    : (a.capabilities ?? []).filter((c) => c !== cap),
+                }
+              : a,
+          );
+          const next = await patch<Conversation>(`/v1/conversations/${id}`, { agents });
+          setConv(next);
+        }}
         onDirect={(name) => {
           // 关面板 → 输入框里预先 @ 他：用户下一步一定是打字，
           // 不把他带回输入框等于让他自己找一遍。

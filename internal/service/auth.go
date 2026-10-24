@@ -627,3 +627,40 @@ func defaultName(target string) string {
 	}
 	return "纸友"
 }
+
+// SignImage 给图片 URL 签一个短时效令牌。
+//
+// 为什么需要：<Image> 标签带不了 Authorization header，手机端没法
+// 用常规鉴权拉图。给它一个几分钟内有效、且绑定到「哪个用户 + 哪个
+// 任务」的签名，比把接口改成公开安全得多。
+//
+// token = <uid>.<exp>.<hmac(uid|jobID|exp)>
+func (a *Auth) SignImage(userID, jobID string, ttl time.Duration) string {
+	exp := strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)
+	mac := hmac.New(sha256.New, a.secret)
+	mac.Write([]byte("img|" + userID + "|" + jobID + "|" + exp))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return userID + "." + exp + "." + sig
+}
+
+// VerifyImageSig 校验图片签名，返回它对应的用户 ID。
+//
+// jobID 来自路径，必须参与验签——否则拿 A 任务的令牌就能读 B 任务的图。
+func (a *Auth) VerifyImageSig(jobID, raw string) (string, bool) {
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		return "", false
+	}
+	uid, expStr, got := parts[0], parts[1], parts[2]
+	exp, err := strconv.ParseInt(expStr, 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return "", false
+	}
+	mac := hmac.New(sha256.New, a.secret)
+	mac.Write([]byte("img|" + uid + "|" + jobID + "|" + expStr))
+	want := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(want), []byte(got)) {
+		return "", false
+	}
+	return uid, true
+}

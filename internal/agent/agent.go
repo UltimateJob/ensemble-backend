@@ -130,12 +130,15 @@ type Run struct {
 	// connActions 本次 Run 可用的连接器动作，按完整工具名索引。
 	// 不落盘：它来自用户当前的连接器配置，重启后按当时配置重建。
 	connActions    map[string]ConnectorAction
-	WorkspaceID    string     `json:"workspaceId"`
-	ConversationID string     `json:"conversationId"`
-	UserID         string     `json:"userId"`
-	OperatorKey    string     `json:"operatorKey"`
-	OperatorName   string     `json:"operatorName,omitempty"`
-	Permission     Permission `json:"permission"`
+	WorkspaceID    string `json:"workspaceId"`
+	ConversationID string `json:"conversationId"`
+	UserID         string `json:"userId"`
+	OperatorKey    string `json:"operatorKey"`
+	OperatorName   string `json:"operatorName,omitempty"`
+	// Capabilities 本次执行的角色被授予的能力（如 "image"）。
+	// 决定工具集里是否出现 image_generate。
+	Capabilities []string   `json:"capabilities,omitempty"`
+	Permission   Permission `json:"permission"`
 	// Scope 写入边界（相对路径/glob）。空表示不限。
 	Scope Scope `json:"scope,omitempty"`
 	// AutoReview 成功后自动起一轮只读复审

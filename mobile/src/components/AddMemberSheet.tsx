@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from './Avatar';
-import { Icon, T } from './ui';
+import { Icon, Row, T } from './ui';
 import { get, patch } from '../lib/api';
 import type { Conversation, ConvAgent } from '../lib/types';
 import { useTheme } from '../theme/theme';
@@ -43,6 +43,7 @@ interface MyAgent {
   emoji?: string;
   color?: string;
   prompt?: string;
+  capabilities?: string[];
 }
 
 export function AddMemberSheet({
@@ -50,12 +51,15 @@ export function AddMemberSheet({
   conv,
   onClose,
   onAdded,
+  onNewAgent,
 }: {
   visible: boolean;
   conv: Conversation | null;
   onClose: () => void;
   /** 加成功后把最新的会话回传，调用方直接替换本地状态。 */
   onAdded: (conv: Conversation) => void;
+  /** 去创建新角色（现有库里没有想要的）。 */
+  onNewAgent?: () => void;
 }) {
   const t = useTheme();
   const [q, setQ] = useState('');
@@ -191,9 +195,28 @@ export function AddMemberSheet({
           <T size={type.title} weight={weight.strong}>
             添加成员
           </T>
-          <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="关闭">
-            <Icon name="close" size={24} color={t.ink3} />
-          </Pressable>
+          <Row gap={14} align="center">
+            {/* 建一个新角色，而不是从现成的里面挑 */}
+            <Pressable
+              onPress={() => {
+                onClose();
+                onNewAgent?.();
+              }}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="新建角色"
+            >
+              <Row gap={4} align="center">
+                <Icon name="add-circle-outline" size={17} color={t.ink2} />
+                <T size={type.caption} weight={weight.medium} color={t.ink2}>
+                  新建
+                </T>
+              </Row>
+            </Pressable>
+            <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="关闭">
+              <Icon name="close" size={24} color={t.ink3} />
+            </Pressable>
+          </Row>
         </View>
 
         <View style={[s.search, { backgroundColor: t.card, borderColor: t.line }]}>
@@ -222,7 +245,7 @@ export function AddMemberSheet({
             {mineShown.length ? (
               <Section label="我的角色" count={mineShown.length}>
                 {mineShown.map((a) => (
-                  <Row
+                  <MemberRow
                     key={a.id}
                     name={a.name}
                     sub={a.title || '自定义人设'}
@@ -230,6 +253,7 @@ export function AddMemberSheet({
                     color={a.color || t.accent}
                     busy={busy === 'own:' + a.id}
                     disabled={!!busy}
+                    canImage={(a.capabilities ?? []).includes('image')}
                     onPress={() => addAgent(a)}
                   />
                 ))}
@@ -239,7 +263,7 @@ export function AddMemberSheet({
             {libShown.length ? (
               <Section label="角色库" count={libShown.length}>
                 {libShown.map((c) => (
-                  <Row
+                  <MemberRow
                     key={c.name}
                     name={c.name}
                     sub={c.work}
@@ -299,13 +323,14 @@ function Section({
   );
 }
 
-function Row({
+function MemberRow({
   name,
   sub,
   emoji,
   color,
   busy,
   disabled,
+  canImage,
   onPress,
 }: {
   name: string;
@@ -314,6 +339,8 @@ function Row({
   color: string;
   busy: boolean;
   disabled: boolean;
+  /** 这个角色是否被授予生图能力，列表里标出来便于挑选。 */
+  canImage?: boolean;
   onPress: () => void;
 }) {
   const t = useTheme();
@@ -334,9 +361,19 @@ function Row({
         <T size={type.card} weight={weight.strong} numberOfLines={1}>
           {name}
         </T>
-        <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 2 }}>
-          {sub}
-        </T>
+        <Row gap={6} align="center" style={{ marginTop: 2 }}>
+          <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ flexShrink: 1 }}>
+            {sub}
+          </T>
+          {canImage ? (
+            <View style={[s.capTag, { backgroundColor: t.accentSoft }]}>
+              <Icon name="image" size={9} color={t.accent} />
+              <T size={9} weight={weight.semibold} color={t.accent}>
+                可生图
+              </T>
+            </View>
+          ) : null}
+        </Row>
       </View>
       {busy ? (
         <ActivityIndicator color={t.ink3} />
@@ -374,6 +411,14 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: gap.md,
     marginBottom: 8,
+  },
+  capTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
   },
   row: {
     flexDirection: 'row',

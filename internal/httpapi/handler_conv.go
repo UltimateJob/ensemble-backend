@@ -37,6 +37,8 @@ func (s *Server) handleListConvs(w http.ResponseWriter, r *http.Request) {
 				agents = append(agents, domain.ConvAgent{
 					Key: a.Key, Name: a.Name, Title: a.Title,
 					Emoji: a.Emoji, Color: a.Color,
+					// 能力必须一起带出去，否则手机端看不到「谁能生图」
+					Capabilities: a.Capabilities,
 				})
 			}
 		}

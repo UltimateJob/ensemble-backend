@@ -128,7 +128,7 @@ func agentsFromConversation(conv *domain.Conversation) []Agent {
 		out = append(out, Agent{
 			Key: key, CharacterID: cid, Name: a.Name, Title: a.Title,
 			Emoji: a.Emoji, Color: a.Color, Prompt: a.Prompt, Permission: a.Permission, Scope: a.Scope,
-			Upgraded: a.Upgraded,
+			Upgraded: a.Upgraded, Capabilities: a.Capabilities,
 		})
 	}
 	return out

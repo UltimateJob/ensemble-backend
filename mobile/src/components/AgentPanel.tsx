@@ -52,15 +52,24 @@ export function AgentPanel({
   workspaceId,
   onClose,
   onDirect,
+  onToggleCapability,
 }: {
   visible: boolean;
-  agent: { key: string; name: string; title?: string; color?: string } | null;
+  agent: {
+    key: string;
+    name: string;
+    title?: string;
+    color?: string;
+    capabilities?: string[];
+  } | null;
   activity?: AgentActivity;
   convId: string;
   workspaceId?: string;
   onClose: () => void;
   /** 「单独发指令」：关掉面板，把 @他 填进输入框，光标落在后面。 */
   onDirect?: (agentName: string) => void;
+  /** 切换某项能力（目前只有生图）。不传则不显示这一块。 */
+  onToggleCapability?: (cap: string, on: boolean) => Promise<void>;
 }) {
   const th = useTheme();
   const s = useMemo(() => mkStyles(th), [th]);
@@ -163,6 +172,22 @@ export function AgentPanel({
     agent.title || '团队成员',
     convTitle || null,
   ].filter(Boolean).join(' · ');
+
+  const [capBusy, setCapBusy] = useState<string | null>(null);
+  const [capErr, setCapErr] = useState('');
+
+  async function toggleCap(cap: string, on: boolean) {
+    if (!onToggleCapability || capBusy) return;
+    setCapErr('');
+    setCapBusy(cap);
+    try {
+      await onToggleCapability(cap, on);
+    } catch (e) {
+      setCapErr(humanError(e));
+    } finally {
+      setCapBusy(null);
+    }
+  }
 
   async function pickLevel(next: string) {
     if (next === level || savingLevel || !convId) return;
@@ -357,6 +382,66 @@ export function AgentPanel({
                 </T>
               ) : null}
             </View>
+
+            {onToggleCapability ? (
+              <>
+                <View style={[s.hair, { backgroundColor: th.line }]} />
+                <View style={s.settingRow}>
+                  <View style={{ flex: 1 }}>
+                    <T size={type.card} weight={weight.strong}>
+                      生成图片
+                    </T>
+                    <T size={type.micro} color={th.ink3} style={{ marginTop: 2 }}>
+                      授予后它才能在对话里直接出图
+                    </T>
+                  </View>
+                  {capBusy === 'image' ? (
+                    <ActivityIndicator size="small" color={th.ink3} />
+                  ) : (
+                    <Pressable
+                      onPress={() =>
+                        void toggleCap('image', !(agent?.capabilities ?? []).includes('image'))
+                      }
+                      accessibilityRole="switch"
+                      accessibilityState={{
+                        checked: (agent?.capabilities ?? []).includes('image'),
+                      }}
+                      accessibilityLabel="生成图片能力"
+                    >
+                      <View
+                        style={{
+                          width: 51,
+                          height: 31,
+                          borderRadius: 16,
+                          padding: 2.5,
+                          justifyContent: 'center',
+                          backgroundColor: (agent?.capabilities ?? []).includes('image')
+                            ? th.primaryBg
+                            : th.cardSunken,
+                        }}
+                      >
+                        <View
+                          style={[
+                            s.capKnob,
+                            {
+                              backgroundColor: th.card,
+                              alignSelf: (agent?.capabilities ?? []).includes('image')
+                                ? 'flex-end'
+                                : 'flex-start',
+                            },
+                          ]}
+                        />
+                      </View>
+                    </Pressable>
+                  )}
+                </View>
+                {capErr ? (
+                  <T size={type.micro} color={th.bad} style={{ paddingHorizontal: 9, paddingBottom: 6 }}>
+                    {capErr}
+                  </T>
+                ) : null}
+              </>
+            ) : null}
 
             <View style={[s.hair, { backgroundColor: th.line }]} />
 
@@ -555,7 +640,17 @@ const mkStyles = (th: Theme) =>
       borderWidth: th.dark ? StyleSheet.hairlineWidth : 0,
       borderColor: th.cardBorder,
     },
-    settingRow: {
+    capKnob: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  settingRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: gap.xs,

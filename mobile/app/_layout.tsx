@@ -82,6 +82,7 @@ export default function RootLayout() {
             <Stack.Screen name="team/task" />
             <Stack.Screen name="usage" />
             <Stack.Screen name="search" />
+            <Stack.Screen name="agent/new" />
           </Stack.Protected>
         </Stack>
       </ErrorBoundary>

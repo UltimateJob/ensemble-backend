@@ -1,5 +1,7 @@
 package service
 
+import "github.com/UltimateJob/ensemble-backend/internal/domain"
+
 // Scenario 一个开箱即用的场景模板：一组角色 + 各自的系统提示 + 发言顺序。
 type Scenario struct {
 	Key      string  `json:"key"`
@@ -44,6 +46,8 @@ type Agent struct {
 	Permission string `json:"permission,omitempty"`
 	// Scope 允许改的路径；空表示不限。
 	Scope []string `json:"scope,omitempty"`
+	// Capabilities 显式授予的能力（"image" 等）。运行时会带进 ConvAgent。
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // Scenarios 全部内置场景。新增场景只需在这里加一项。
@@ -100,7 +104,11 @@ var Scenarios = []Scenario{
 			{Key: "copy", Name: "文案写手", Title: "正文与标题", Emoji: "文", Color: "#0369A1", Artifact: "笔记正文",
 				Prompt: "你负责正文。口语化、第一人称、有具体细节。标题给 3 个备选，不用夸张符号堆砌。正文 300 字以内。"},
 			{Key: "visual", Name: "视觉策划", Title: "封面与配图", Emoji: "视", Color: "#B45309", Artifact: "配图方案",
-				Prompt: "你负责视觉。描述封面构图、配色、文字位置；说明每张配图要表达什么。不写代码、不描述具体品牌。"},
+				// 这是官方库里唯一带生图能力的角色：配图方案要能真的出图，
+				// 而不只是用文字描述构图。其余角色不授予 image 能力。
+				Capabilities: []string{domain.CapImage},
+				Prompt: "你负责视觉。需要配图时直接调用 image_generate 出图（一两条关键图就够，别一次生成太多）；" +
+					"同时用一句话说明这张图要表达什么。不写代码、不描述具体品牌。"},
 			{Key: "tag", Name: "标签运营", Title: "标签与发布", Emoji: "标", Color: "#047857",
 				Prompt: "你负责标签与发布节奏。给 8-12 个标签，分成大流量/精准/长尾三层，说明各层作用。只列标签与一句话理由。"},
 		},

@@ -129,8 +129,10 @@ type SavedAgent struct {
 	Source string `json:"source,omitempty"` // draft（AI 生成）| manual（手写）
 	// Upgraded 升级角色：发言走任务池模型（deepseek-v4.1-flash 这类），
 	// 处理文件、写代码等高难度任务能力更强。默认不升级。
-	Upgraded  bool      `json:"upgraded,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	Upgraded bool `json:"upgraded,omitempty"`
+	// Capabilities 创建时授予的能力，如 "image"（可调用生图）。
+	Capabilities []string  `json:"capabilities,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // SavedStudio 用户自己保存的工作室模板。
@@ -166,6 +168,23 @@ type ConvAgent struct {
 	Permission string `json:"permission,omitempty"`
 	// Scope 该角色允许写的路径（如 "web/" 或 "*.go"）。空表示不限。
 	Scope []string `json:"scope,omitempty"`
+	// Capabilities 这个角色被显式授予的能力，如 "image"。
+	// 生图不是「配了渠道就人人能用」——只有带 image 能力的角色才拿得到
+	// image_generate 工具，否则一个写文案的角色也能悄悄花掉生图额度。
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+// CapImage 生图能力。
+const CapImage = "image"
+
+// HasCapability 判断角色是否被授予某项能力。
+func (a *ConvAgent) HasCapability(cap string) bool {
+	for _, c := range a.Capabilities {
+		if c == cap {
+			return true
+		}
+	}
+	return false
 }
 
 // Message 一条消息。Agent 消息带产物引用。

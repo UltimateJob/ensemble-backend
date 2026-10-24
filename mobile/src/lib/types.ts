@@ -26,6 +26,8 @@ export interface ConvAgent {
   emoji: string;
   color: string;
   upgraded?: boolean;
+  /** 显式授予的能力。"image" = 可调用生图。 */
+  capabilities?: string[];
   artifact?: string;
   permission?: 'readonly' | 'ask' | 'approval' | 'full' | 'audit';
   scope?: string[];
@@ -97,6 +99,7 @@ export interface ScenarioAgent {
   emoji: string;
   color: string;
   upgraded?: boolean;
+  capabilities?: string[];
   artifact?: string;
   permission?: string;
   scope?: string[];

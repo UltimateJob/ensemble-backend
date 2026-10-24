@@ -60,6 +60,8 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		Prompt string `json:"prompt"`
 		// Upgraded 用指针区分「没带」和「false」
 		Upgraded *bool `json:"upgraded"`
+		// Capabilities 传了就整组替换（空数组等于收回全部能力）
+		Capabilities *[]string `json:"capabilities"`
 	}
 	if err := decode(r, &req); err != nil {
 		badRequest(w, "请求格式不正确")
@@ -76,6 +78,9 @@ func (s *Server) handleUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		if req.Upgraded != nil {
 			cur.Upgraded = *req.Upgraded
 		}
+	}
+	if req.Capabilities != nil {
+		cur.Capabilities = *req.Capabilities
 	}
 	if err := s.store.UpdateAgent(cur); err != nil {
 		serverErr(w, err.Error())
@@ -120,6 +125,7 @@ func (s *Server) handleAgentToConversation(w http.ResponseWriter, r *http.Reques
 		Key: "lib_" + agent.ID, CharacterID: "lib:" + agent.ID,
 		Name: agent.Name, Title: agent.Title,
 		Emoji: agent.Emoji, Color: agent.Color, Prompt: agent.Prompt, Upgraded: agent.Upgraded,
+		Capabilities: agent.Capabilities,
 	})
 	if err := s.chat.Update(conv); err != nil {
 		serverErr(w, err.Error())
