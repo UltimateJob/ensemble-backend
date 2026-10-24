@@ -381,6 +381,7 @@ export default function Main() {
             connected={connected}
             devices={devices}
             onOpenGoals={() => router.push('/goals')}
+            onOpenUsage={() => router.push('/usage')}
             onOpenSolo={() => router.push('/solo')}
             onOpenLibrary={() => router.push('/library')}
             onOpenConnect={() => router.push('/connect')}
@@ -1133,6 +1134,7 @@ function MePage({
   connected,
   devices,
   onOpenGoals,
+  onOpenUsage,
   onOpenSolo,
   onOpenLibrary,
   onOpenConnect,
@@ -1148,6 +1150,7 @@ function MePage({
   connected?: Connector;
   devices: Device[];
   onOpenGoals: () => void;
+  onOpenUsage: () => void;
   onOpenSolo: () => void;
   onOpenLibrary: () => void;
   onOpenConnect: () => void;
@@ -1225,15 +1228,25 @@ function MePage({
               <HeroStat label="资料库文件" value={String(artifacts.length)} />
             </Row>
 
-            {/* 内嵌额度卡：rgba(255,255,255,.09) 底 + .10 描边 */}
-            <View style={s.quotaCard}>
+            {/* 内嵌额度卡：rgba(255,255,255,.09) 底 + .10 描边。
+                可点击进「用量与额度」——只给一个百分比，
+                用户看不到总量、已用、余额，也找不到兑换入口。 */}
+            <Pressable
+              onPress={onOpenUsage}
+              accessibilityRole="button"
+              accessibilityLabel="查看用量与额度"
+              style={s.quotaCard}
+            >
               <Row style={{ justifyContent: 'space-between' }}>
                 <T size={ts.caption} color="rgba(255,255,255,0.55)">
                   本周额度
                 </T>
-                <T size={ts.caption} color="rgba(255,255,255,0.55)">
-                  {reset} 重置
-                </T>
+                <Row gap={4} align="center">
+                  <T size={ts.caption} color="rgba(255,255,255,0.55)">
+                    {reset} 重置
+                  </T>
+                  <Icon name="chevron-forward" size={12} color="rgba(255,255,255,0.45)" />
+                </Row>
               </Row>
               <Row gap={8} align="flex-end" style={{ marginTop: 6 }}>
                 <T size={34} weight="750" color="#FFFFFF" lh={38}>
@@ -1255,7 +1268,7 @@ function MePage({
                   }}
                 />
               </View>
-            </View>
+            </Pressable>
           </View>
         </View>
       </View>

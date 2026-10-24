@@ -76,6 +76,11 @@ export default function RootLayout() {
             <Stack.Screen name="artifact/[id]" />
             <Stack.Screen name="connect" />
             <Stack.Screen name="settings/index" />
+            {/* 之前 solo / team/task / usage 没登记在这里，
+                等于没登录也能被深链直接打开。 */}
+            <Stack.Screen name="solo" />
+            <Stack.Screen name="team/task" />
+            <Stack.Screen name="usage" />
           </Stack.Protected>
         </Stack>
       </ErrorBoundary>
