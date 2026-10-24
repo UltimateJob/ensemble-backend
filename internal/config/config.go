@@ -42,6 +42,18 @@ type Config struct {
 	// 留空表示不启用（本地开发、纯离线场景）。
 	RemoteBase string
 
+	// OAuth 应用凭据。用于连接器的授权流程：用户在浏览器里点「授权」，
+	// 跳转到平台、授权完成后回到我们的回调地址换取令牌。
+	// 空表示该平台不支持 OAuth，只能用 Token 手工绑定。
+	GitHubOAuthClientID     string
+	GitHubOAuthClientSecret string
+	FeishuOAuthAppID        string
+	FeishuOAuthAppSecret    string
+	NotionOAuthClientID     string
+	NotionOAuthClientSecret string
+	// OAuthRedirectBase 回调前缀，默认用线上域名。
+	OAuthRedirectBase string
+
 	// ExtraProviders OpenAI 兼容中转池：EXTRA_PROVIDERS=
 	//   name1|https://a.example.com|sk-xxx|deepseek-chat,name2|https://b.example|sk-yyy
 	// 第 4 段（默认模型）可省。管理台再按名字建模型、调权重，即成请求池。
@@ -92,10 +104,17 @@ func Load() Config {
 		DeepSeekModel:   env("DEEPSEEK_MODEL", "deepseek-chat"),
 		SearchEnabled:   boolEnv("DEEPSEEK_SEARCH", true),
 
-		AllowMock:      boolEnv("ALLOW_MOCK", true),
-		RemoteBase:     env("REMOTE_BASE", ""),
-		ExtraProviders: parseExtraProviders(os.Getenv("EXTRA_PROVIDERS")),
-		DataDir:        env("DATA_DIR", "data"),
+		AllowMock:               boolEnv("ALLOW_MOCK", true),
+		RemoteBase:              env("REMOTE_BASE", ""),
+		OAuthRedirectBase:       env("OAUTH_REDIRECT_BASE", "https://teamwise.cn"),
+		GitHubOAuthClientID:     env("GITHUB_OAUTH_CLIENT_ID", ""),
+		GitHubOAuthClientSecret: env("GITHUB_OAUTH_CLIENT_SECRET", ""),
+		FeishuOAuthAppID:        env("FEISHU_OAUTH_APP_ID", ""),
+		FeishuOAuthAppSecret:    env("FEISHU_OAUTH_APP_SECRET", ""),
+		NotionOAuthClientID:     env("NOTION_OAUTH_CLIENT_ID", ""),
+		NotionOAuthClientSecret: env("NOTION_OAUTH_CLIENT_SECRET", ""),
+		ExtraProviders:          parseExtraProviders(os.Getenv("EXTRA_PROVIDERS")),
+		DataDir:                 env("DATA_DIR", "data"),
 
 		SlowThresholdMS: intEnv("SLOW_THRESHOLD_MS", 10000),
 

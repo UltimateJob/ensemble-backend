@@ -277,6 +277,15 @@ function addConn(presetKind) {
             <option value="team">团队公共</option>
           </select>
         </label>
+        <div id="oauthBox" class="oauth-box hidden">
+          <div class="oauth-row">
+            <div>
+              <b>一键授权</b>
+              <span>跳转到平台登录并同意，回来就绑好，不用手动复制密钥</span>
+            </div>
+            <button class="btn btn-primary btn-sm" id="cOAuth">去授权</button>
+          </div>
+        </div>
         <div id="cFields"></div>
         <button class="btn btn-primary" id="cSave" style="width:100%">保存</button>`;
 
@@ -288,8 +297,30 @@ function addConn(presetKind) {
             <input data-secret="${esc(f)}" placeholder="${esc(FIELD_HINT[f] || '')}" autocomplete="off">
           </label>`).join('');
       };
-      el.querySelector('#cKind').addEventListener('change', drawFields);
+      // 哪些平台支持一键授权，由后端告知（取决于是否配了 OAuth 凭据）
+      let oauthKinds = [];
+      const oauthBox = el.querySelector('#oauthBox');
+      const syncOAuth = () => {
+        const kind = el.querySelector('#cKind').value;
+        const ok = oauthKinds.includes(kind);
+        oauthBox.classList.toggle('hidden', !ok);
+      };
+      api('/v1/connectors/oauth/providers')
+        .then(d => { oauthKinds = d?.providers || []; syncOAuth(); })
+        .catch(() => {});
+
+      el.querySelector('#cKind').addEventListener('change', () => { drawFields(); syncOAuth(); });
       drawFields();
+
+      el.querySelector('#cOAuth').addEventListener('click', async () => {
+        const kind = el.querySelector('#cKind').value;
+        try {
+          const d = await api(`/v1/connectors/oauth/${kind}/start`);
+          if (d?.url) window.location.href = d.url;
+        } catch (e) {
+          toast(e.message || '无法发起授权', { type: 'err' });
+        }
+      });
 
       const save = el.querySelector('#cSave');
       save.addEventListener('click', async () => {

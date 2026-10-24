@@ -404,6 +404,12 @@ func main() {
 	devices := service.NewDevices(st, cfg.JWTSecret)
 	goals := service.NewGoals(st)
 	conns := service.NewConnectors(st)
+	// OAuth 应用凭据：配了哪个平台，哪个平台就能一键授权绑定。
+	// 没配的平台仍可手填 Token。
+	conns.SetOAuth(cfg.GitHubOAuthClientID, cfg.GitHubOAuthClientSecret,
+		cfg.NotionOAuthClientID, cfg.NotionOAuthClientSecret,
+		cfg.FeishuOAuthAppID, cfg.FeishuOAuthAppSecret,
+		cfg.OAuthRedirectBase)
 	library := service.NewLibrary(st)
 	activity := service.NewActivity(agentMgr)
 	official := service.NewOfficial(st)

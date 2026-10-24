@@ -64,12 +64,34 @@ func defaultProbe() HTTPProbe {
 // 这样做的好处：每个连接器都是「填进去就能用」，而且测试是真的。
 // 一个只会亮绿灯的假开关比没有更糟。
 type Connectors struct {
+	// OAuth 应用凭据。空表示该平台只能用 Token 手工绑定。
+	oauthGitHubID     string
+	oauthGitHubSecret string
+	oauthNotionID     string
+	oauthNotionSecret string
+	oauthFeishuID     string
+	oauthFeishuSecret string
+	oauthRedirectBase string
+	// states OAuth 流程的待完成授权（一次性、限时）
+	states *oauthStates
+
 	store store.Store
 	probe HTTPProbe
 }
 
 func NewConnectors(s store.Store) *Connectors {
-	return &Connectors{store: s, probe: defaultProbe()}
+	return &Connectors{store: s, probe: defaultProbe(), states: newOAuthStates()}
+}
+
+// SetOAuth 注入 OAuth 应用凭据。须在开始接请求前调用。
+func (c *Connectors) SetOAuth(githubID, githubSecret, notionID, notionSecret, feishuID, feishuSecret, redirectBase string) {
+	c.oauthGitHubID = githubID
+	c.oauthGitHubSecret = githubSecret
+	c.oauthNotionID = notionID
+	c.oauthNotionSecret = notionSecret
+	c.oauthFeishuID = feishuID
+	c.oauthFeishuSecret = feishuSecret
+	c.oauthRedirectBase = strings.TrimSuffix(redirectBase, "/")
 }
 
 // SetProbe 注入可替换的 HTTP 客户端（测试用）。
