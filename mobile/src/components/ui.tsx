@@ -637,11 +637,13 @@ export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) =
           overflow: 'hidden',
           // 开着用墨色。之前跟强调色走，强调色改成赭红后，
           // 所有开关看着都像「危险操作已启用」。
-          backgroundColor: on ? t.ink : t.cardSunken,
+          // 深色下 t.ink 是近白，整排开关会变成一块块白斑——用 primaryBg
+          // （深色下也是浅色，但比正文字色低一档）。
+          backgroundColor: on ? t.primaryBg : t.cardSunken,
         }}
       >
         {on ? (
-          <LinearGradient colors={grad([t.ink, t.ink])} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={grad(t.primaryGrad)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
         ) : null}
         <View style={[styles.knob, { alignSelf: on ? 'flex-end' : 'flex-start' }]} />
       </View>

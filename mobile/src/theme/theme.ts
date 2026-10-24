@@ -211,7 +211,9 @@ export const DARK: Theme = {
   toggleOff: '#3A3C42',
   radioOff: '#4A4C56',
   chipBg: darkRaw.chipBg,
-  slate: '#C9C9CE',
+  // 图标砖在中性化之后只剩这一个色源。深色下如果用浅灰，
+  // 一屏九个白块会盖过真正的文字层级——压到比卡片略高的灰。
+  slate: '#5A5A62',
   scrim: 'rgba(0,0,0,0.58)',
   white: '#FFFFFF',
   cardBorder: 'rgba(255,255,255,0.06)',
