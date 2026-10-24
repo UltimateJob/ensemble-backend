@@ -9,6 +9,7 @@ import { uiConfirm, uiEditText, uiEditAgent } from './dialog.js';
 import { loadConvs, renderConvs, setConvOpener } from './convs.js';
 import { avatarHTML } from './avatars.js';
 import { permissionLabel, ringOf, toolLabel } from './activity.js';
+import { mdRender, bindCodeCopy } from './markdown.js';
 
 /* ---------------- 复制 ---------------- */
 // 演示环境可能跑在 http 非 localhost 下，navigator.clipboard 那时不可用，
@@ -37,53 +38,6 @@ export async function copyText(text) {
 /* ---------------- 轻量 Markdown ---------------- */
 // 消息正文大多是模型输出，会带 **粗体**、`代码`、列表这类记号。
 // 之前 textContent 直出，满屏星号。这里做一个很小的渲染器：
-// 先整体 HTML 转义（防注入），再套一层有限的白名单标记。
-// 支持：**粗体**、`行内代码`、```围栏代码块```、无序/有序列表、换行。
-
-function mdInline(s) {
-  return s
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
-}
-
-export function mdRender(text) {
-  const src = String(text == null ? '' : text);
-  const blocks = [];
-  // 1. 先抽走围栏代码块，里面的内容保持原样，不被后面的规则碰到
-  let s = src.replace(/```([^\n`]*)\n?([\s\S]*?)```/g, (m, lang, code) => {
-    blocks.push(`<pre><code>${esc(code.replace(/\n$/, ''))}</code></pre>`);
-    return '\u0000B' + (blocks.length - 1) + '\u0000';
-  });
-
-  // 2. 逐行处理列表和段落
-  const out = [];
-  let list = null;   // 'ul' | 'ol'，空行/非列表行时收掉
-  const closeList = () => { if (list) { out.push('</' + list + '>'); list = null; } };
-  for (const line of s.split('\n')) {
-    const t = line.trim();
-    let m;
-    if ((m = /^[-*•]\s+(.+)$/.exec(t))) {
-      if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; }
-      out.push(`<li>${mdInline(esc(m[1]))}</li>`);
-    } else if ((m = /^\d+[.、)]\s+(.+)$/.exec(t))) {
-      if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; }
-      out.push(`<li>${mdInline(esc(m[1]))}</li>`);
-    } else if (/^\u0000B\d+\u0000$/.test(t)) {
-      closeList();
-      out.push(t);                       // 代码块占位符，独占一行
-    } else if (t === '') {
-      closeList();
-    } else {
-      closeList();
-      out.push(`<p>${mdInline(esc(t))}</p>`);
-    }
-  }
-  closeList();
-
-  // 3. 把代码块放回去
-  return out.join('').replace(/\u0000B(\d+)\u0000/g, (m, i) => blocks[+i]);
-}
-
 /* ---------------- 滚动策略 ---------------- */
 // 之前每个 delta 都无条件拉到底——用户往上翻历史时会被反复拽下来，
 // 看不成任何旧内容。现在只有「本来就在底部附近」才自动跟随；
@@ -415,6 +369,7 @@ export function buildMsgEl(o) {
     </div>`;
   const tx = el.querySelector('.msg-text');
   tx.innerHTML = mdRender(o.text || '');
+  bindCodeCopy(tx);
   if (o.attachments?.length) renderAttachments(el.querySelector('.msg-atts'), o.attachments);
   el.querySelector('[data-act=copy]').addEventListener('click', async ev => {
     ev.stopPropagation();
@@ -1198,6 +1153,8 @@ export async function runRound(path, body, opts = {}) {
       const box = $('#ta');
       if (box && !box.disabled && document.activeElement === document.body) box.focus();
     }
+    // 流式结束才绑复制按钮：每个 delta 都绑一次会拖慢渲染
+    if (curEl) bindCodeCopy(curEl);
     if (curEl) curEl.querySelector('.msg-text').classList.remove('caret');
     // 轮次分隔线画在本轮容器里：切群后 msgWrap 已属于新群，别把线画过去
     markRoundEnd(container);
