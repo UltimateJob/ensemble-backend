@@ -78,7 +78,9 @@ func Load() Config {
 		UpstreamTimeout: dur("UPSTREAM_TIMEOUT", 120*time.Second),
 		ShutdownGrace:   dur("SHUTDOWN_GRACE", 20*time.Second),
 
-		RatePerMinute: intEnv("RATE_PER_MINUTE", 120),
+		// 默认 240：手机端每 6 秒轮询一次状态，加上正常的聊天请求，
+		// 120 会在活跃使用时被自己打满。内网自用场景放宽更合理。
+		RatePerMinute: intEnv("RATE_PER_MINUTE", 240),
 		Burst:         intEnv("RATE_BURST", 30),
 
 		MaxRetries:   intEnv("MAX_RETRIES", 2),

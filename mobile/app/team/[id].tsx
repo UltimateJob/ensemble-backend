@@ -108,12 +108,36 @@ export default function Room() {
     }
   }, [id]);
 
+  /**
+   * 一轮轮询同时拿两样东西：角色状态 + 待审批。
+   *
+   * 之前是两个独立的 setInterval（5s 和 4s），加起来每分钟 ~27 次请求，
+   * 再叠加消息刷新很容易撞上每用户 120/分钟的限流——表现出来就是
+   * 「操作太频繁了」把整个消息列表盖掉。合并成一个就减半了。
+   */
   const loadActivity = useCallback(async () => {
     try {
       const a = await get<AgentActivity[]>(`/v1/conversations/${id}/activity`);
-      setActivity(Array.isArray(a) ? a : []);
+      const list = Array.isArray(a) ? a : [];
+      setActivity(list);
+
+      // 有待审批的角色才去查 Run，没有就不发请求
+      const blocked = list.filter((x) => x.state === 'blocked' && x.runId);
+      if (blocked.length === 0) return;
+
+      for (const b of blocked) {
+        const run = await get<any>(`/v1/runs/${b.runId}`);
+        const p = (run?.approvals ?? []).find(
+          (x: any) => x.status === 'pending' && !seenApprovals.current.has(x.id),
+        );
+        if (p) {
+          seenApprovals.current.add(p.id);
+          setApproval({ a: p, runId: b.runId! });
+          break;
+        }
+      }
     } catch {
-      /* 状态环失败不影响聊天 */
+      /* 状态环/审批失败不影响聊天本身 */
     }
   }, [id]);
 
@@ -122,41 +146,12 @@ export default function Room() {
     loadActivity();
   }, [loadConv, loadActivity]);
 
+  // 一个 interval 管两件事：状态环 + 审批
   useEffect(() => {
-    const timer = setInterval(loadActivity, 5000);
+    const timer = setInterval(loadActivity, 6000);
     return () => clearInterval(timer);
   }, [loadActivity]);
 
-  // 审批轮询
-  useEffect(() => {
-    let alive = true;
-    async function poll() {
-      try {
-        const acts = await get<AgentActivity[]>(`/v1/conversations/${id}/activity`);
-        if (!alive) return;
-        for (const b of acts.filter((a) => a.state === 'blocked' && a.runId)) {
-          const run = await get<any>(`/v1/runs/${b.runId}`);
-          if (!alive) return;
-          const p = (run?.approvals ?? []).find(
-            (x: any) => x.status === 'pending' && !seenApprovals.current.has(x.id),
-          );
-          if (p) {
-            seenApprovals.current.add(p.id);
-            setApproval({ a: p, runId: b.runId! });
-            break;
-          }
-        }
-      } catch {
-        /* 下一轮 */
-      }
-    }
-    const timer = setInterval(poll, 4000);
-    poll();
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [id]);
 
   useEffect(() => () => abortRef.current?.(), []);
 
