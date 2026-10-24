@@ -45,6 +45,25 @@ export function renderNav(convs = []) {
   document.getElementById('navSearch')?.addEventListener('click', () => {
     import('./search.js').then(m => m.openSearch());
   });
+  // 房间右键菜单：改名 / 退出 / 删除
+  import('./roommenu.js').then(({ bindRoomMenu }) => {
+    document.querySelectorAll('#navRooms .nav-room').forEach(el => {
+      const conv = convs.find(c => c.id === el.dataset.id);
+      if (!conv) return;
+      bindRoomMenu(el, conv, (id, title, action) => {
+        if (action === 'delete' || action === 'leave') {
+          state.convs = (state.convs || []).filter(c => c.id !== id);
+          renderNav(state.convs);
+          if (state.cur?.id === id) location.hash = '#/lobby';
+        } else if (title) {
+          const hit = (state.convs || []).find(c => c.id === id);
+          if (hit) hit.title = title;
+          if (state.cur?.id === id) state.cur.title = title;
+          renderNav(state.convs);
+        }
+      });
+    });
+  });
   setActiveNav(currentName());
 }
 
@@ -58,6 +77,20 @@ function currentName() {
   return KNOWN.includes(head) ? head : 'notfound';
 }
 
+// 左栏头像：跟账号走（颜色 / emoji / 首字）。
+// 之前这里写死渐变底 + 首字母，用户在设置里换的头像永远不生效。
+function navAvatar(user, name) {
+  const a = user?.avatar || '';
+  if (a && !a.startsWith('#')) {
+    return `<span class="av av--fallback nav-av" style="background:var(--paper-2)">
+      <span style="font-size:15px;line-height:1">${esc(a)}</span></span>`;
+  }
+  const bg = a.startsWith('#') ? a : 'linear-gradient(150deg,#DCD6CB,#CDC5B7)';
+  const fg = a.startsWith('#') ? '#fff' : '#5A5145';
+  return `<span class="av av--fallback nav-av" style="background:${bg}">
+    <b style="font-size:13px;color:${fg}">${esc([...name][0] || '?')}</b></span>`;
+}
+
 export function renderNavFoot(user) {
   const box = $('#navFoot');
   if (!box) return;
@@ -68,9 +101,7 @@ export function renderNavFoot(user) {
   const sub = left != null ? `${plan} · 剩 ${left} 次` : plan;
   box.innerHTML = `
     <button class="nav-user" id="navUser" title="${esc(name)}">
-      <span class="av av--fallback" style="width:30px;height:30px;background:linear-gradient(150deg,#DCD6CB,#CDC5B7)">
-        <b style="font-size:13px;color:#5A5145">${esc([...name][0] || '?')}</b>
-      </span>
+      ${navAvatar(user, name)}
       <span class="nav-user-body">
         <span class="nav-user-name">${esc(name)}</span>
         <span class="nav-user-sub">${esc(sub)}</span>

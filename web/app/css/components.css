@@ -450,3 +450,50 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{
   border-radius:3px;padding:0 1px;
 }
 .search-hit-time{flex:0 0 auto;font-size:11px;color:var(--ink-4)}
+
+/* ---------- 房间右键菜单 ---------- */
+.room-menu{
+  min-width:150px;padding:5px;
+  background:var(--glass-strong);
+  backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);
+  border:.5px solid var(--glass-line);
+  border-radius:var(--r-md);
+  box-shadow:var(--sh-3);
+  animation:menuIn .16s var(--spring);
+}
+@keyframes menuIn{from{opacity:0;transform:translateY(-4px) scale(.97)}to{opacity:1;transform:none}}
+.room-menu-i{
+  display:flex;align-items:center;gap:9px;width:100%;
+  padding:8px 10px;border-radius:var(--r-sm);
+  font-size:13px;color:var(--ink-2);text-align:left;
+  transition:background var(--t-fast),color var(--t-fast);
+}
+.room-menu-i:hover{background:rgba(74,62,44,.06);color:var(--ink)}
+.room-menu-i.danger{color:var(--bad)}
+.room-menu-i.danger:hover{background:rgba(220,38,38,.08)}
+
+/* ---------- 头像选择 ---------- */
+.nav-av{width:30px;height:30px;flex:0 0 30px}
+.pf-av-emoji{font-size:32px;line-height:1}
+.av-sec-h{
+  font-size:11.5px;font-weight:620;color:var(--ink-4);
+  letter-spacing:.04em;margin:16px 0 9px;
+}
+.av-sec-h:first-of-type{margin-top:0}
+.av-swatches{display:flex;gap:9px;flex-wrap:wrap}
+.av-swatch{
+  width:34px;height:34px;border-radius:50%;
+  transition:transform var(--t-fast),box-shadow var(--t-fast);
+  box-shadow:0 0 0 0 transparent;
+}
+.av-swatch:hover{transform:scale(1.08)}
+.av-swatch.on{box-shadow:0 0 0 2px var(--sheet),0 0 0 4px var(--pri)}
+.av-emos{display:flex;gap:6px;flex-wrap:wrap}
+.av-emo{
+  width:40px;height:40px;border-radius:var(--r-sm);
+  font-size:20px;display:grid;place-items:center;
+  background:var(--paper-2);
+  transition:background var(--t-fast),transform var(--t-fast);
+}
+.av-emo:hover{background:rgba(74,62,44,.08);transform:scale(1.06)}
+.av-emo.on{background:var(--pri-soft);box-shadow:inset 0 0 0 1.5px var(--pri)}
