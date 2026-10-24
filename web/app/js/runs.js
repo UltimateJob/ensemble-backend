@@ -43,6 +43,17 @@ export function trackRun(runId) {
   if (!runId || subs.has(runId)) return;
   const ctrl = new AbortController();
   subs.set(runId, ctrl);
+  pump(runId, ctrl, 0);
+}
+
+// pump 拉一次事件流；中途断了就按退避重连。
+//
+// 之前断线只 console.warn 就结束：气泡停在「执行中」，团队面板停在
+// 「验证中」，用户不知道该等还是该刷新。而后端本来就支持历史重放
+// （订阅时先补发已发生的事件），所以重连是安全的，不会丢事件。
+const RECONNECT_DELAYS = [1000, 2000, 4000, 8000];
+
+async function pump(runId, ctrl, attempt) {
   (async () => {
     try {
       const res = await fetch(`/v1/runs/${runId}/events`, {
@@ -50,6 +61,7 @@ export function trackRun(runId) {
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+      if (attempt > 0) emit(runId, { type: 'stream.reconnected' });
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = '';
@@ -68,11 +80,32 @@ export function trackRun(runId) {
         }
       }
     } catch (e) {
-      if (e.name !== 'AbortError') console.warn('run stream', runId, e.message);
+      if (e.name === 'AbortError' || ctrl.signal.aborted) return;
+      // 断了：告诉界面上「正在重连」，然后退避重试。
+      // 重试用尽才真正放弃，并把失败原因交给界面。
+      if (attempt < RECONNECT_DELAYS.length) {
+        emit(runId, { type: 'stream.reconnecting', attempt: attempt + 1 });
+        const delay = RECONNECT_DELAYS[attempt];
+        await new Promise(r => setTimeout(r, delay));
+        if (ctrl.signal.aborted) return;
+        subs.delete(runId);
+        trackRunWithCtrl(runId, ctrl, attempt + 1);
+        return;
+      }
+      console.warn('run stream 重连失败', runId, e.message);
+      emit(runId, { type: 'stream.lost', reason: e.message || '连接中断' });
     } finally {
-      subs.delete(runId);
+      if (!ctrl.signal.aborted) subs.delete(runId);
     }
   })();
+}
+
+// trackRunWithCtrl 用已有的 AbortController 继续拉流（重连时不换 controller，
+// 否则用户的「停止」按钮会指向一个已经废弃的 controller）。
+function trackRunWithCtrl(runId, ctrl, attempt) {
+  if (subs.has(runId)) return;
+  subs.set(runId, ctrl);
+  pump(runId, ctrl, attempt);
 }
 
 export function untrackRun(runId) {

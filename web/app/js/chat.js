@@ -1093,9 +1093,16 @@ export async function runRound(path, body, opts = {}) {
       const u = state.user || {};
       const left = (typeof u.quota === 'number' && typeof u.used === 'number')
         ? Math.max(0, u.quota - u.used) : null;
+      // 「联系管理员」是给不出办法的说法：用户手里可能正好有兑换码。
+      // 后端有 /v1/redeem，这里给一个能直接用的入口。
       addSysNote(left === null
-        ? '本月额度用完了 — 联系管理员重置额度后再试'
-        : `本月额度用完了（剩余 ${left} 次）— 联系管理员重置额度后再试`, container);
+        ? '本月额度用完了。有兑换码的话，点下面的按钮兑换。'
+        : `本月额度用完了（剩余 ${left} 次）。有兑换码的话，点下面的按钮兑换。`, container);
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-primary btn-sm quota-redeem';
+      btn.textContent = '输入兑换码';
+      btn.addEventListener('click', () => openRedeem());
+      container.appendChild(btn);
       return;
     }
 
@@ -1283,4 +1290,42 @@ function lastUserPromptBefore(el) {
     cur = cur.previousElementSibling;
   }
   return '';
+}
+
+/** 兑换码：额度用完时的出口。 */
+async function openRedeem() {
+  const { openModal } = await import('./modal.js');
+  openModal({
+    title: '兑换额度',
+    width: 440,
+    body: `
+      <p class="hint" style="margin-bottom:12px">输入兑换码，额度会立刻加到账号上。</p>
+      <label class="field"><span>兑换码</span>
+        <input id="rdCode" placeholder="比如 TW-XXXX-XXXX" autocomplete="off" spellcheck="false">
+      </label>`,
+    actions: [
+      { key: 'cancel', label: '取消', kind: 'line' },
+      { key: 'ok', label: '兑换', kind: 'primary', onClick: async mask => {
+        const code = mask.querySelector('#rdCode').value.trim();
+        if (!code) { toast('先填兑换码', { type: 'err' }); return false; }
+        try {
+          const d = await api('/v1/redeem', { method: 'POST', body: { code } });
+          const add = d?.quota || d?.amount || d?.added;
+          toast(add ? `兑换成功，加了 ${add} 次` : '兑换成功', { type: 'ok' });
+          // 额度变了：刷新一下导航栏的数字
+          const me = await api('/v1/me').catch(() => null);
+          if (me?.user) {
+            state.user = me.user;
+            const { renderNavFoot } = await import('./shell.js');
+            renderNavFoot(state.user);
+          }
+          return true;
+        } catch (e) {
+          toast(e.message || '兑换失败', { type: 'err' });
+          return false;
+        }
+      } },
+    ],
+    onMount: mask => mask.querySelector('#rdCode')?.focus(),
+  });
 }
