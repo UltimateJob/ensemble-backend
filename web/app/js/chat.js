@@ -390,6 +390,8 @@ export function buildMsgEl(o) {
   const el = document.createElement('div');
   el.className = 'msg' + (o.me ? ' me' : '');
   if (o.kind) el.classList.add('kind-' + String(o.kind).replace(/\./g, '-'));
+  // 搜索结果要能定位到具体这一条：没有稳定锚点就只能滚到房间顶部
+  if (o.id) el.dataset.mid = o.id;
   if (o.id) el.dataset.mid = o.id;   // 搜索结果跳转时靠它定位
   if (o.time) el.dataset.t = String(new Date(o.time).getTime() || 0);
   // 原文挂在元素上：复制按钮和「点击重发」都用它，渲染后的 HTML 不能反推原文

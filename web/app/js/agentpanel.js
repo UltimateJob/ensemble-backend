@@ -159,7 +159,7 @@ async function loadCurrent(agent, conv, el) {
   }
 
   try {
-    const arts = await api('/v1/library?convId=' + encodeURIComponent(conv.id) + '&limit=10');
+    const arts = await api('/v1/library?conversationId=' + encodeURIComponent(conv.id) + '&limit=10');
     const list = (arts || []).filter(a => a.agentKey === agent.key || a.agentName === agent.name);
     const ab = el.querySelector('#apArts');
     if (!ab) return;

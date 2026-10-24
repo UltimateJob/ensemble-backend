@@ -416,6 +416,16 @@ func main() {
 	srv.SetRemoteServices(devices, goals, conns, library, activity, official)
 	orch.SetActivity(activity)
 	orch.SetLibrary(library)
+	// Run 结束时归档产物到资料库。
+	//
+	// 之前这条链路是断的：RecordRun 有实现但没有任何调用点，
+	// 资料库页永远显示「还没有产物」，而界面文案承诺「会自动归档」。
+	// 产物本来就有（r.Artifacts 带路径和大小），只是没人往下传。
+	// 挂在 library 创建之后，因为观察者要用到它。
+	agentMgr.SetRunEndObserver(func(r *agent.Run) string {
+		archiveRunArtifacts(library, r)
+		return chat.AppendRunMessage(r)
+	})
 
 	// 生图渠道：和对话渠道共用一张表，按 Kind 区分。
 	// 取第一个启用的 image 渠道——生图不需要路由池，一个够用。
@@ -542,5 +552,24 @@ func seedUpstreams(u *store.Upstreams, cfg config.Config) {
 			Name: ep.Name, BaseURL: ep.BaseURL, Key: ep.APIKey,
 			Model: ep.Model, Source: "env", Enabled: true,
 		})
+	}
+}
+
+// archiveRunArtifacts 把一次 Run 的产物写进资料库。
+//
+// 只归档真落盘的文件：r.Artifacts 来自 diff，每个都对应工作区里
+// 真实存在的文件，带 path/size。聊天发言不算——那是消息，不是产物。
+func archiveRunArtifacts(lib *service.Library, r *agent.Run) {
+	if lib == nil || r == nil || len(r.Artifacts) == 0 {
+		return
+	}
+	for _, a := range r.Artifacts {
+		title := a.Name
+		if title == "" {
+			title = filepath.Base(a.Path)
+		}
+		// 正文用 run 的总结：文件内容可能很大，资料库要的是「这是什么」
+		lib.RecordRun(r.UserID, r.ConversationID, r.ID, a.AgentKey, a.AgentName,
+			title, r.Summary)
 	}
 }
