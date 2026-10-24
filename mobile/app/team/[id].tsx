@@ -294,22 +294,89 @@ export default function Room() {
           ? `${blockedCount} 位等你审批`
           : `${members.length} 位成员`;
 
-  const barSummary = speaker ? (
-    <T size={type.caption} color={t.ink} numberOfLines={1}>
-      <Text style={{ fontWeight: weight.heavy as any }}>{rawMembers.find((m) => m.key === speaker)?.name}</Text>
-      <Text style={{ color: t.ink3 }}> 正在发言</Text>
-    </T>
-  ) : isOfficial ? (
-    // 官方群里没有「干活」这回事，它是在介绍产品
-    <T size={type.caption} color={t.ink3} numberOfLines={1}>
-      <Text style={{ color: t.ink, fontWeight: weight.heavy as any }}>团团</Text>
-      <Text> 正在为大家介绍纸团</Text>
-    </T>
-  ) : (
-    <T size={type.caption} color={t.ink3} numberOfLines={1}>
-      {workingCount > 0 ? `${workingCount} 位在干活` : '都在待命'}
-    </T>
-  );
+  /**
+   * 成员条文案。
+   *
+   * 设计图是「**撰写** 刚发了言 · **查证** 干活中」——名字加粗 + 灰色动作，
+   * 按「刚发言 → 干活中 → 等审批 → 空闲」的优先级挑最多两个来说。
+   * 之前只显示「都在待命」，等于把这个组件的信息量浪费了。
+   */
+  const barSummary = (() => {
+    const nameOfKey = (k: string) => rawMembers.find((m) => m.key === k)?.name ?? '';
+
+    // 有人在说话/干活时，状态优先——官方群的介绍文案只在没人动的时候显示
+    const isQuiet = !speaker && activity.every((a) => a.state === 'idle');
+    if (isOfficial && isQuiet) {
+      return (
+        <T size={type.caption} color={t.ink3} numberOfLines={1}>
+          <Text style={{ color: t.ink, fontWeight: weight.heavy as any }}>团团</Text>
+          <Text> 正在为大家介绍纸团</Text>
+        </T>
+      );
+    }
+
+    // 1) 正在发言的人：说「刚发了言」
+    if (speaker) {
+      const who = nameOfKey(speaker);
+      const others = activity
+        .filter((a) => a.state === 'working' && a.key !== speaker)
+        .slice(0, 1)
+        .map((a) => nameOfKey(a.key))
+        .filter(Boolean);
+      return (
+        <T size={type.caption} color={t.ink3} numberOfLines={1}>
+          <Text style={{ color: t.ink, fontWeight: weight.heavy as any }}>{who}</Text>
+          <Text> 刚发了言</Text>
+          {others.length ? (
+            <>
+              <Text> · </Text>
+              <Text style={{ color: t.ink, fontWeight: weight.heavy as any }}>{others[0]}</Text>
+              <Text> 干活中</Text>
+            </>
+          ) : null}
+        </T>
+      );
+    }
+
+    // 2) 有人在干活
+    const working = activity.filter((a) => a.state === 'working');
+    if (working.length > 0) {
+      const [a, b] = working.map((x) => nameOfKey(x.key)).filter(Boolean);
+      return (
+        <T size={type.caption} color={t.ink3} numberOfLines={1}>
+          <Text style={{ color: t.ink, fontWeight: weight.heavy as any }}>{a}</Text>
+          <Text> 干活中</Text>
+          {b ? (
+            <>
+              <Text> · </Text>
+              <Text style={{ color: t.ink, fontWeight: weight.heavy as any }}>{b}</Text>
+              <Text> 也在忙</Text>
+            </>
+          ) : null}
+        </T>
+      );
+    }
+
+    // 3) 有人等审批
+    const blocked = activity.filter((a) => a.state === 'blocked');
+    if (blocked.length > 0) {
+      const who = blocked.map((a) => nameOfKey(a.key)).filter(Boolean).slice(0, 2).join('、');
+      return (
+        <T size={type.caption} color={t.bad} numberOfLines={1}>
+          <Text style={{ fontWeight: weight.heavy as any }}>{who}</Text>
+          <Text> 等你审批</Text>
+        </T>
+      );
+    }
+
+    // 4) 都没事做
+    return (
+      <T size={type.caption} color={t.ink3} numberOfLines={1}>
+        都在待命
+      </T>
+    );
+  })();
+
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.canvas[0] }} edges={['top', 'bottom']}>

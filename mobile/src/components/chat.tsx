@@ -141,22 +141,31 @@ function SpeakerAvatar({
   zIndex: number;
 }) {
   const t = useTheme();
-  const scale = useRef(new Animated.Value(isSpeaker ? 1 : 0)).current;
+  const grow = useRef(new Animated.Value(isSpeaker ? 1 : 0)).current;
 
   useEffect(() => {
-    Animated.spring(scale, {
-      toValue: isSpeaker ? 1 : 0,
-      // 规范 §8：放大 320ms、缩回 240ms，过冲 8%
-      useNativeDriver: true,
-      damping: 14,
-      stiffness: 180,
-      mass: 0.7,
-    }).start();
-  }, [isSpeaker, scale]);
+    if (isSpeaker) {
+      // 规范 §8：放大 320ms，spring 过冲 8%
+      Animated.spring(grow, {
+        toValue: 1,
+        useNativeDriver: false,
+        damping: 11,
+        stiffness: 170,
+        mass: 0.7,
+      }).start();
+    } else {
+      // 缩回 240ms，无过冲
+      Animated.timing(grow, {
+        toValue: 0,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [isSpeaker, grow]);
 
-  // 容器尺寸跟着动，Avatar 始终填满容器——固定 39px 再缩放会让
-  // 未发言的头像也占 39px 的宽度，重叠时压住别人的字。
-  const size = scale.interpolate({ inputRange: [0, 1], outputRange: [36, 44] });
+  const size = grow.interpolate({ inputRange: [0, 1], outputRange: [36, 46] });
+  const dot = Math.max(9, 9);
   const dotColor =
     member.state === 'done'
       ? t.okDot
@@ -171,27 +180,43 @@ function SpeakerAvatar({
       style={{
         width: size,
         height: size,
+        // 后一个压前一个；第一个不留负边距
+        // 重叠 10px：36px 头像露出 26px，和设计图的比例一致。
+        // 再大就会把字压住（规范 §5.3 明确说不得超过 7px 的字宽）
         marginLeft: i === 0 ? 0 : -10,
-        zIndex,
+        // 发言者永远在最前：zIndex 由 isSpeaker 决定，不靠位置推算
+        zIndex: isSpeaker ? 99 : 10 - i,
+        // 白色分隔环——设计图里头像之间那道边就是这个
         borderRadius: 999,
-        borderWidth: 2,
+        borderWidth: 2.5,
         borderColor: t.card,
         backgroundColor: t.card,
       }}
     >
-      {/* 不裁切：Animated 尺寸可能滞后一帧，overflow hidden 会把头像切掉一条 */}
-      <Animated.View style={{ width: size, height: size, borderRadius: 999, overflow: 'hidden' }}>
-        <Avatar name={member.name} size={44} index={member.index} tint={member.color} />
+      {/* 关键：裁成正圆。Avatar 内部是圆角矩形，直接放进来会露出方角 */}
+      <Animated.View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 999,
+          overflow: 'hidden',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Avatar name={member.name} size={46} index={member.index} tint={member.color} />
       </Animated.View>
+
+      {/* 状态点：右下角，带与底色同色的描边环（规范 §5.3） */}
       {member.state !== 'idle' ? (
         <View
           style={{
             position: 'absolute',
-            right: -1,
-            bottom: -1,
-            width: 10,
-            height: 10,
-            borderRadius: 5,
+            right: -1.5,
+            bottom: -1.5,
+            width: dot,
+            height: dot,
+            borderRadius: dot / 2,
             borderWidth: 2,
             borderColor: t.card,
             backgroundColor: dotColor,
