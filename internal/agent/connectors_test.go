@@ -25,7 +25,7 @@ func (f *fakeConnectors) Run(_ context.Context, _, connID, action string, _ map[
 // 否则模型会去调不存在的 github_search_code，白烧一轮。
 func TestToolsetWithoutConnectors(t *testing.T) {
 	m := NewManager()
-	tools, idx := m.toolsetFor("u1")
+	tools, idx := m.toolsetFor("u1", nil)
 
 	if len(idx) != 0 {
 		t.Fatalf("没配连接器却出现了动作：%v", idx)
@@ -48,7 +48,7 @@ func TestToolsetWithConnectors(t *testing.T) {
 		{Name: "notion_get_page__c2", Description: "[知识库] 读页面", Risk: "read", ConnID: "c2", Base: "notion_get_page"},
 	}})
 
-	tools, idx := m.toolsetFor("u1")
+	tools, idx := m.toolsetFor("u1", nil)
 	if len(idx) != 2 {
 		t.Fatalf("应有 2 个动作，实际 %d", len(idx))
 	}

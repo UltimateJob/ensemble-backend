@@ -53,6 +53,8 @@ type Server struct {
 	upstreams *store.Upstreams
 	// imageJobs 生图任务表。未配置生图渠道时为 nil。
 	imageJobs *service.ImageJobs
+	// avatarDir 角色头像落盘目录。为空时头像接口不注册。
+	avatarDir string
 	// beforeProviderDelete 删除渠道前的业务校验（main 注入：模型表引用检查）。
 	beforeProviderDelete func(name string) string
 	// quotas 渠道额度查询（余额 / 5h / 7d 窗口）。
@@ -97,6 +99,18 @@ func (s *Server) SetUpstreams(u *store.Upstreams) { s.upstreams = u }
 
 // SetImageJobs 注入生图任务表。须在开始接请求前调用。
 func (s *Server) SetImageJobs(j *service.ImageJobs) { s.imageJobs = j }
+
+// SetAvatarDir 注入角色头像目录，并确保它存在。须在开始接请求前调用。
+func (s *Server) SetAvatarDir(dir string) {
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logx.L().Warn("头像目录创建失败，头像生成不可用", "dir", dir, "err", err.Error())
+		return
+	}
+	s.avatarDir = dir
+}
 
 // SetProviderDeleteGuard 注入删除渠道前的引用检查。
 func (s *Server) SetProviderDeleteGuard(fn func(name string) string) { s.beforeProviderDelete = fn }
@@ -210,6 +224,11 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("POST /v1/me/password", s.handleSetPassword)
 	userMux.HandleFunc("GET /v1/me/events", s.handleMyEvents)
 	userMux.HandleFunc("POST /v1/events", s.handleTrack)
+	if s.avatarDir != "" {
+		userMux.HandleFunc("POST /v1/agents/avatar/generate", s.handleGenAgentAvatar)
+	}
+	// 头像图片公开读：<img> 发不出 Authorization，带鉴权就渲染不了
+	mux.HandleFunc("GET /v1/agents/avatar/{name}", s.handleAgentAvatar)
 	userMux.HandleFunc("POST /v1/agents/draft", s.handleDraftAgent)
 	userMux.HandleFunc("POST /v1/agents/polish", s.handlePolishAgent)
 	userMux.HandleFunc("GET /v1/agents", s.handleListAgents)

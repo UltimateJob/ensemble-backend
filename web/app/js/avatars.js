@@ -55,8 +55,11 @@ const RING = { idle: 'ring-idle', working: 'ring-working', done: 'ring-done', bl
  * @param {{size?:number, ring?:string, cls?:string}} opt
  */
 export function avatarHTML(name, color, opt = {}) {
-  const { size = 32, ring = '', cls = '' } = opt;
-  const url = avatarUrl(name);
+  const { size = 32, ring = '', cls = '', src = '' } = opt;
+  // 自定义头像优先：用户生成/上传的比预设更该显示。
+  // 预设 manifest 是按名字查的，同名角色在别的群也会命中——
+  // 那是想要的行为（同一个角色长一个样）。
+  const url = src || avatarUrl(name);
   const classes = ['av', ring ? RING[ring] || '' : '', cls].filter(Boolean).join(' ');
   const style = `width:${size}px;height:${size}px`;
   if (url) {

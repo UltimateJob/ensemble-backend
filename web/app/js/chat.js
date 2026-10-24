@@ -549,7 +549,7 @@ export function renderMembers() {
       : (act && act.lastRun ? '刚完成' : '');
     return `
     <div class="member" data-agent="${esc(a.name)}">
-      ${avatarHTML(a.name, a.color, { size: 26, ring: ringOf(st) })}
+      ${avatarHTML(a.name, a.color, { size: 26, ring: ringOf(st), src: a.avatar || '' })}
       <div class="mm">
         <div class="mn">${esc(a.name)}${a.upgraded ? '<span class="up-badge" title="发言走更强的任务模型">⚡升级</span>' : ''}</div>
         <div class="mt">${stText ? esc(stText) : esc(a.title)}</div>
@@ -629,7 +629,7 @@ export function renderMembers() {
   const mc = $('#memberCount');
   if (mc) mc.textContent = state.agents.length + others.length;
   const ta2 = $('#topAvatars');
-  if (ta2) ta2.innerHTML = state.agents.slice(0, 5).map(a => avatarHTML(a.name, a.color, { size: 24 })).join('');
+  if (ta2) ta2.innerHTML = state.agents.slice(0, 5).map(a => avatarHTML(a.name, a.color, { size: 24, src: a.avatar || '' })).join('');
 
   box.querySelectorAll('[data-rm]').forEach(b => {
     b.addEventListener('click', async () => {
@@ -653,9 +653,9 @@ export function renderMembers() {
       const i = +b.dataset.i;
       const a = state.agents[i];
       if (!a) return;
-      const v = await uiEditAgent(a.name, a.prompt || '', !!a.upgraded);
+      const v = await uiEditAgent(a.name, a.prompt || '', !!a.upgraded, a.capabilities || []);
       if (v === null) return;
-      const next = state.agents.map((x, k) => k === i ? { ...x, prompt: v.prompt, upgraded: v.upgraded } : x);
+      const next = state.agents.map((x, k) => k === i ? { ...x, prompt: v.prompt, upgraded: v.upgraded, capabilities: v.capabilities } : x);
       try {
         await patchAgents(next);
         state.agents = next;
@@ -719,23 +719,30 @@ function pickLibAgent() {
   mask.innerHTML = `<div class="ui-dlg-card">
     <h3>从角色库添加</h3>
     ${!state.library.length
-      ? `<p class="ui-dlg-hint">角色库还是空的。先去场景页「添加角色」造几个，存入角色库后就能拉进任何群。</p>`
+      ? `<p class="ui-dlg-hint">角色库还是空的。新建一个角色，它会存进角色库，之后能拉进任何群。</p>`
       : !cands.length
         ? `<p class="ui-dlg-hint">角色库里的人都已经在群里了。</p>`
         : `<div class="lib-pick-list">
             ${cands.map(a => `
               <button class="lp-item" data-id="${esc(a.id)}">
-                ${avatarHTML(a.name, a.color, { size: 26 })}
+                ${avatarHTML(a.name, a.color, { size: 26, src: a.avatar || '' })}
                 <span class="lp-n">${esc(a.name)}</span>
                 <span class="lp-t">${esc(a.title || '')}</span>
               </button>`).join('')}
            </div>`}
-    <div class="ui-dlg-act"><button class="ui-dlg-btn" data-x="cancel">关闭</button></div>
+    <div class="ui-dlg-act">
+      <button class="ui-dlg-btn" data-x="create">${icon('plus', 14)}新建角色</button>
+      <button class="ui-dlg-btn" data-x="cancel">关闭</button>
+    </div>
   </div>`;
   document.body.appendChild(mask);
   requestAnimationFrame(() => mask.classList.add('on'));
   const close = () => { mask.classList.remove('on'); setTimeout(() => mask.remove(), 180); document.removeEventListener('keydown', onKey); };
   mask.querySelector('[data-x=cancel]').onclick = close;
+  mask.querySelector('[data-x=create]').onclick = () => {
+    close();
+    import('./agentform.js').then(m => m.openAgentForm({ onSaved: () => refreshCurConv() }));
+  };
   mask.addEventListener('click', e => { if (e.target === mask) close(); });
   function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
   document.addEventListener('keydown', onKey);

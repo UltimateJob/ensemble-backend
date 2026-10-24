@@ -783,6 +783,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 			Scope:        singleAgentScope(a.Scope, len(targets)),
 			Task:         task,
 			Context:      digest,
+			Capabilities: a.Capabilities,
 			Model:        conv.Model,
 			MaxSteps:     maxSteps,
 			SystemPrompt: systemPrompt,

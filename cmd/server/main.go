@@ -451,6 +451,7 @@ func main() {
 	}
 	imageJobs := service.NewImageJobs(imageGens, filepath.Join(dataDir, "images"))
 	srv.SetImageJobs(imageJobs)
+	srv.SetAvatarDir(filepath.Join(dataDir, "avatars"))
 
 	agentMgr.SetModel(gw)
 	// 生图也注入 Agent：配了 image 渠道，执行器才有 image_generate 工具。

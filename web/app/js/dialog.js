@@ -73,10 +73,11 @@ export function uiEditText(title, value = '', opts = {}) {
 }
 
 /** 编辑角色：人设 + 是否升级。返回 {prompt, upgraded} 或 null（取消） */
-export function uiEditAgent(name, prompt = '', upgraded = false) {
+export function uiEditAgent(name, prompt = '', upgraded = false, caps = []) {
   return new Promise(resolve => {
     let settled = false;
     const done = v => { if (!settled) { settled = true; resolve(v); } };
+    const canImage = (caps || []).includes('image');
     openModal({
       title: `${name} 的人设`,
       width: 620,
@@ -85,6 +86,10 @@ export function uiEditAgent(name, prompt = '', upgraded = false) {
         <label class="studio-check" style="margin-top:4px">
           <input type="checkbox" id="dlgUp">
           <span><b>升级角色</b> <span class="hint">发言用更强的模型（高难度任务全面增强），消耗的额度略高</span></span>
+        </label>
+        <label class="studio-check" style="margin-top:8px">
+          <input type="checkbox" id="dlgImg" ${canImage ? 'checked' : ''}>
+          <span><b>能生成图片</b> <span class="hint">派活时可以用 image_generate 真的出图。只给需要画图的角色开，生图较慢也按次计费</span></span>
         </label>`,
       actions: [
         { key: 'cancel', label: '取消', kind: 'line', onClick: () => done(null) },
@@ -92,6 +97,7 @@ export function uiEditAgent(name, prompt = '', upgraded = false) {
           done({
             prompt: mask.querySelector('#dlgArea').value.trim(),
             upgraded: mask.querySelector('#dlgUp').checked,
+            capabilities: mask.querySelector('#dlgImg').checked ? ['image'] : [],
           });
         } },
       ],

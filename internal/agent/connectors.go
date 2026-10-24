@@ -22,12 +22,15 @@ import (
 
 // toolsetFor 生成本次 Run 的工具集。
 // 返回：完整工具列表、按完整工具名索引的连接器动作。
-func (m *Manager) toolsetFor(userID string) ([]domain.Tool, map[string]ConnectorAction) {
+func (m *Manager) toolsetFor(userID string, caps []string) ([]domain.Tool, map[string]ConnectorAction) {
 	m.mu.Lock()
 	cr := m.connectors
 	m.mu.Unlock()
 
-	tools := ToolsWithImage(m.hasImage(), nil...)
+	// 生图工具只给有 image 能力的角色。
+	// 之前是「配了渠道就人人能用」——一个负责写代码的角色突然能画图，
+	// 行为不可预期，而且生图又慢又花钱。
+	tools := ToolsWithImage(m.hasImage() && hasCap(caps, domain.CapImage), nil...)
 	index := map[string]ConnectorAction{}
 	if cr == nil {
 		return tools, index
@@ -145,4 +148,14 @@ func humanSize(n int64) string {
 		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
 	}
 	return fmt.Sprintf("%d B", n)
+}
+
+// hasCap 判断能力列表里有没有某一项。
+func hasCap(caps []string, want string) bool {
+	for _, c := range caps {
+		if c == want {
+			return true
+		}
+	}
+	return false
 }

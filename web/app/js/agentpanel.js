@@ -22,7 +22,7 @@ export function openAgentPanel(agent, conv) {
     render: el => {
       el.innerHTML = `
         <div class="ap-hero">
-          ${avatarHTML(agent.name, agent.color, { size: 64 })}
+          ${avatarHTML(agent.name, agent.color, { size: 64, src: agent.avatar || '' })}
           <div class="ap-hero-body">
             <div class="ap-hero-name">${esc(agent.name)}</div>
             <div class="ap-hero-title">${esc(agent.title || '角色')}</div>
@@ -128,7 +128,7 @@ async function loadCurrent(agent, conv, el) {
     box.innerHTML = `
       <div class="ap-run">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          ${avatarHTML(agent.name, agent.color, { size: 22, ring: ringOf(a.state) })}
+          ${avatarHTML(agent.name, agent.color, { size: 22, ring: ringOf(a.state), src: agent.avatar || '' })}
           <b style="font-size:13px">${esc(run.task || '执行中')}</b>
         </div>
         <div class="hint">第 ${run.step}/${run.maxSteps} 步 · ${esc(statusLabel(run.status))}

@@ -282,7 +282,7 @@ function openAbout() {
     width: 460,
     body: `
       <div class="about-box">
-        <img src="/site/brand/logo-mark.png" alt="" class="about-logo">
+        <img src="/site/brand/logo-mark-light-128.png" alt="" class="about-logo">
         <div>
           <b>纸团</b>
           <span>版本 ${esc(ver)}</span>

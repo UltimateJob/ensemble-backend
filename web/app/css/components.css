@@ -528,3 +528,21 @@ input:focus-visible,textarea:focus-visible,select:focus-visible{
   padding:14px 12px;font-size:12px;color:var(--ink-4);text-align:center;
 }
 .ft-err{color:var(--bad)}
+
+/* ---------- 新建角色 ---------- */
+.af-top{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+.af-av{
+  width:76px;height:76px;border-radius:50%;flex:0 0 76px;
+  background:var(--paper-2);display:grid;place-items:center;
+  overflow:hidden;
+}
+.af-av img{width:100%;height:100%;object-fit:cover}
+.af-av-ph{color:var(--ink-4)}
+.af-av-act{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.af-colors{display:flex;gap:9px}
+.af-color{
+  width:28px;height:28px;border-radius:50%;
+  transition:transform var(--t-fast),box-shadow var(--t-fast);
+}
+.af-color:hover{transform:scale(1.1)}
+.af-color.on{box-shadow:0 0 0 2px var(--sheet),0 0 0 4px var(--ink-3)}

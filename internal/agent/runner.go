@@ -43,9 +43,12 @@ type StartRequest struct {
 	// 界面、执行记录、搜索都按它显示；上下文只是给模型看的背景。
 	// 之前两者拼在同一个字段里，时间线上出现的是
 	// 「@架构 建个文件最近的群聊上下文（从旧到新）：架构：…」。
-	Context  string
-	Model    string
-	MaxSteps int
+	Context string
+	// Capabilities 这个角色被授予的额外能力（image 等）。
+	// 空表示只有本地文件工具。
+	Capabilities []string
+	Model        string
+	MaxSteps     int
 	// SystemPrompt 由会话层注入角色人设与协作规则；为空时用默认 operator 提示。
 	SystemPrompt string
 	// ForceApproval 远程设备要求审批（设备策略，见 domain.Device.RequireApproval）。
@@ -340,7 +343,7 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 
 	// 工具集在整轮里固定：本地文件工具 + 该用户已配置的连接器动作。
 	// 每步重新生成会让模型看到的工具列表前后不一致。
-	allTools, connActions := m.toolsetFor(r.UserID)
+	allTools, connActions := m.toolsetFor(r.UserID, req.Capabilities)
 	m.mu.Lock()
 	r.connActions = connActions
 	m.mu.Unlock()

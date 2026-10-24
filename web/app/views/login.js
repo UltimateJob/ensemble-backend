@@ -24,7 +24,7 @@ export async function syncRemoteToken(token) {
 export function mountLogin(host) {
   host.innerHTML = `
   <div class="login-card">
-    <img class="login-logo" src="/site/brand/logo-mark.png" alt="纸团">
+    <img class="login-logo" src="/site/brand/logo-mark-light.png" alt="纸团">
     <h1 class="login-h1">把一件真事，交给一个纸团。</h1>
     <p class="login-sub">几个角色分工协作，每一步都落成文件，最后由你确认。</p>
 

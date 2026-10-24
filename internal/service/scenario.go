@@ -1,5 +1,7 @@
 package service
 
+import "github.com/UltimateJob/ensemble-backend/internal/domain"
+
 // Scenario 一个开箱即用的场景模板：一组角色 + 各自的系统提示 + 发言顺序。
 type Scenario struct {
 	Key      string  `json:"key"`
@@ -44,6 +46,10 @@ type Agent struct {
 	Permission string `json:"permission,omitempty"`
 	// Scope 允许改的路径；空表示不限。
 	Scope []string `json:"scope,omitempty"`
+	// Capabilities 额外能力（image = 能生成图片）。空表示没有。
+	Capabilities []string `json:"capabilities,omitempty"`
+	// Avatar 自定义头像地址。
+	Avatar string `json:"avatar,omitempty"`
 }
 
 // Scenarios 全部内置场景。新增场景只需在这里加一项。
@@ -101,6 +107,13 @@ var Scenarios = []Scenario{
 				Prompt: "你负责正文。口语化、第一人称、有具体细节。标题给 3 个备选，不用夸张符号堆砌。正文 300 字以内。"},
 			{Key: "visual", Name: "视觉策划", Title: "封面与配图", Emoji: "视", Color: "#B45309", Artifact: "配图方案",
 				Prompt: "你负责视觉。描述封面构图、配色、文字位置；说明每张配图要表达什么。不写代码、不描述具体品牌。"},
+			// 画师是唯一有生图能力的角色。视觉策划只出方案，画师按方案真的生成。
+			// 拆成两个角色而不是让视觉策划自己画：方案和生成是两种工作，
+			// 混在一起时用户会以为「说了方案」就等于「已经出图」。
+			{Key: "painter", Name: "画师", Title: "按方案生成图片", Emoji: "画", Color: "#0891B2", Artifact: "配图",
+				Permission:   "approval",
+				Capabilities: []string{domain.CapImage},
+				Prompt:       "你负责把视觉方案变成真实图片。调用 image_generate 工具生成：提示词要写清主体、风格、构图、色调，英文或中文都可以。生成后简要说明这张图用在笔记的哪个位置。"},
 			{Key: "tag", Name: "标签运营", Title: "标签与发布", Emoji: "标", Color: "#047857",
 				Prompt: "你负责标签与发布节奏。给 8-12 个标签，分成大流量/精准/长尾三层，说明各层作用。只列标签与一句话理由。"},
 		},

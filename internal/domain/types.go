@@ -127,6 +127,11 @@ type SavedAgent struct {
 	Color  string `json:"color,omitempty"`
 	Prompt string `json:"prompt"`
 	Source string `json:"source,omitempty"` // draft（AI 生成）| manual（手写）
+	// Avatar 自定义头像的图片地址（/v1/agents/{id}/avatar 或外链）。
+	// 空表示用预生成头像/首字回退。
+	Avatar string `json:"avatar,omitempty"`
+	// Capabilities 额外能力（image = 能生成图片）。
+	Capabilities []string `json:"capabilities,omitempty"`
 	// Upgraded 升级角色：发言走任务池模型（deepseek-v4.1-flash 这类），
 	// 处理文件、写代码等高难度任务能力更强。默认不升级。
 	Upgraded  bool      `json:"upgraded,omitempty"`
@@ -166,6 +171,33 @@ type ConvAgent struct {
 	Permission string `json:"permission,omitempty"`
 	// Scope 该角色允许写的路径（如 "web/" 或 "*.go"）。空表示不限。
 	Scope []string `json:"scope,omitempty"`
+	// Capabilities 这个角色额外具备的能力，如 "image"（生成图片）。
+	//
+	// 为什么不是「配了渠道就人人可用」：生图花钱、慢、而且产出的是
+	// 图片不是代码，塞进一个负责写代码的角色里会让它的行为不可预期。
+	// 能力显式授予，谁有谁用。
+	//
+	// 历史数据没有这个字段——那些角色就是没有任何额外能力，
+	// 不会因为升级而突然能画图。
+	Capabilities []string `json:"capabilities,omitempty"`
+	// Avatar 自定义头像地址。空表示用预设/首字。
+	Avatar string `json:"avatar,omitempty"`
+}
+
+// 能力常量。
+const (
+	// CapImage 能生成图片。要求角色所在群已绑定工作区（图片要落盘）。
+	CapImage = "image"
+)
+
+// HasCapability 判断角色是否具备某项能力。
+func (a ConvAgent) HasCapability(cap string) bool {
+	for _, c := range a.Capabilities {
+		if c == cap {
+			return true
+		}
+	}
+	return false
 }
 
 // Message 一条消息。Agent 消息带产物引用。
