@@ -187,6 +187,12 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/models", s.handleUserModels)
 	userMux.HandleFunc("GET /v1/search", s.handleSearch)
 
+	// 连接器 OAuth。start 需要登录；callback 由浏览器发起、没有
+	// Authorization 头，身份靠 state 认，所以不能套鉴权中间件。
+	userMux.HandleFunc("GET /v1/connectors/oauth/providers", s.handleOAuthProviders)
+	userMux.HandleFunc("GET /v1/connectors/oauth/{kind}/start", s.handleOAuthStart)
+	mux.HandleFunc("GET /v1/connectors/oauth/{kind}/callback", s.handleOAuthCallback)
+
 	// 生图：异步任务，提交后轮询状态。
 	//
 	// 无条件注册。之前是「有渠道才注册」，没配渠道时用户点生成得到 404，
