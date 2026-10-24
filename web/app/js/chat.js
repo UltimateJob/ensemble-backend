@@ -248,12 +248,13 @@ export async function openConv(id) {
       if (m.role === 'assistant' && /@用户|@你/.test(m.content || '')) {
         el.classList.add('asking');
       }
-      // 有产物定义的角色，历史里也补一张文件卡（执行/团队消息自带附件，不重复造）
-      if (agent && agent.artifact && m.role === 'assistant' &&
-          !m.attachments?.length && !m.kind) {
-        addArtifact(agent.name, agent.artifact, m.content);
-        appendArtifactCard(agent.name, agent.artifact, m.content);
-      }
+      // 这里以前会给「定义了产物类型的角色」的每条发言都补一张文件卡，
+      // 内容是这条消息本身。结果是普通聊天被伪装成文件：用户看到一段话，
+      // 下面又跟一张标题为「接口定义」的卡片，点开还是同一段话。
+      //
+      // 真正的产物是执行任务时写出来的文件，那走 m.attachments
+      // （ArtifactRef：带路径、大小、runId），渲染成可点击的文件条。
+      // 聊天发言就只是发言，不该冒领「文件」这个身份。
     });
     scheduleDedupeTimes();
     if (!msgs.length) {
@@ -855,24 +856,6 @@ function openArtifactView(title, detail, agentName) {
   };
 }
 
-function buildArtifactCard(agentName, title, detail) {
-  const card = document.createElement('div');
-  card.className = 'artifact';
-  card.innerHTML = `
-    <span class="fi">${icon('file-text', 16)}</span>
-    <div class="art-txt">
-      <div class="an">${esc(title)}</div>
-      <div class="ad">${esc(detail || '')}</div>
-    </div>
-    <span class="go">${icon('chevron-right', 16)}</span>`;
-  card.addEventListener('click', () => openArtifactView(title, detail, agentName));
-  return card;
-}
-
-export function appendArtifactCard(agentName, title, detail) {
-  $('#msgWrap').appendChild(buildArtifactCard(agentName, title, detail));
-}
-
 export function addArtifact(name, title, detail) {
   // 同一个角色 + 同一个产物名，只保留一份（内容更新为最新的）。
   // 不加这个的话，六轮对话下来右栏会列十几个「合规点对表」——
@@ -1043,8 +1026,10 @@ export async function runRound(path, body, opts = {}) {
     }
 
     if (ev.type === 'artifact') {
+      // 侧栏「本轮产物」清单保留：它是一次派活的产出索引，
+      // 点开能看到是谁说的什么。但不在消息流里再插一张文件卡——
+      // 正文已经在上面了，卡片只是同一段话的复印件。
       addArtifact(ev.name, ev.title, ev.detail);
-      container.appendChild(buildArtifactCard(ev.name, ev.title, ev.detail));
       trackNew();
       autoScroll();
       return;

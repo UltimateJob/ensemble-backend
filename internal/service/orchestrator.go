@@ -730,25 +730,15 @@ func (o *Orchestrator) ask(ctx context.Context, conv *domain.Conversation, sc Sc
 		})
 	}
 
-	if agent.Artifact != "" {
-		emit(Event{
-			Type: "artifact", Agent: agent.Key, Name: agent.Name,
-			Title: agent.Artifact, Detail: summarize(text),
-		})
-		// 归档到资料库。之前产物只活在这一条 SSE 事件和消息正文里，
-		// 换个群就找不回来了。这里落成独立实体，MessageID 留空
-		// 是因为调用点拿不到消息 ID（编排器先流式发送、后落库）。
-		if o.library != nil {
-			o.library.Record(domain.Artifact{
-				UserID:         conv.UserID,
-				ConversationID: conv.ID,
-				AgentKey:       agent.Key,
-				AgentName:      agent.Name,
-				Title:          agent.Artifact,
-				Content:        text,
-			})
-		}
-	}
+	// 聊天发言不再自动归档成「产物」。
+	//
+	// 之前只要角色声明了 Artifact 类型（后端→「接口定义」），他在群里
+	// 说的每句话都会被塞进资料库、并在前端消息流里追加一张同内容的
+	// 文件卡。可聊天发言不是产物——真正的产物是执行任务时写出来的
+	// 文件（带 Path / Size / RunID，见 agent.Run.Artifacts）。
+	// 让「说过什么」冒充「产出了什么」，用户点开卡片看到的就是同一段话。
+	//
+	// 资料库仍然收执行产物：Run 结束时会走 RecordRun。
 
 	return speakResult{text: text, asksUser: asksUser, tokens: tokens, latency: latency}, nil
 }
