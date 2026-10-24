@@ -224,14 +224,22 @@ func (c *Chat) Send(ctx context.Context, user *domain.User, convID, content stri
 		return nil, nil, ErrQuotaExceeded
 	}
 
-	history := c.store.ListMessages(convID, 20)
+	// 之前是 ListMessages(convID, 20)：固定 20 条，多一条都不给。
+	// 长对话里前 20 条早就是几个小时前的内容，最近的反而被挤掉。
+	// 改成按字符预算取，加上早期摘要——和群聊编排走同一套规则。
+	all := c.store.ListMessages(convID, 0)
+	_, history := buildHistoryWith(ctx, c.store, c.gw, conv, all)
 	req := domain.ChatRequest{
 		Model:  conv.Model,
 		Stream: true,
 	}
+	sys := systemPrompt(conv)
+	if block := summaryBlock(conv.Summary); block != "" {
+		sys += block
+	}
 	req.Messages = append(req.Messages, domain.ChatMessage{
 		Role:    "system",
-		Content: systemPrompt(conv),
+		Content: sys,
 	})
 	for _, m := range history {
 		req.Messages = append(req.Messages, domain.ChatMessage{

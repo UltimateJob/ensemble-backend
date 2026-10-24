@@ -349,8 +349,10 @@ func (m *Manager) loop(ctx context.Context, r *Run, w *Workspace, model Model, r
 		m.emit(r, EventStepStart, map[string]any{"step": step, "maxSteps": r.MaxSteps})
 
 		ch, err := model.Stream(ctx, domain.ChatRequest{
-			Model:      r.Model,
-			Messages:   msgs,
+			Model: r.Model,
+			// 每步送出去之前先裁剪：工具输出会越积越多，不裁的话
+			// 跑到第十几步就会超上下文，报一个用户完全看不懂的错。
+			Messages:   trimExecContext(msgs),
 			Tools:      allTools,
 			ToolChoice: "auto",
 			Stream:     true,

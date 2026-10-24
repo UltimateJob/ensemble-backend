@@ -33,13 +33,13 @@ import (
 
 // OAuthProvider 一个平台的 OAuth 端点与参数。
 type OAuthProvider struct {
-	Kind        string
-	AuthURL     string
-	TokenURL    string
-	Scope       string
-	ClientID    string
+	Kind         string
+	AuthURL      string
+	TokenURL     string
+	Scope        string
+	ClientID     string
 	ClientSecret string
-	RedirectURI string
+	RedirectURI  string
 	// ExtraAuth 附加到授权 URL 的查询参数
 	ExtraAuth url.Values
 	// BasicAuth 为真时用 HTTP Basic 传 client_id/secret（Notion、GitHub 的标准）

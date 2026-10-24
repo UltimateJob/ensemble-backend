@@ -89,6 +89,17 @@ type Conversation struct {
 	// AgentPermissions 按角色覆盖的权限，key 是 agent key。
 	AgentPermissions map[string]string `json:"agentPermissions,omitempty"`
 
+	// Summary 早期对话的压缩摘要。
+	//
+	// 群聊一长，早期消息就会被字符预算挤掉，角色开始「失忆」——
+	// 忘了之前定过什么方案、谁负责哪块。摘要代替直接丢弃：
+	// 把挤出去的那部分压成几句事实，附在上下文最前面。
+	//
+	// SummaryUpTo 是已被摘要覆盖的最后一条消息 ID。用它做游标，
+	// 每轮只压缩「新挤出去的部分」，不重复总结。
+	Summary     string `json:"summary,omitempty"`
+	SummaryUpTo string `json:"summaryUpTo,omitempty"`
+
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
