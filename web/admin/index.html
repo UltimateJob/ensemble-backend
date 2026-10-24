@@ -1076,7 +1076,7 @@ html[data-theme="dark"] .switch::after{background:#F2F4F7}
         <div class="card">
           <div class="table-wrap">
             <table class="resp">
-              <thead><tr><th>上游</th><th>Base URL</th><th>密钥</th><th>模型</th><th style="text-align:right">调用</th><th style="text-align:right">平均延迟</th><th>状态</th><th class="col-act"></th></tr></thead>
+              <thead><tr><th>上游</th><th>Base URL</th><th>密钥</th><th>类型</th><th>模型</th><th style="text-align:right">调用</th><th style="text-align:right">平均延迟</th><th>状态</th><th class="col-act"></th></tr></thead>
               <tbody id="upstreamBody"></tbody>
             </table>
           </div>
@@ -2874,8 +2874,9 @@ function renderUpstreams(list,provs,models,quotas){
         (p.lastErr?'<div class="cell-sub" title="'+esc(p.lastErr)+'">'+esc(String(p.lastErr).slice(0,100))+'</div>':'')+'</td>'+
       '<td class="mono" data-label="Base URL"><span class="ellip" title="'+esc(u.baseUrl||'')+'">'+esc(u.baseUrl||'—')+'</span></td>'+
       '<td data-label="密钥">'+(u.hasKey?'<span class="badge ok"><span class="dot"></span>已配置</span>':'<span class="badge warn"><span class="dot"></span>未配置</span>')+'</td>'+
+      '<td data-label="类型">'+(u.kind==='image'?'<span class="badge pri">图片生成</span>':'<span class="badge neutral">对话</span>')+'</td>'+
       '<td data-label="模型">'+(u.model?'<span class="mono ellip">'+esc(u.model)+'</span>':'<span style="color:var(--tx-4)">—</span>')+
-        '<div class="cell-sub">'+nf(modelCount[u.name]||0)+' 个路由</div></td>'+
+        '<div class="cell-sub">'+(u.kind==='image'?'生图渠道':nf(modelCount[u.name]||0)+' 个路由')+'</div></td>'+
       '<td class="num" data-label="调用" title="成功 '+nf(p.success||0)+' · 失败 '+nf(p.failure||0)+'">'+compact(p.success||0)+' / '+compact(p.failure||0)+'</td>'+
       '<td class="num" data-label="平均延迟">'+ms(p.latencyMs||0)+'</td>'+
       '<td data-label="状态"><span class="badge '+st+'"><span class="dot"></span>'+label+'</span></td>'+
@@ -2986,19 +2987,24 @@ function openUpstreamForm(u){
     sub:editing?u.name:'注册后即时生效，不需要重启',
     body:
       preset+
+      '<div class="field"><label>渠道类型</label><select id="fuKind">'+
+        '<option value="chat"'+(u&&u.kind==='image'?'':' selected')+'>对话 / 补全 · chat</option>'+
+        '<option value="image"'+(u&&u.kind==='image'?' selected':'')+'>图片生成 · image</option>'+
+      '</select><div class="hint">对话渠道走 /chat/completions；生图渠道走 /images/generations。</div></div>'+
       '<div class="field"><label>名称 · Provider 标识</label><input id="fuName" maxlength="32" autocomplete="off" placeholder="小写字母、数字、- _，如 tierflow" value="'+esc(u?u.name:'')+'" '+(editing?'readonly':'')+'></div>'+
       '<div class="field"><label>Base URL · OpenAI 兼容</label><input id="fuBase" autocomplete="off" placeholder="https://tierflow.cn/v1" value="'+esc(u?u.baseUrl:'')+'"></div>'+
       '<div class="field"><label>API Key</label><input id="fuKey" type="password" autocomplete="new-password" placeholder="'+(editing?'留空表示不修改'+(u&&u.keyHint?'（当前 '+esc(u.keyHint)+'）':''):'粘贴上游的 API Key')+'"></div>'+
       '<div class="field"><label>默认模型 · 可选</label><input id="fuModel" autocomplete="off" placeholder="体检时默认用这个模型" value="'+esc(u?u.model||'':'')+'"></div>'+
       (editing?'<div class="field"><label>启用</label><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx-3)"><input type="checkbox" id="fuEnabled" '+(u.enabled?'checked':'')+'> 停用后不再接新请求</label></div>':'')+
-      '<p class="modal-note">只支持 OpenAI 兼容协议：请求发往 <code>Base URL + /chat/completions</code>。TierFlow 的接入配置请选 <b>OpenAI</b>（不要选 Anthropic）。密钥只保存在服务器 <code>data/upstreams.json</code>（0600），不会回显。</p>',
+      '<p class="modal-note">只支持 OpenAI 兼容协议：对话渠道请求发往 <code>Base URL + /chat/completions</code>，生图渠道发往 <code>Base URL + /images/generations</code>。TierFlow 的接入配置请选 <b>OpenAI</b>（不要选 Anthropic）。密钥只保存在服务器 <code>data/upstreams.json</code>（0600），不会回显。</p>',
     okText:editing?'保存':'新增',
     onOk:async()=>{
       const body={
         name:$('#fuName').value.trim(),
         baseUrl:$('#fuBase').value.trim(),
         apiKey:$('#fuKey').value.trim(),
-        model:$('#fuModel').value.trim()
+        model:$('#fuModel').value.trim(),
+        kind:$('#fuKind').value
       };
       if(editing) body.enabled=$('#fuEnabled').checked;
       if(!body.name) throw new Error('请填写名称');

@@ -255,8 +255,24 @@ type Manager struct {
 	// connectors 连接器执行器。为 nil 时 Agent 只有本地文件工具。
 	// 由 main 注入，按 UserID 取该用户可用的动作。
 	connectors ConnectorRunner
+	// image 生图执行器。为 nil 时没有生图工具。
+	image ImageRunner
 	// statePath 状态落盘路径；空表示纯内存
 	statePath string
+}
+
+// ImageRunner 把生图能力暴露给 Agent。
+//
+// 放在 agent 包里的原因同 ConnectorRunner：工作层不反向依赖业务层。
+type ImageRunner interface {
+	// Generate 生成图片，落到工作区内。返回写盘后的相对路径与大小。
+	Generate(ctx context.Context, userID, workspaceRoot, prompt, size string, n int) ([]ImageFile, error)
+}
+
+// ImageFile 一张生成好的图。
+type ImageFile struct {
+	Path string
+	Size int64
 }
 
 // ConnectorRunner 把连接器动作暴露给 Agent。
@@ -302,6 +318,13 @@ func newID(prefix string) string {
 		return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 	}
 	return prefix + "_" + hex.EncodeToString(b)
+}
+
+// SetImageGen 注入生图执行器。须在开始接请求前调用。
+func (m *Manager) SetImageGen(g ImageRunner) {
+	m.mu.Lock()
+	m.image = g
+	m.mu.Unlock()
 }
 
 // SetConnectors 注入连接器执行器。须在开始接请求前调用。

@@ -160,6 +160,13 @@ func main() {
 	} else {
 		seedUpstreams(upstreams, cfg)
 		for _, rec := range upstreams.List() {
+			// 生图渠道不是对话上游：它只提供 /images/generations，
+			// 注册进对话池会在选路时被选中，然后 /chat/completions 404。
+			// 生图渠道在下面单独装配（见 imageJobs）。
+			if rec.Kind == "image" {
+				reg.Remove(rec.Name)
+				continue
+			}
 			if !rec.Enabled {
 				reg.Remove(rec.Name)
 				continue
@@ -179,6 +186,11 @@ func main() {
 	routableUpstreams := 0
 	if upstreams != nil {
 		for _, rec := range upstreams.List() {
+			// 生图渠道不算「可路由的对话上游」——否则只配了生图渠道时，
+			// 系统会以为聊天可用，实际每次请求都会失败。
+			if rec.Kind == "image" {
+				continue
+			}
 			if rec.Enabled && rec.KeyHint != "" {
 				routableUpstreams++
 			}
@@ -391,7 +403,31 @@ func main() {
 	orch.SetActivity(activity)
 	orch.SetLibrary(library)
 
+	// 生图渠道：和对话渠道共用一张表，按 Kind 区分。
+	// 取第一个启用的 image 渠道——生图不需要路由池，一个够用。
+	var imageGen *gateway.ImageGen
+	if upstreams != nil {
+		for _, rec := range upstreams.List() {
+			if rec.Kind != "image" || !rec.Enabled {
+				continue
+			}
+			key, _ := upstreams.Key(rec.Name)
+			if key == "" {
+				continue
+			}
+			imageGen = gateway.NewImageGen(rec.Name, rec.BaseURL, key, rec.Model, 5*time.Minute)
+			log.Info("已启用生图渠道", "name", rec.Name, "model", rec.Model)
+			break
+		}
+	}
+	imageJobs := service.NewImageJobs(imageGen, filepath.Join(dataDir, "images"))
+	srv.SetImageJobs(imageJobs)
+
 	agentMgr.SetModel(gw)
+	// 生图也注入 Agent：配了 image 渠道，执行器才有 image_generate 工具。
+	if imageJobs.Enabled() {
+		agentMgr.SetImageGen(imageJobs)
+	}
 	// 连接器动作注入 Agent：配了 GitHub/Notion/飞书，执行器才看得见那些工具。
 	// 没配就是空列表，模型不会幻想出 github_search_code 这类工具。
 	agentMgr.SetConnectors(conns)

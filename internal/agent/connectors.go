@@ -27,7 +27,7 @@ func (m *Manager) toolsetFor(userID string) ([]domain.Tool, map[string]Connector
 	cr := m.connectors
 	m.mu.Unlock()
 
-	tools := Tools()
+	tools := ToolsWithImage(m.hasImage(), nil...)
 	index := map[string]ConnectorAction{}
 	if cr == nil {
 		return tools, index
@@ -85,4 +85,64 @@ func connectorRisk(r *Run, toolName string) string {
 // 约定：动作名形如 <action>__<connID>。
 func isConnectorTool(name string) bool {
 	return strings.Contains(name, "__")
+}
+
+// hasImage 是否配了生图渠道。
+func (m *Manager) hasImage() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.image != nil
+}
+
+// isConnector 判断工具名是否是连接器动作（按命名约定）。
+func (m *Manager) isConnector(name string) bool {
+	return isConnectorTool(name)
+}
+
+// runImage 执行生图并把图片写进工作区。
+//
+// 返回的 diff 是图片文件的相对路径列表，让前端能像普通产物一样展示。
+func (m *Manager) runImage(ctx context.Context, r *Run, w *Workspace, call domain.ToolCall) (string, string, error) {
+	m.mu.Lock()
+	img := m.image
+	m.mu.Unlock()
+	if img == nil {
+		return "", "", fmt.Errorf("没有配置生图渠道")
+	}
+
+	var a struct {
+		Prompt string `json:"prompt"`
+		Size   string `json:"size"`
+		N      int    `json:"n"`
+	}
+	if err := json.Unmarshal([]byte(call.Arguments), &a); err != nil {
+		return "", "", fmt.Errorf("参数格式不正确：%v", err)
+	}
+	if strings.TrimSpace(a.Prompt) == "" {
+		return "", "", fmt.Errorf("缺少画面描述")
+	}
+
+	files, err := img.Generate(ctx, r.UserID, w.Root, a.Prompt, a.Size, a.N)
+	if err != nil {
+		return "", "", err
+	}
+
+	var sb strings.Builder
+	var paths []string
+	fmt.Fprintf(&sb, "已生成 %d 张图片：\n", len(files))
+	for _, f := range files {
+		fmt.Fprintf(&sb, "- %s（%s）\n", f.Path, humanSize(f.Size))
+		paths = append(paths, f.Path)
+	}
+	return sb.String(), strings.Join(paths, "\n"), nil
+}
+
+func humanSize(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }

@@ -71,6 +71,7 @@ const (
 	ToolRun   = "run"
 	ToolDocx  = "docx_create"
 	ToolXlsx  = "xlsx_create"
+	ToolImage = "image_generate"
 )
 
 // Tools 返回暴露给模型的工具声明。
@@ -127,6 +128,20 @@ func Tools(extras ...domain.Tool) []domain.Tool {
 			Description: "在工作区内执行命令。argv 是参数数组（不经过 shell）；必须用管道时设 shell=true。输出上限 256KB，默认超时 120s。",
 			Parameters:  raw(`{"type":"object","properties":{"argv":{"type":"array","items":{"type":"string"}},"cwd":{"type":"string"},"timeout_seconds":{"type":"integer"},"shell":{"type":"boolean"}},"required":["argv"]}`),
 		},
+	}
+	return base
+}
+
+// ToolsWithImage 在基础工具上追加生图工具（仅当配了生图渠道）。
+func ToolsWithImage(img bool, extras ...domain.Tool) []domain.Tool {
+	raw := func(s string) json.RawMessage { return json.RawMessage(s) }
+	base := Tools()
+	if img {
+		base = append(base, domain.Tool{
+			Name:        ToolImage,
+			Description: "生成图片并保存到工作区。提示词写清主体、风格、构图；生成需要 10-60 秒。",
+			Parameters:  raw(`{"type":"object","properties":{"prompt":{"type":"string","description":"画面描述"},"size":{"type":"string","description":"尺寸，如 1024x1024 / 1792x1024"},"n":{"type":"integer","minimum":1,"maximum":4}},"required":["prompt"]}`),
+		})
 	}
 	return append(base, extras...)
 }
@@ -672,14 +687,21 @@ func (m *Manager) execute(ctx context.Context, r *Run, w *Workspace, call domain
 		_ = scope
 	}
 
-	// 连接器动作和本地工具走同一套审批，但执行入口不同：
-	// 本地工具碰文件系统，连接器动作调外部 API。
+	// 三类工具走同一套审批，执行入口不同：
+	//   本地工具   → 工作区文件系统
+	//   连接器动作 → 外部 API
+	//   生图       → 外部 API + 写回工作区
 	var out, diff string
 	var exitCode int
 	var err error
-	if ca, ok := m.connectorAction(r, call.Name); ok {
+	switch {
+	case call.Name == ToolImage:
+		out, diff, err = m.runImage(ctx, r, w, call)
+	case m.isConnector(call.Name):
+		var ca ConnectorAction
+		ca, _ = m.connectorAction(r, call.Name)
 		out, err = m.runConnector(ctx, r.UserID, ca, call.Arguments)
-	} else {
+	default:
 		out, diff, exitCode, err = runTool(ctx, w, call)
 	}
 	m.mu.Lock()

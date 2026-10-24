@@ -26,10 +26,17 @@ type UpstreamRecord struct {
 	// Sealed 加密后的 API Key；空表示没配置。
 	Sealed string `json:"sealed,omitempty"`
 	// KeyHint 末四位，仅用于界面辨认，不能还原 Key。
-	KeyHint   string    `json:"keyHint,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	Source    string    `json:"source,omitempty"` // env | admin
-	Enabled   bool      `json:"enabled"`
+	KeyHint string `json:"keyHint,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Source  string `json:"source,omitempty"` // env | admin
+	Enabled bool   `json:"enabled"`
+	// Kind 渠道类型：chat（对话/补全）| image（生图）。
+	// 空视为 chat——升级前写入的记录没有这个字段。
+	//
+	// 为什么不复用 DealJSON 那套判断：对话接口和生图接口是两种协议
+	// （/chat/completions vs /images/generations），混在一个列表里
+	// 会让「这个 Key 能不能生图」变得不可判断。
+	Kind      string    `json:"kind,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 

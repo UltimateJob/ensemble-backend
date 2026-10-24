@@ -27,6 +27,8 @@ type upstreamReq struct {
 	APIKey  string `json:"apiKey"`
 	Model   string `json:"model"`
 	Enabled *bool  `json:"enabled"`
+	// Kind chat | image。空视为 chat。
+	Kind string `json:"kind"`
 }
 
 // upstreamView 管理台可见的上游。不含密钥，只说明配没配。
@@ -40,6 +42,7 @@ type upstreamView struct {
 	Reserved bool   `json:"reserved"` // 由 EXTRA_PROVIDERS / DEEPSEEK_* 提供
 	Enabled  bool   `json:"enabled"`
 	State    string `json:"state"`
+	Kind     string `json:"kind,omitempty"`
 }
 
 func (s *Server) handleAdminUpstreams(w http.ResponseWriter, r *http.Request) {
@@ -88,9 +91,17 @@ func (s *Server) handleAdminUpstreams(w http.ResponseWriter, r *http.Request) {
 		// 但改动会覆盖环境变量（种子只在文件里没有同名渠道时写入）。
 		source = ""
 	}
+	kind := strings.TrimSpace(req.Kind)
+	if kind == "" && old != nil {
+		kind = old.Kind // 编辑时没传就沿用
+	}
+	if kind != "" && kind != "chat" && kind != "image" {
+		badRequest(w, "kind 只能是 chat 或 image")
+		return
+	}
 	rec, err := s.upstreams.Upsert(store.UpstreamRecord{
 		Name: req.Name, BaseURL: req.BaseURL, Key: strings.TrimSpace(req.APIKey),
-		Model: req.Model, Enabled: enabled, Source: source,
+		Model: req.Model, Enabled: enabled, Source: source, Kind: kind,
 	})
 	if err != nil {
 		fail(w, 400, "upstream_save_failed", err.Error())
@@ -161,7 +172,7 @@ func (s *Server) upstreamViews() []upstreamView {
 			Name: r.Name, BaseURL: r.BaseURL, Model: r.Model,
 			HasKey: r.KeyHint != "", KeyHint: r.KeyHint,
 			Managed: r.Source != "env", Reserved: r.Source == "env",
-			Enabled: r.Enabled, State: state,
+			Enabled: r.Enabled, State: state, Kind: r.Kind,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

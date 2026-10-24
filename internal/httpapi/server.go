@@ -51,6 +51,8 @@ type Server struct {
 
 	// upstreams 可编辑的上游渠道表。为 nil 时渠道接口不注册。
 	upstreams *store.Upstreams
+	// imageJobs 生图任务表。未配置生图渠道时为 nil。
+	imageJobs *service.ImageJobs
 	// beforeProviderDelete 删除渠道前的业务校验（main 注入：模型表引用检查）。
 	beforeProviderDelete func(name string) string
 	// quotas 渠道额度查询（余额 / 5h / 7d 窗口）。
@@ -92,6 +94,9 @@ func NewServer(
 
 // SetUpstreams 注入可编辑的上游渠道表。须在开始接请求前调用。
 func (s *Server) SetUpstreams(u *store.Upstreams) { s.upstreams = u }
+
+// SetImageJobs 注入生图任务表。须在开始接请求前调用。
+func (s *Server) SetImageJobs(j *service.ImageJobs) { s.imageJobs = j }
 
 // SetProviderDeleteGuard 注入删除渠道前的引用检查。
 func (s *Server) SetProviderDeleteGuard(fn func(name string) string) { s.beforeProviderDelete = fn }
@@ -181,6 +186,16 @@ func (s *Server) Handler() http.Handler {
 	userMux.HandleFunc("GET /v1/scenarios", s.handleScenariosAll)
 	userMux.HandleFunc("GET /v1/models", s.handleUserModels)
 	userMux.HandleFunc("GET /v1/search", s.handleSearch)
+
+	// 生图：异步任务，提交后轮询状态。
+	//
+	// 无条件注册。之前是「有渠道才注册」，没配渠道时用户点生成得到 404，
+	// 只能去猜哪里出了问题；现在接口一直在，返回 503 + 一句
+	// 「去运维台加一个图片生成渠道」，指路比隐藏入口有用。
+	userMux.HandleFunc("POST /v1/images", s.handleImageSubmit)
+	userMux.HandleFunc("GET /v1/images", s.handleImageJobs)
+	userMux.HandleFunc("GET /v1/images/{id}", s.handleImageJob)
+	userMux.HandleFunc("DELETE /v1/images/{id}", s.handleImageCancel)
 	userMux.HandleFunc("GET /v1/characters", s.handleSearchCharacters)
 	userMux.HandleFunc("POST /v1/characters/to-agent", s.handleCharacterToAgent)
 	userMux.HandleFunc("GET /v1/me", s.handleMe)
@@ -292,6 +307,7 @@ func (s *Server) Handler() http.Handler {
 		"/v1/me", "/v1/me/", "/v1/search", "/v1/scenarios", "/v1/models", "/v1/characters", "/v1/characters/", "/v1/events", "/v1/agents/draft", "/v1/agents", "/v1/agents/", "/v1/studios", "/v1/studios/",
 		"/v1/conversations", "/v1/conversations/", "/v1/memories",
 		"/v1/workspaces", "/v1/workspaces/", "/v1/runs", "/v1/runs/", "/v1/teams", "/v1/teams/",
+		"/v1/images", "/v1/images/",
 		"/v1/goals", "/v1/goals/", "/v1/connectors", "/v1/connectors/",
 		"/v1/library", "/v1/library/", "/v1/devices", "/v1/devices/", "/v1/official",
 		"/v1/wallet", "/v1/redeem",
