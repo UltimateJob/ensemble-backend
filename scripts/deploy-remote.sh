@@ -32,9 +32,16 @@ fi
 echo "  分支 main @ ${REV}"
 
 say "2. 编译 linux/amd64"
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/ensemble-new ./cmd/server
+# 显式写入构建标记。在 worktree 里编译时 go 拿不到主仓库的 git 元数据，
+# 二进制里就没有 vcs.revision，线上跑的是哪个提交事后无法追溯。
+# 用 ldflags 塞一个 buildinfo 变量，比依赖 vcs 自动注入可靠。
+BUILD_REV="${REV}"
+BUILD_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags "-X main.buildRev=${BUILD_REV} -X main.buildAt=${BUILD_AT}" \
+  -o /tmp/ensemble-new ./cmd/server
 ls -lh /tmp/ensemble-new | awk '{print "  " $5, $9}'
-echo "  版本标记：$(grep -a -o 'vcs.revision=[a-f0-9]*' /tmp/ensemble-new | head -1)"
+echo "  构建标记：${BUILD_REV} @ ${BUILD_AT}"
 
 if [ "$DRY" = "1" ]; then
   say "dry-run：不实际上传"

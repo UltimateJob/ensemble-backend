@@ -34,6 +34,14 @@ import (
 // 多实例）。所以标 RC——候选版本，功能冻结，等基础设施补齐。
 const version = "1.3.1"
 
+// buildRev / buildAt 由构建脚本用 -ldflags 注入。
+// 在 worktree 里编译时 go 拿不到主仓库的 git 元数据，二进制里就没有
+// vcs.revision，线上跑的是哪个提交事后无法追溯。
+var (
+	buildRev = "dev"
+	buildAt  = ""
+)
+
 // portOf 从监听地址里取端口：":8080" 和 "127.0.0.1:8080" 都返回 "8080"。
 func portOf(addr string) string {
 	if i := strings.LastIndex(addr, ":"); i >= 0 && i+1 < len(addr) {
@@ -490,6 +498,7 @@ func main() {
 	log.Info("纸团后端已启动",
 		"addr", cfg.Addr,
 		"version", version,
+		"rev", buildRev,
 		// cfg.Addr 可能是 ":8080"（默认）或 "127.0.0.1:8080"（线上 systemd）。
 		// 只取端口，避免拼成 localhost127.0.0.1:8080。
 		"admin", "http://localhost:"+portOf(cfg.Addr)+"/admin/",
