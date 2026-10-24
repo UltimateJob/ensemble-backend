@@ -253,7 +253,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="shield-checkmark"
-              tint={t.accent}
+              tint={t.slate}
               label="默认权限级别"
               value={levelLabel}
               onPress={() => setSheet('level')}
@@ -261,7 +261,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="notifications"
-              tint={t.warn}
+              tint={t.slate}
               label="消息通知"
               right={
                 <Toggle
@@ -276,7 +276,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="shield-half"
-              tint={t.bad}
+              tint={t.slate}
               label="审批提醒"
               last
               right={
@@ -318,7 +318,7 @@ export default function Settings() {
           <Surface outerRadius={radius.card}>
             <SettingRow
               icon="desktop"
-              tint={t.ok}
+              tint={t.slate}
               label="我的电脑"
               value={computerValue}
               onPress={() => setSheet('devices')}
@@ -326,7 +326,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="shield-checkmark-outline"
-              tint={t.ok}
+              tint={t.slate}
               label="执行前审批"
               value={
                 currentDevice ? (currentDevice.requireApproval ? '总是先问我' : '不强制审批') : '未连接电脑'
@@ -361,7 +361,7 @@ export default function Settings() {
             <Divider />
             <SettingRow
               icon="git-network-outline"
-              tint={t.accent}
+              tint={t.slate}
               label="服务器地址"
               value={hostLabel}
               last

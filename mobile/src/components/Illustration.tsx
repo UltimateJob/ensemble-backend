@@ -16,9 +16,9 @@ import { useTheme } from '../theme/theme';
 /** 资料库空态：一叠纸 + 一颗星。 */
 export function EmptyLibrary({ size = 120 }: { size?: number }) {
   const t = useTheme();
-  const c1 = t.dark ? 'rgba(124,155,255,0.16)' : 'rgba(61,107,245,0.10)';
-  const c2 = t.dark ? 'rgba(124,155,255,0.30)' : 'rgba(61,107,245,0.20)';
-  const line = t.dark ? 'rgba(124,155,255,0.55)' : 'rgba(61,107,245,0.45)';
+  const c1 = t.dark ? 'rgba(196,121,106,0.16)' : 'rgba(140,74,60,0.10)';
+  const c2 = t.dark ? 'rgba(196,121,106,0.28)' : 'rgba(140,74,60,0.18)';
+  const line = t.dark ? 'rgba(196,121,106,0.52)' : 'rgba(140,74,60,0.42)';
 
   return (
     <Svg width={size} height={size} viewBox="0 0 120 120" fill="none">
@@ -49,9 +49,9 @@ export function EmptyLibrary({ size = 120 }: { size?: number }) {
 /** 目标空态：一面旗 + 一条虚线路径。 */
 export function EmptyGoals({ size = 120 }: { size?: number }) {
   const t = useTheme();
-  const c1 = t.dark ? 'rgba(124,155,255,0.16)' : 'rgba(61,107,245,0.10)';
-  const c2 = t.dark ? 'rgba(124,155,255,0.32)' : 'rgba(61,107,245,0.22)';
-  const line = t.dark ? 'rgba(124,155,255,0.55)' : 'rgba(61,107,245,0.45)';
+  const c1 = t.dark ? 'rgba(196,121,106,0.16)' : 'rgba(140,74,60,0.10)';
+  const c2 = t.dark ? 'rgba(196,121,106,0.30)' : 'rgba(140,74,60,0.20)';
+  const line = t.dark ? 'rgba(196,121,106,0.52)' : 'rgba(140,74,60,0.42)';
 
   return (
     <Svg width={size} height={size} viewBox="0 0 120 120" fill="none">
@@ -84,9 +84,9 @@ export function EmptyGoals({ size = 120 }: { size?: number }) {
 /** 连接器空态：两个节点 + 一条连线。 */
 export function EmptyConnectors({ size = 120 }: { size?: number }) {
   const t = useTheme();
-  const c1 = t.dark ? 'rgba(124,155,255,0.16)' : 'rgba(61,107,245,0.10)';
-  const c2 = t.dark ? 'rgba(124,155,255,0.32)' : 'rgba(61,107,245,0.22)';
-  const line = t.dark ? 'rgba(124,155,255,0.55)' : 'rgba(61,107,245,0.45)';
+  const c1 = t.dark ? 'rgba(196,121,106,0.16)' : 'rgba(140,74,60,0.10)';
+  const c2 = t.dark ? 'rgba(196,121,106,0.30)' : 'rgba(140,74,60,0.20)';
+  const line = t.dark ? 'rgba(196,121,106,0.52)' : 'rgba(140,74,60,0.42)';
 
   return (
     <Svg width={size} height={size} viewBox="0 0 120 120" fill="none">
@@ -115,9 +115,9 @@ export function EmptyConnectors({ size = 120 }: { size?: number }) {
 /** 对话空态：三个叠起来的对话气泡。 */
 export function EmptyChat({ size = 132 }: { size?: number }) {
   const t = useTheme();
-  const c1 = t.dark ? 'rgba(124,155,255,0.14)' : 'rgba(61,107,245,0.08)';
-  const c2 = t.dark ? 'rgba(124,155,255,0.28)' : 'rgba(61,107,245,0.18)';
-  const line = t.dark ? 'rgba(124,155,255,0.5)' : 'rgba(61,107,245,0.4)';
+  const c1 = t.dark ? 'rgba(196,121,106,0.14)' : 'rgba(140,74,60,0.08)';
+  const c2 = t.dark ? 'rgba(196,121,106,0.26)' : 'rgba(140,74,60,0.16)';
+  const line = t.dark ? 'rgba(196,121,106,0.48)' : 'rgba(140,74,60,0.38)';
 
   return (
     <Svg width={size} height={size} viewBox="0 0 132 132" fill="none">

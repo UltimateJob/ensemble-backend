@@ -71,7 +71,8 @@ export function floatShadow(t: Theme) {
  */
 export function accentShadow(t: Theme) {
   return {
-    shadowColor: t.dark ? '#3D5FD0' : '#4E7BFB',
+    // 跟着强调色走，不再写死一支蓝
+    shadowColor: t.accentDeep,
     shadowOpacity: t.dark ? 0.22 : 0.16,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
@@ -252,7 +253,7 @@ export function Button({
         style={[{ alignSelf: full ? 'stretch' : 'auto' }, style]}
       >
         <LinearGradient
-          colors={grad(disabled ? (t.dark ? ['#2A2C38', '#2A2C38'] : ['#CBD5E8', '#CBCDE4']) : t.gradient)}
+          colors={grad(disabled ? [t.toggleOff, t.toggleOff] : t.gradient)}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[
@@ -620,11 +621,13 @@ export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) =
           padding: 2.5,
           justifyContent: 'center',
           overflow: 'hidden',
-          backgroundColor: on ? t.accent : t.cardSunken,
+          // 开着用墨色。之前跟强调色走，强调色改成赭红后，
+          // 所有开关看着都像「危险操作已启用」。
+          backgroundColor: on ? t.ink : t.cardSunken,
         }}
       >
         {on ? (
-          <LinearGradient colors={grad(t.gradient)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={grad([t.ink, t.ink])} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
         ) : null}
         <View style={[styles.knob, { alignSelf: on ? 'flex-end' : 'flex-start' }]} />
       </View>

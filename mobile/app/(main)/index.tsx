@@ -887,17 +887,19 @@ function ChatPage({
         )}
       </ScrollView>
 
-      {/* 底部：品牌渐变主按钮 + 从模板开始（B3 的最后两样） */}
+      {/* 底部主按钮：墨黑单色。
+          之前是紫蓝渐变，换成赭红后又像警示按钮。iOS 的主操作
+          基本都是墨黑或系统色，不用高饱和实心色。 */}
       <View style={[s.chatFooter, { backgroundColor: t.canvas[1] }]}>
         <PressableScale onPress={onNew} scaleTo={0.97} accessibilityLabel="新建团队">
           <LinearGradient
-            colors={grad(t.gradient)}
+            colors={grad(t.primaryGrad)}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
+            end={{ x: 0, y: 1 }}
             style={[s.primaryBtn, { shadowColor: t.brandShadow }]}
           >
-            <Icon name="add" size={18} color="#FFFFFF" />
-            <T size={ts.body} weight="700" color="#FFFFFF">
+            <Icon name="add" size={18} color={t.primaryInk} />
+            <T size={ts.body} weight="700" color={t.primaryInk}>
               新建团队
             </T>
           </LinearGradient>
@@ -1200,7 +1202,7 @@ function MePage({
       <Surface outerRadius={24} style={{ marginTop: 14 }}>
         <MenuRow
           icon="flag"
-          colors={['#6A6AF2', '#4E7BFB']}
+          colors={[t.ink, t.ink]}
           label="我的目标"
           value={`进行中 ${doing} 个`}
           onPress={onOpenGoals}
@@ -1208,7 +1210,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="folder-open"
-          colors={['#7C93A8', '#5F7E99']}
+          colors={[t.slate, t.slate]}
           label="资料库"
           value={`${artifacts.length} 个文件`}
           onPress={onOpenLibrary}
@@ -1216,7 +1218,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="git-network"
-          colors={['#8B7EC8', '#6C5DAE']}
+          colors={[t.slate, t.slate]}
           label="连接器"
           value={connected ? `${connected.name} 已连接` : connectors.length ? '未连接' : '未设置'}
           onPress={onOpenConnect}
@@ -1224,7 +1226,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="laptop"
-          colors={['#64766B', '#4C6154']}
+          colors={[t.slate, t.slate]}
           label="我的设备"
           value={online ? `${myDevice?.name ?? '这台电脑'} · 在线` : '未连接'}
           onPress={onOpenDevices}
@@ -1232,7 +1234,7 @@ function MePage({
         <Divider inset={60} />
         <MenuRow
           icon="shield-checkmark"
-          colors={['#B98A5E', '#9A6E45']}
+          colors={[t.slate, t.slate]}
           label="默认权限级别"
           value={levelLabel(defaultLevel)}
           // 权限级别在设置页里改；以前这里跳到设备页，点进去找不到这个设置。
@@ -1243,7 +1245,7 @@ function MePage({
       <Surface outerRadius={24} style={{ marginTop: 12 }}>
         <MenuRow
           icon="settings"
-          colors={['#9AA0B4', '#6E7488']}
+          colors={[t.slate, t.slate]}
           label="设置"
           onPress={onOpenSettings}
           last

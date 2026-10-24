@@ -14,17 +14,25 @@ import type { AgentState } from '../lib/types';
  * 渐变对是配好的：深→浅，同色系，不会出现脏色。
  */
 
+/**
+ * 头像渐变对。
+ *
+ * 原来这十组是高饱和的糖果色（蜜桃、天蓝、丁香、樱粉…），
+ * 一屏下去像色卡：每个人都想抢注意力，结果谁都不重要。
+ * 现在统一降到 30-40% 饱和度、同一明度区间，靠色相区分而不是靠亮度。
+ * 浅→深的方向保持不变，所以果冻质感还在，只是安静了。
+ */
 const PAIRS: [string, string][] = [
-  ['#F29B6E', '#E8734A'], // 蜜桃
-  ['#6FA6F5', '#4A7FE0'], // 天蓝
-  ['#A78BFA', '#7C5CE0'], // 丁香
-  ['#5FD3A8', '#34A87C'], // 薄荷
-  ['#F5C56B', '#DFA02F'], // 蜜糖
-  ['#F58FB0', '#D9608A'], // 樱粉
-  ['#7FB3E8', '#5382C4'], // 雾蓝
-  ['#7ED49A', '#48AE6E'], // 苔绿
-  ['#F0A47A', '#CE7440'], // 陶土
-  ['#B39AF0', '#8B6FD6'], // 紫藤
+  ['#A8734F', '#8A5A3C'], // 赭
+  ['#7A8B6F', '#5F7056'], // 苔绿
+  ['#6E7F92', '#546577'], // 岩蓝
+  ['#9B6B6B', '#7D5151'], // 陶红
+  ['#8A7A5E', '#6E6046'], // 卡其
+  ['#6F7F7A', '#556661'], // 松青
+  ['#8C7361', '#6E5949'], // 褐
+  ['#7D7286', '#61576B'], // 紫灰
+  ['#9A7B5C', '#7C6045'], // 沙棕
+  ['#6B7A72', '#525F58'], // 墨绿
 ];
 
 export function colorFor(name: string): string {
@@ -33,8 +41,55 @@ export function colorFor(name: string): string {
   return PAIRS[h % PAIRS.length][0];
 }
 
+/**
+ * 把任意色相拉进统一的低饱和区间。
+ *
+ * 后端场景表里的角色颜色是 Tailwind 默认色（#2563EB、#6D28D9、#DC2626…），
+ * 饱和度 70-90%，放在暖纸底上像色卡。前端换 token 压不住这些——
+ * 它们直接来自接口。所以在这里做一次归一化：保留色相（人还认得出谁是谁），
+ * 只把饱和度和亮度收进 30-45% 的窄带。
+ */
+function normalizeTint(hex: string): string {
+  const h6 = hex.replace('#', '');
+  if (h6.length !== 6) return hex;
+  const r = parseInt(h6.slice(0, 2), 16) / 255;
+  const g = parseInt(h6.slice(2, 4), 16) / 255;
+  const b = parseInt(h6.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+    else if (max === g) h = ((b - r) / d + 2) / 6;
+    else h = ((r - g) / d + 4) / 6;
+  }
+  // 固定亮度与饱和度：颜色之间只靠色相区分，不再靠鲜艳程度抢注意力
+  const S = 0.32;
+  const L = 0.45;
+  const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
+  const p = 2 * L - q;
+  const hue2rgb = (t: number) => {
+    let x = t;
+    if (x < 0) x += 1;
+    if (x > 1) x -= 1;
+    if (x < 1 / 6) return p + (q - p) * 6 * x;
+    if (x < 1 / 2) return q;
+    if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+    return p;
+  };
+  const to = (v: number) => Math.round(v * 255).toString(16).padStart(2, '0');
+  return `#${to(hue2rgb(h + 1 / 3))}${to(hue2rgb(h))}${to(hue2rgb(h - 1 / 3))}`;
+}
+
 export function pairFor(name: string, tint?: string): [string, string] {
-  if (tint) return [lighten(tint, 0.22), tint];
+  if (tint) {
+    const base = normalizeTint(tint);
+    return [lighten(base, 0.22), base];
+  }
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return PAIRS[h % PAIRS.length];
