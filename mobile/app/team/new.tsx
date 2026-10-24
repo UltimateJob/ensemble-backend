@@ -324,7 +324,15 @@ function TemplateCard({
           <View style={{ marginTop: gap.sm, height: 24 }}>
             <AvatarStack names={names} tints={tints} size={24} max={4} />
           </View>
-          <T size={type.micro} color={t.ink3} numberOfLines={2} lh={16} style={{ marginTop: gap.xs }}>
+          {/* 固定两行高度：有的模板成员名短、一行就够，有的要折两行。
+              不固定的话同一排两张卡会一高一低。 */}
+          <T
+            size={type.micro}
+            color={t.ink3}
+            numberOfLines={2}
+            lh={16}
+            style={{ marginTop: gap.xs, height: 32 }}
+          >
             {line}
           </T>
         </View>
@@ -368,8 +376,10 @@ const s = StyleSheet.create({
   gridItem: { width: '48%', flexGrow: 1 },
   tplCard: {
     borderRadius: 20,
-    paddingHorizontal: gap.md,
-    paddingVertical: gap.md,
+    // 选中时有 2px 描边。内边距要比描边多留一些，
+    // 否则文字会紧贴黑框，看起来像是被框住了。
+    paddingHorizontal: 16,
+    paddingVertical: 15,
     minHeight: 126,
     justifyContent: 'space-between',
   },

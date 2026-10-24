@@ -994,24 +994,47 @@ function OfficialAvatar({ size = 46 }: { size?: number }) {
   );
 }
 
-/** 4 人 2x2 小头像组（设计图里团队头像就是这种拼贴）。 */
+/**
+ * 会话行左侧的 2×2 头像组（设计图里团队头像就是这种拼贴）。
+ *
+ * 位置只有 46px，单排叠放塞不下 3 个以上头像——试过会溢出、
+ * 计数被挤成竖排。所以保持 2×2，第四个位置在人多时显示 +N。
+ */
 function MiniStack({ names, tints }: { names: string[]; tints: string[] }) {
   const t = useTheme();
+  // 超过 4 人时右下角那格换成 +N：四个人刚好填满 2×2，
+  // 再加一格会溢出容器，把第五个人直接省略又等于没说。
+  const overflow = names.length > 4;
+  const shown = overflow ? names.slice(0, 3) : names.slice(0, 4);
+  const cell = (n: string, tint: string, i: number) => (
+    <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
+      <Avatar name={n} tint={tint} size={24} />
+    </View>
+  );
   return (
     <View style={[s.miniStack, { backgroundColor: t.cardSunken }]}>
       <View style={{ flexDirection: 'row' }}>
-        {names.slice(0, 2).map((n, i) => (
-          <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
-            <Avatar name={n} tint={tints[i]} size={24} />
-          </View>
-        ))}
+        {shown.slice(0, 2).map((n, i) => cell(n, tints[i], i))}
       </View>
       <View style={{ flexDirection: 'row', marginTop: 2 }}>
-        {names.slice(2, 4).map((n, i) => (
-          <View key={n + i} style={{ marginLeft: i === 0 ? 0 : -6 }}>
-            <Avatar name={n} tint={tints[i + 2]} size={24} />
+        {shown.slice(2, 4).map((n, i) => cell(n, tints[i + 2], i))}
+        {overflow ? (
+          <View
+            style={{
+              marginLeft: -6,
+              width: 24,
+              height: 24,
+              borderRadius: 8,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: t.track,
+            }}
+          >
+            <T size={9} weight="700" color={t.ink3}>
+              +{names.length - 3}
+            </T>
           </View>
-        ))}
+        ) : null}
       </View>
     </View>
   );

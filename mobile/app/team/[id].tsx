@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -451,30 +452,41 @@ export default function Room() {
         }}
       />
 
-      {/* 建议 chips：官方群给新手引导语，其余群给常用指令 */}
-      {!busy && msgs.length > 0 && (officialHints.length > 0 || true) ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ flexGrow: 0, flexShrink: 0 }}
-          contentContainerStyle={s.chipRow}
-        >
-          {(officialHints.length
-            ? officialHints
-            : ['帮我写一份周报提纲', '帮我整理会议纪要', '创建一个新团队']
-          ).map((h) => (
-            <Pressable
-              key={h}
-              onPress={() => setInput(h)}
-              style={[s.chip, { backgroundColor: t.card, borderColor: t.hairline }]}
-            >
-              <Text style={{ fontSize: 12, color: t.ink, marginRight: 5 }}>✦</Text>
-              <T size={type.caption} color={t.ink} weight={weight.medium} numberOfLines={1}>
-                {h}
-              </T>
-            </Pressable>
-          ))}
-        </ScrollView>
+      {/* 建议 chips：官方群给新手引导语，其余群给常用指令。
+          右侧渐隐表示「还能往右滑」——只露出半张卡又不给提示，
+          看起来像是排版坏了。 */}
+      {!busy && msgs.length > 0 ? (
+        <View style={{ flexGrow: 0, flexShrink: 0 }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.chipRow}
+          >
+            {(officialHints.length
+              ? officialHints
+              : ['帮我写一份周报提纲', '帮我整理会议纪要', '创建一个新团队']
+            ).map((h) => (
+              <Pressable
+                key={h}
+                onPress={() => setInput(h)}
+                style={[s.chip, { backgroundColor: t.card, borderColor: t.hairline }]}
+              >
+                <Text style={{ fontSize: 12, color: t.ink, marginRight: 5 }}>✦</Text>
+                <T size={type.caption} color={t.ink} weight={weight.medium} numberOfLines={1}>
+                  {h}
+                </T>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <LinearGradient
+            pointerEvents="none"
+            colors={[withAlpha(t.canvas[0], 0), t.canvas[0], t.canvas[0]]}
+            locations={[0, 0.55, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{ position: 'absolute', right: 0, top: 0, bottom: 8, width: 44, zIndex: 2 }}
+          />
+        </View>
       ) : null}
 
       {/* 输入板 + 审批托盘：同一块容器 */}

@@ -657,12 +657,16 @@ function SettingRow({
   const body = (
     <View style={[s.row, last && { paddingBottom: 15 }]}>
       <IconBrick icon={icon} tint={tint} iconTint={iconTint} />
-      <T size={type.body} weight="550" style={{ flex: 1 }} numberOfLines={1}>
+      {/* 标签可压缩、取值不压缩：取值通常是「未连接」「跟随系统」这类
+          短词，截断后完全读不出意思；标签即使截断也还有图标和上下文
+          兜底。两者都参与压缩时会互相抢，最后两边都读不全。 */}
+      <T size={type.body} weight="550" numberOfLines={1} style={{ flexShrink: 1 }}>
         {label}
       </T>
+      <View style={{ flex: 1, minWidth: 0 }} />
       {right}
       {value ? (
-        <T size={type.sub} color={t.ink3} numberOfLines={1} style={{ maxWidth: '46%', textAlign: 'right' }}>
+        <T size={type.sub} color={t.ink3} numberOfLines={1} style={{ flexShrink: 0, textAlign: 'right' }}>
           {value}
         </T>
       ) : null}

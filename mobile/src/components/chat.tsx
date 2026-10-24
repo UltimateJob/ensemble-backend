@@ -47,7 +47,7 @@ export function ChatHeader({
           {title}
         </T>
         {statusLine ? (
-          <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 2 }}>
+          <T size={type.micro} color={t.ink3} numberOfLines={1} style={{ marginTop: 4 }}>
             {statusLine}
           </T>
         ) : null}
@@ -111,6 +111,20 @@ export function MemberBar({
             zIndex={m.key === speakerKey ? 10 : 4 - i}
           />
         ))}
+        {/* 超过 4 人时给个 +N：只摆 4 个头像又不说话，
+            用户会以为群里就这几个人。 */}
+        {members.length > 4 ? (
+          <View
+            style={[
+              styles.memberOverflow,
+              { backgroundColor: t.cardSunken, borderColor: t.slab },
+            ]}
+          >
+            <T size={11} weight={weight.semibold} color={t.ink3}>
+              +{members.length - 4}
+            </T>
+          </View>
+        ) : null}
       </View>
       <Pressable onPress={onOpenInfo} style={{ flex: 1, marginLeft: 14 }} hitSlop={6}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -405,10 +419,13 @@ export function withAlpha(hex: string, a: number): string {
 
 const styles = StyleSheet.create({
   header: {
-    height: 56,
+    // 两行标题（群名 + 「N 位成员」）在 56 里会挤在一起。
+    // 62 给两行各留够行高，副标题离主标题也有一点呼吸。
+    minHeight: 62,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
+    paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
@@ -426,7 +443,16 @@ const styles = StyleSheet.create({
     ...shadow.slab,
   },
   // 左侧留 2px：容器有圆角 + overflow hidden，第一个头像贴边会被裁
-  memberStack: { flexDirection: 'row', alignItems: 'center', paddingLeft: 2 },
+  memberStack: { flexDirection: 'row', alignItems: 'center', paddingLeft: 2, flexShrink: 0 },
+  memberOverflow: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -10,
+  },
 
   memberBubble: {
     borderRadius: radius.bubble,
