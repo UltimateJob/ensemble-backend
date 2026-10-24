@@ -40,10 +40,9 @@ desktop/AppIcon.icns
 # 新克隆下来就自带完整形象，不需要跑生成脚本、也不需要任何 API Key。
 # 重新生成用 scripts/avatars.mjs，压缩用 scripts/shrink-avatars.sh。
 
-# 本地协作文件（两个 agent 共享，不入库）
-.claude/COORDINATION.md
-# 本地编译产物
-/server
+# 本机环境信息（服务器地址、凭据）。写在这里让本机所有 agent 都能查到，
+# 但绝不入库——凭据不能跟着仓库走。
+docs/local/
 
 # 本地协作文件（两个 agent 共享，不入库）
 .claude/COORDINATION.md

@@ -2,6 +2,25 @@
 
 import { $, api, state, toast } from '../js/core.js';
 
+/**
+ * 把线上令牌同步给本地后端。
+ *
+ * 浏览器模式（纯本地开发）没有这个端点，404 就静默跳过；
+ * 桌面端则由本地后端用它转发模型调用到线上。
+ *
+ * 令牌同时存一份到 localStorage：本地后端每次启动都是新进程，
+ * 不重新注入的话，重开 App 后聊天会直接失败。
+ */
+export async function syncRemoteToken(token) {
+  if (token) localStorage.setItem('ens_remote_token', token);
+  else localStorage.removeItem('ens_remote_token');
+  try {
+    await api('/v1/remote/token', { method: 'POST', body: { token } });
+  } catch (e) {
+    // 没配线上后端时端点不存在，属正常情况
+  }
+}
+
 export function mountLogin(host) {
   host.innerHTML = `
   <div class="login-card">
@@ -142,6 +161,13 @@ export function mountLogin(host) {
       }
       const d = await api('/v1/auth/login', { method: 'POST', body });
       state.token = d.token;
+      // 两份令牌各管一边：
+      //   d.token       本地会话（工作区、执行记录）
+      //   d.remoteToken 线上会话（模型调用）
+      // 配了线上后端时，登录由本地后端代理到线上，线上的令牌随响应回来；
+      // 纯浏览器 / 本地自建账号时没有 remoteToken，跳过即可。
+      // Key 在服务器上，客户端不持有——这是「不自带 Key」的关键一步。
+      if (d.remoteToken) syncRemoteToken(d.remoteToken);
       state.user = d.user;
       localStorage.setItem('ens_token', d.token);
       host.classList.add('hidden');

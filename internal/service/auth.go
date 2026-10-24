@@ -167,6 +167,51 @@ func (a *Auth) signupPolicy() SignupPolicy {
 }
 
 // Login 手机号或邮箱登录，不存在则自动建号。
+// LoginTrusted 按「已经验证过身份」的方式签发本地会话。
+//
+// 用于桌面端代理线上登录：账号体系在线上（鉴权、套餐、额度都在那边），
+// 本地后端只维护一份镜像用户，好让工作区、执行记录这些本地数据有个归属。
+// 调用方必须已经拿到线上令牌，绝不能把这条路暴露给任意客户端。
+func (a *Auth) LoginTrusted(kind, target, name string) (*domain.User, string, error) {
+	var (
+		u   *domain.User
+		ok2 bool
+	)
+	switch kind {
+	case "phone":
+		u, ok2 = a.store.GetUserByPhone(target)
+	case "email":
+		u, ok2 = a.store.GetUserByEmail(target)
+	default:
+		return nil, "", errors.New("不支持的登录方式")
+	}
+	if !ok2 {
+		pol := a.signupPolicy()
+		u = &domain.User{
+			Phone:  ptrIf(kind == "phone", target),
+			Email:  ptrIf(kind == "email", target),
+			Name:   firstOr(name, defaultName(target)),
+			Plan:   pol.Plan,
+			Quota:  pol.Quota,
+			Role:   "user",
+			Status: "active",
+		}
+		if err := a.store.CreateUser(u); err != nil {
+			return nil, "", err
+		}
+	}
+	if u.Status == "disabled" {
+		return nil, "", ErrDisabled
+	}
+	_ = a.store.TouchLastSeen(u.ID)
+	u.LastSeen = time.Now()
+	token, err := a.sign(u)
+	if err != nil {
+		return nil, "", err
+	}
+	return u, token, nil
+}
+
 func (a *Auth) Login(kind, target, code, name string) (*domain.User, string, error) {
 	// 演示账号可跳过验证码（由配置控制，生产应关掉）
 	demo := a.isDemoTarget(target)

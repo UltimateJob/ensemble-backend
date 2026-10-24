@@ -37,6 +37,11 @@ type Config struct {
 	// 是否允许无 Key 时使用 mock 上游（本地演示）
 	AllowMock bool
 
+	// RemoteBase 线上后端地址。桌面端用它把模型调用转给服务器，
+	// 这样 Key 只存在服务器上，客户端不需要也不应该持有。
+	// 留空表示不启用（本地开发、纯离线场景）。
+	RemoteBase string
+
 	// ExtraProviders OpenAI 兼容中转池：EXTRA_PROVIDERS=
 	//   name1|https://a.example.com|sk-xxx|deepseek-chat,name2|https://b.example|sk-yyy
 	// 第 4 段（默认模型）可省。管理台再按名字建模型、调权重，即成请求池。
@@ -86,6 +91,7 @@ func Load() Config {
 		SearchEnabled:   boolEnv("DEEPSEEK_SEARCH", true),
 
 		AllowMock:      boolEnv("ALLOW_MOCK", true),
+		RemoteBase:     env("REMOTE_BASE", ""),
 		ExtraProviders: parseExtraProviders(os.Getenv("EXTRA_PROVIDERS")),
 		DataDir:        env("DATA_DIR", "data"),
 
@@ -108,6 +114,11 @@ func Load() Config {
 // 中转池也算真实上游：配了 EXTRA_PROVIDERS 就不该再降级 mock。
 func (c Config) UpstreamConfigured() bool {
 	if strings.TrimSpace(c.DeepSeekAPIKey) != "" {
+		return true
+	}
+	// 指向线上后端时也算「配好了上游」：
+	// 模型由服务器提供，本地不需要自己的 Key。
+	if strings.TrimSpace(c.RemoteBase) != "" {
 		return true
 	}
 	return len(c.ExtraProviders) > 0

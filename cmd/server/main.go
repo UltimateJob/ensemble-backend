@@ -42,6 +42,23 @@ func portOf(addr string) string {
 	return addr
 }
 
+// watchParent 盯着父进程，父进程消失就退出。
+//
+// 桌面端是「壳 + 内置后端」两个进程。壳被强杀（崩溃、Force Quit、
+// pkill -9）时 exec 的子进程不会跟着死，会变成孤儿占着端口，下次启动
+// 只能换端口。由后端自己轮询 getppid 是最可靠的做法：壳一没，它就退出。
+func watchParent(stop func()) {
+	parent := os.Getppid()
+	for {
+		time.Sleep(2 * time.Second)
+		if os.Getppid() != parent {
+			logx.L().Info("父进程已退出，后端随之关闭", "pid", os.Getpid())
+			stop()
+			os.Exit(0)
+		}
+	}
+}
+
 // seedDemoDir 找演示数据目录。
 //
 // 三个位置，按优先级：
@@ -195,13 +212,29 @@ func main() {
 		log.Info("生产模式：自检通过")
 	}
 
+	// 桌面端：模型调用转给线上后端。
+	// Key 只存在服务器上，客户端不持有——这是「客户端不自带 Key」的前提。
+	// 线上后端本身就是一个可路由的上游，所以要计入 routableUpstreams，
+	// 否则配置了 REMOTE_BASE 还会被当成「没有上游」而降级到 mock。
+	var remote *gateway.Remote
+	if base := strings.TrimSpace(cfg.RemoteBase); base != "" {
+		remote = gateway.NewRemote(base, "", cfg.DeepSeekModel, cfg.UpstreamTimeout)
+		reg.Add(remote)
+		models = []domain.ModelInfo{
+			{Key: "teamwise-chat", Provider: remote.Name(), Upstream: cfg.DeepSeekModel, Enabled: true, Weight: 10, Note: "线上"},
+		}
+		routableUpstreams++
+		log.Info("模型调用指向线上后端", "base", base,
+			"说明", "登录后由前端注入令牌；未登录时聊天不可用")
+	}
+
 	// 渠道表里已有可用渠道时不再降级 mock：管理台加过渠道就不该被演示台词顶掉。
 	if routableUpstreams == 0 {
 		if !cfg.AllowMock {
-			log.Error("未配置 DEEPSEEK_API_KEY，且 ALLOW_MOCK=false，无法启动")
+			log.Error("未配置任何上游（DEEPSEEK_API_KEY / REMOTE_BASE / EXTRA_PROVIDERS），且 ALLOW_MOCK=false，无法启动")
 			os.Exit(1)
 		}
-		log.Warn("未配置 DEEPSEEK_API_KEY，启用 mock 上游（输出为固定演示文本）")
+		log.Warn("未配置上游，启用 mock 上游（输出为固定演示文本）")
 		reg.Add(&gateway.Mock{})
 		models = append(models, domain.ModelInfo{
 			Key: "mock-chat", Provider: "mock", Upstream: "mock", Enabled: true, Weight: 5, Note: "本地演示上游",
@@ -366,6 +399,10 @@ func main() {
 	}
 	agentMgr.SetPersistence(stateFile)
 	srv.SetAgentManager(agentMgr)
+	// 线上 provider 交给 HTTP 层，用于接收前端注入的登录令牌。
+	if remote != nil {
+		srv.SetRemote(remote)
+	}
 	httpServer := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      srv.Handler(),
@@ -376,11 +413,7 @@ func main() {
 
 	// ---- 优雅关闭 ----
 	done := make(chan struct{})
-	go func() {
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-		<-sig
-
+	shutdown := func() {
 		log.Info("收到退出信号，开始优雅关闭")
 		ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 		defer cancel()
@@ -390,8 +423,30 @@ func main() {
 		if err := fs.Close(); err != nil {
 			log.Error("落盘失败", "err", err.Error())
 		}
+	}
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+		<-sig
+		shutdown()
 		close(done)
 	}()
+
+	// 自带后端的桌面壳被强杀时，子进程会变成孤儿，占着端口不放。
+	// 让后端自己盯着父进程：壳没了就退出。只在被显式要求时启用，
+	// systemd 里的线上服务不该因为父进程变化而自杀。
+	//
+	// 参数与环境变量都认：macOS 的 Process 在某些情况下会过滤掉
+	// 自定义环境变量，命令行参数没有这个风险。
+	watchParentOn := os.Getenv("EXIT_WITH_PARENT") == "1"
+	for _, a := range os.Args[1:] {
+		if a == "--exit-with-parent" {
+			watchParentOn = true
+		}
+	}
+	if watchParentOn {
+		go watchParent(shutdown)
+	}
 
 	log.Info("纸团后端已启动",
 		"addr", cfg.Addr,

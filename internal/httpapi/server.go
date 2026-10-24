@@ -36,6 +36,8 @@ type Server struct {
 
 	mem    *service.MemoryService
 	agents *agent.Manager
+	// remote 线上后端 provider。nil 表示本地直连上游。
+	remote *gateway.Remote
 	// teams 团队任务编排器。未注入时团队接口不注册。
 	teams *agent.TeamManager
 
@@ -160,9 +162,18 @@ func (s *Server) Handler() http.Handler {
 		})
 	})
 
+	// ---- 桌面端：线上令牌注入 ----
+	// 这两个端点必须在鉴权之外：它们处理的就是「还没登录」的状态。
+	// handleRemoteToken 自己校验来源必须是本机。
+	if s.remote != nil {
+		mux.HandleFunc("POST /v1/remote/token", s.handleRemoteToken)
+		mux.HandleFunc("GET /v1/remote/status", s.handleRemoteStatus)
+	}
+
 	// ---- 鉴权 ----
-	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCode)
-	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	// 配了线上后端时，登录走线上鉴权、本地只做镜像；否则本地自建账号。
+	mux.HandleFunc("POST /v1/auth/send-code", s.handleSendCodeProxy)
+	mux.HandleFunc("POST /v1/auth/login", s.handleLoginProxy)
 	mux.HandleFunc("POST /v1/auth/reset-password", s.handleResetPassword)
 
 	// ---- 需要登录 ----

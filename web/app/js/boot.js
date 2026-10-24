@@ -63,6 +63,13 @@ async function boot() {
     const d = await api('/v1/me');
     state.user = d.user;
     state.me = d;
+    // 本地后端是新进程，重启后不记得线上令牌。登录态还在时把它补回去，
+    // 否则重开 App 会「能进界面但聊不动」。
+    const rt = localStorage.getItem('ens_remote_token');
+    if (rt) {
+      api('/v1/remote/token', { method: 'POST', body: { token: rt } })
+        .catch(() => { localStorage.removeItem('ens_remote_token'); });
+    }
     await enterApp();
   } catch (e) {
     if (e.status === 401 || e.code === 'unauthorized') {

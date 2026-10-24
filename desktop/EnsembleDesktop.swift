@@ -81,7 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         cfg.userContentController.addUserScript(hook)
         cfg.userContentController.add(self, name: "notify")
         cfg.userContentController.add(self, name: "console")
-        cfg.userContentController.add(self, name: "pickWorkspace")
+        // 前端点「选择目录…」时发消息过来，壳再弹 NSOpenPanel。
+        // 浏览器里没有这个能力，只能由原生层做。
+        cfg.userContentController.add(self, name: "pickDirectory")
 
         webView = WKWebView(frame: .zero, configuration: cfg)
         webView.navigationDelegate = self
@@ -173,16 +175,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
     // MARK: - 启动流程
 
     private func startFlow() {
-        // 线上模式：ENSEMBLE_REMOTE_BASE=https://teamwise.cn 时不再启动本地后端，
-        // 直接把窗口指向正式环境（页面也由正式环境提供，天然同源）。
-        if let remote = remoteBase() {
+        // 桌面端是自带后端的 App：页面、工作区、执行都跑在本机。
+        // 模型调用由这个本地后端转发给线上（REMOTE_BASE），
+        // 所以客户端不需要也不应该持有 API Key。
+        //
+        // 注意这两种「线上」是不同的事：
+        //   REMOTE_BASE     —— 本地后端把模型请求转发出去（默认，长期形态）
+        //   ENSEMBLE_REMOTE_ONLY —— 完全不启动本地后端，页面也由线上提供
+        //                        （调试用来对照线上环境，不是发布形态）
+        if remoteOnlyMode(), let remote = remoteBase() {
             baseURL = remote
             isRemote = true
             window.title = "纸团 · 线上"
             if ping(remote, timeout: 3.0) {
                 loadApp()
             } else {
-                showError("连不上线上后端：\(remote)\n\n请检查网络，或修改配置：\n\(supportDir.path)/.env\nENSEMBLE_REMOTE_BASE=\(remote)")
+                showError("连不上线上后端：\(remote)\n\n请检查网络，或修改配置：\n\(supportDir.path)/.env\nENSEMBLE_REMOTE_ONLY=1\nENSEMBLE_REMOTE_BASE=\(remote)")
             }
             return
         }
@@ -207,6 +215,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
 
     /// 线上后端地址。优先级：命令行参数 → 环境变量 → 应用支持目录/.env → 当前目录/.env。
     /// 没有配置时返回 nil，走本地后端模式。
+    /// 是否进入「只用线上、不启动本地后端」的调试模式。
+    /// 默认关闭：正常发布形态是本地后端 + REMOTE_BASE 转发模型。
+    private func remoteOnlyMode() -> Bool {
+        if CommandLine.arguments.contains("--remote-only") { return true }
+        if ProcessInfo.processInfo.environment["ENSEMBLE_REMOTE_ONLY"] == "1" { return true }
+        if loadDotEnv()["ENSEMBLE_REMOTE_ONLY"] == "1" { return true }
+        return false
+    }
+
     private func remoteBase() -> String? {
         var raw = ""
         if let arg = CommandLine.arguments.first(where: { $0.hasPrefix("--remote=") }) {
@@ -215,9 +232,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         if raw.isEmpty {
             raw = ProcessInfo.processInfo.environment["ENSEMBLE_REMOTE_BASE"] ?? ""
         }
+        // 本地后端要转发模型请求时同样读 REMOTE_BASE，两者用同一个值，
+        // 但不应该因为「配了转发地址」就跳进 remote-only 模式。
         if raw.isEmpty {
             let env = loadDotEnv()
-            raw = env["ENSEMBLE_REMOTE_BASE"] ?? env["REMOTE_BASE"] ?? ""
+            raw = env["ENSEMBLE_REMOTE_BASE"] ?? ""
         }
         raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
@@ -288,10 +307,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
         if env["DATA_DIR"] == nil {
             env["DATA_DIR"] = supportDir.appendingPathComponent("data").path
         }
-
+        // 模型调用转给线上。Key 在服务器上，客户端不持有。
+        // 可以用环境变量覆盖（比如指向自建测试环境）。
+        if env["REMOTE_BASE"] == nil {
+            env["REMOTE_BASE"] = "https://teamwise.cn"
+        }
+        // 内置后端是本地执行器，不该对局域网暴露。
+        if env["BIND_LOCAL_ONLY"] == nil {
+            env["BIND_LOCAL_ONLY"] = "1"
+        }
         let p = Process()
         p.executableURL = bin
         p.environment = env
+        // 壳被强杀时不留孤儿：让后端自己盯着父进程，壳一没就退出。
+        // 用参数而不是环境变量——macOS 的 Process 在部分场景会过滤
+        // 自定义环境变量，参数没有这个风险。
+        p.arguments = ["--exit-with-parent"]
         p.currentDirectoryURL = Bundle.main.bundleURL
 
         let logURL = supportDir.appendingPathComponent("ensemble.log")
@@ -526,9 +557,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate,
             FileHandle.standardError.write("[web:\(level)] \(text)\n".data(using: .utf8) ?? Data())
             return
         }
-        if message.name == "pickWorkspace" {
-            // 页面里的「选择…」按钮 → 同一个原生目录面板。
-            pickWorkspace()
+        if message.name == "pickDirectory" || message.name == "pickWorkspace" {
+            // 页面里的「选择…」按钮 / ⌘O 菜单 → 同一个原生目录面板。
+            DispatchQueue.main.async { self.pickWorkspace() }
             return
         }
         guard message.name == "notify",
