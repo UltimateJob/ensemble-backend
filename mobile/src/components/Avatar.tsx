@@ -67,9 +67,17 @@ function normalizeTint(hex: string): string {
     else if (max === g) h = ((b - r) / d + 2) / 6;
     else h = ((r - g) / d + 4) / 6;
   }
-  // 固定亮度与饱和度：颜色之间只靠色相区分，不再靠鲜艳程度抢注意力
-  const S = 0.32;
-  const L = 0.45;
+  // 色相收进 5°-55°：赭红 → 陶土 → 琥珀 → 卡其。
+  // 这套设计语言不用冷色做身份色（后端有 #2563EB、#6D28D9 这类蓝紫，
+  // 在暖纸底上会炸出来），但也不能全压成同一种棕——那样几个人看起来一样。
+  // 这一个窄带里的色相差异已经足够区分，又不会让头像变成彩色糖果。
+  const bandHues = [8, 18, 28, 38, 50, 14, 32, 44];
+  const idx = Math.round((h * 360) / 45) % bandHues.length;
+  h = bandHues[idx] / 360;
+
+  // 亮度和饱和度都固定：颜色之间只靠色相区分，不靠鲜艳程度抢注意力
+  const S = 0.36;
+  const L = 0.46;
   const q = L < 0.5 ? L * (1 + S) : L + S - L * S;
   const p = 2 * L - q;
   const hue2rgb = (t: number) => {
@@ -169,8 +177,10 @@ export function Avatar({ name, size = 44, state, tint, index, showDot, style }: 
         <Text
           style={{
             color: '#FFFFFF',
-            fontSize: size * 0.38,
-            fontWeight: '700',
+            // 汉字是满格方块，同一个比例下比拉丁字母占得满得多。
+            // 0.38 在小头像里几乎顶到圆边，压到 0.33 才有一圈呼吸。
+            fontSize: Math.round(size * 0.33),
+            fontWeight: '600',
             includeFontPadding: false,
             textShadowColor: 'rgba(0,0,0,0.10)',
             textShadowOffset: { width: 0, height: 1 },
