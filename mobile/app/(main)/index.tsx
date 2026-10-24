@@ -346,6 +346,7 @@ export default function Main() {
             officialConv={officialConv}
             onOpen={openTeam}
             onNew={() => router.push('/team/new')}
+            onSearch={() => router.push('/search')}
             onMore={setMenuFor}
             onEdit={setMenuFor}
             onCopy={copyTeam}
@@ -439,6 +440,7 @@ function TeamsPage({
   onOpen,
   onNew,
   onMore,
+  onSearch,
   onEdit,
   onCopy,
   refreshing,
@@ -452,6 +454,7 @@ function TeamsPage({
   officialConv: Conversation | null;
   onOpen: (id: string) => void;
   onNew: () => void;
+  onSearch: () => void;
   onMore: (c: Conversation) => void;
   onEdit: (c: Conversation) => void;
   onCopy: (c: Conversation) => void;
@@ -516,8 +519,19 @@ function TeamsPage({
             {convs.length} 个团队 · 本周共完成 {doneThisWeek} 个目标
           </T>
         </View>
-        {/* 品牌渐变只做「主操作」这一件事 */}
-        <BrandPlusFab onPress={onNew} />
+        {/* 搜索和主操作并排：群一多，找东西比新建更常用 */}
+        <Row gap={10} align="center">
+          <Pressable
+            onPress={onSearch}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="搜索"
+            style={s.searchBtn}
+          >
+            <Icon name="search" size={19} color={t.ink2} />
+          </Pressable>
+          <BrandPlusFab onPress={onNew} />
+        </Row>
       </View>
 
       {convs.length === 0 ? (
@@ -1750,6 +1764,14 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
+  searchBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   ideaRow: {
     flexDirection: 'row',
     alignItems: 'center',

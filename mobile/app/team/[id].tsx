@@ -65,7 +65,8 @@ import { gap, lead, radius, shadow, type, weight } from '../../src/theme/tokens'
  */
 export default function Room() {
   const t = useTheme();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // msg：从搜索页点进来时定位到那条消息
+  const { id, msg: focusMsgId } = useLocalSearchParams<{ id: string; msg?: string }>();
   const router = useRouter();
   const userId = useApp((s) => s.user?.id);
   const officialHints = useApp((s) => s.officialHints);
@@ -215,6 +216,25 @@ export default function Room() {
 
 
   useEffect(() => () => abortRef.current?.(), []);
+
+  // 从搜索结果点进来时，滚到那条消息并短暂高亮。
+  // 只滚不标，用户还得自己在几百条里找是哪一句。
+  const [highlight, setHighlight] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusMsgId || !msgs.length) return;
+    const idx = msgs.findIndex((m) => m.id === focusMsgId);
+    if (idx < 0) return;
+    const timer = setTimeout(() => {
+      try {
+        listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.4 });
+      } catch {
+        /* 索引还没测量出来时忽略，下次渲染会重试 */
+      }
+      setHighlight(focusMsgId);
+      setTimeout(() => setHighlight(null), 2400);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [focusMsgId, msgs.length]);
 
   /* ---------- 发送 ---------- */
   async function send(retryText?: string) {
@@ -487,6 +507,7 @@ export default function Room() {
             prev={msgs[index - 1]}
             members={rawMembers}
             streaming={busy && index === msgs.length - 1}
+            highlighted={highlight === item.id}
             onAvatar={(name) => {
               const found = rawMembers.find((x) => x.name === name);
               if (found) setPanelAgent(found.key);
@@ -774,6 +795,7 @@ function MessageRow({
   streaming,
   onAvatar,
   onOpenFile,
+  highlighted,
 }: {
   msg: Message;
   prev?: Message;
@@ -781,6 +803,7 @@ function MessageRow({
   streaming: boolean;
   onAvatar: (name: string) => void;
   onOpenFile: (a?: ArtifactRef) => void;
+  highlighted?: boolean;
 }) {
   const t = useTheme();
 
@@ -836,7 +859,14 @@ function MessageRow({
   const badge = (msg as any).badge;
 
   return (
-    <View style={{ marginTop: showHead ? 11 : 4 }}>
+    <View
+      style={{
+        marginTop: showHead ? 11 : 4,
+        // 从搜索跳过来时，这条消息短暂带一层强调底色，方便一眼定位。
+        backgroundColor: highlighted ? t.accentFaint : 'transparent',
+        borderRadius: highlighted ? 14 : 0,
+      }}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
         <Pressable onPress={() => onAvatar(msg.agent ?? '')} style={{ width: 40 }}>
           {showHead ? (

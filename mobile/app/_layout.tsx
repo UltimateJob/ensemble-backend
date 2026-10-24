@@ -81,6 +81,7 @@ export default function RootLayout() {
             <Stack.Screen name="solo" />
             <Stack.Screen name="team/task" />
             <Stack.Screen name="usage" />
+            <Stack.Screen name="search" />
           </Stack.Protected>
         </Stack>
       </ErrorBoundary>
