@@ -639,6 +639,9 @@ export default function Room() {
               placeholder="发消息，或 @ 指定成员"
               placeholderTextColor={t.ink4}
               multiline
+              // 后端上限 4000 字。不在这里截住的话，用户打完几千字
+              // 点发送才被拒，内容还发不出去。
+              maxLength={MAX_LEN}
               style={[s.input, { color: t.ink }]}
               editable={!busy}
               // 桌面/Web 上回车＝发送。multiline 输入框不会触发
@@ -1084,6 +1087,9 @@ function stateOf(a?: AgentActivity): MemberState {
   if (a.state === 'blocked') return 'blocked';
   return 'idle';
 }
+
+/** 后端消息上限（见 handleOrchestrate 的 maxRunes）。 */
+const MAX_LEN = 4000;
 
 const s = StyleSheet.create({
   list: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16 },

@@ -130,6 +130,8 @@ export default function NewTeam() {
                 }}
                 placeholder="比如「园区改造投标组」"
                 placeholderTextColor={t.ink4}
+                // 后端群名上限 40 字，提前截住，别等提交才报错
+                maxLength={40}
                 returnKeyType="done"
                 style={[s.nameInput, { color: t.ink }]}
               />
