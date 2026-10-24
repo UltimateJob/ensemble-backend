@@ -561,7 +561,7 @@ func (s *Server) handleBindConvWorkspace(w http.ResponseWriter, r *http.Request)
 		serverErr(w, err.Error())
 		return
 	}
-	s.chat.AppendSystemNote(conv.ID, "已绑定本地工作区："+bw.Root)
+	s.chat.AppendSystemNote(conv.ID, "已绑定本地工作区："+bw.Root+"\n目录只是就位，还没有人派活。要说清楚要做什么。")
 	ok(w, conv)
 }
 

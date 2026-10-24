@@ -153,7 +153,7 @@ func (s *Server) handleCreateConv(w http.ResponseWriter, r *http.Request) {
 			ID: bw.ID, Kind: "local", Root: bw.Root, Label: label, BoundAt: time.Now(),
 		}
 		_ = s.chat.Update(conv)
-		s.chat.AppendSystemNote(conv.ID, "已绑定本地工作区："+bw.Root)
+		s.chat.AppendSystemNote(conv.ID, "已绑定本地工作区："+bw.Root+"\n目录只是就位，还没有人派活。要说清楚要做什么。")
 	}
 	created(w, conv)
 }
