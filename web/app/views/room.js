@@ -7,9 +7,12 @@ import { $, api, state, esc, icon, hydrateIcons, skeleton, toast } from '../js/c
 import { openConv, send, kickoff, stopRound, setBusyUI } from '../js/chat.js';
 import { openPanel } from '../js/shell.js';
 import { avatarHTML } from '../js/avatars.js';
-import { loadActivity, stateLabel, ringOf, permissionLabel, isExecutable } from '../js/activity.js';
+import { loadActivity, stateLabel, ringOf, permissionLabel, isExecutable, toolLabel } from '../js/activity.js';
 import { workspaceBannerHTML, openWorkspaceDialog, workspacePath } from '../js/workspace.js';
 import { resumeRuns, sendExecute, clearRunBubbles } from '../js/exec.js';
+import { renderAttachments } from '../js/chat.js';
+import { mdRender } from '../js/markdown.js';
+import { confirmModal } from '../js/modal.js';
 import { openTeamTask, teamBadge, openCurrentTeam, loadLatestTeam } from '../js/team.js';
 
 let root = null;
@@ -470,6 +473,7 @@ export function openRoomPanel() {
         </div>
         <div class="panel-sec"><h4>角色</h4><div id="memberList"></div></div>
         <div class="panel-sec"><h4>这一轮</h4><div id="pipeline"></div></div>
+        <div class="panel-sec"><h4>执行记录</h4><div id="runHistory"></div></div>
         <div class="panel-sec"><h4>产物</h4><div id="artifactList"></div></div>`;
       el.querySelector('#panelWsBtn')?.addEventListener('click', () => openWorkspaceDialog(state.cur, {
         onDone: () => { refreshWork(); openRoomPanel(); },
@@ -478,6 +482,7 @@ export function openRoomPanel() {
         onBound: () => refreshWork(),
       }));
       if (ws) renderFileTree(el.querySelector('#fileTree'), state.cur.workspace?.id);
+      renderRunHistory(el.querySelector('#runHistory'), state.cur.id);
       import('../js/chat.js').then(m => {
         m.renderMembers?.();
         m.renderPipeline?.(true);
@@ -558,5 +563,134 @@ function renderLevel(box, entries, basePath, wsId, depth) {
         }
       }
     });
+  }
+}
+
+/* ---------------- 执行记录 ---------------- */
+
+// 刷新页面后，之前跑过的任务只剩一条纯文本消息——看不到当时的步骤、
+// 工具调用和 diff。后端留着完整的 Run 记录（/conversations/{id}/runs），
+// 只是没有界面。
+async function renderRunHistory(box, convId) {
+  if (!box || !convId) return;
+  let runs;
+  try {
+    runs = await api('/v1/conversations/' + encodeURIComponent(convId) + '/runs?limit=10');
+  } catch (e) {
+    box.innerHTML = '<div class="panel-empty">读不到执行记录</div>';
+    return;
+  }
+  const list = (runs || []).filter(r => !r.parentRunId);   // 只看主 Run
+  if (!list.length) {
+    box.innerHTML = '<div class="panel-empty">还没有执行过任务</div>';
+    return;
+  }
+  box.innerHTML = list.map(r => {
+    const ok = r.status === 'done';
+    const failed = r.status === 'failed' || r.status === 'aborted';
+    const pill = ok ? '完成' : failed ? (r.status === 'aborted' ? '已停止' : '失败') : '进行中';
+    const time = r.startedAt ? fmtWhen(r.startedAt) : '';
+    const tools = (r.toolCalls || []).length;
+    return `<button class="rh-item" data-run="${esc(r.id)}">
+      <span class="rh-dot ${ok ? 'ok' : failed ? 'bad' : 'on'}"></span>
+      <span class="rh-body">
+        <span class="rh-task">${esc(clip(r.task || '（无描述）', 40))}</span>
+        <span class="rh-meta">${esc(time)} · ${tools} 步 · ${esc(pill)}</span>
+      </span>
+      <span class="rh-chev">${icon('chevron-right', 14)}</span>
+    </button>`;
+  }).join('');
+
+  box.querySelectorAll('[data-run]').forEach(b => {
+    b.addEventListener('click', () => showRunDetail(b.dataset.run));
+  });
+}
+
+function clip(s, n) {
+  const r = [...String(s)];
+  return r.length > n ? r.slice(0, n).join('') + '…' : r.join('');
+}
+
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const now = new Date();
+  const p = n => String(n).padStart(2, '0');
+  if (d.toDateString() === now.toDateString()) return `${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+async function showRunDetail(runId) {
+  let run;
+  try {
+    run = await api('/v1/runs/' + encodeURIComponent(runId));
+  } catch (e) {
+    toast('任务不存在或已清理', { type: 'err' });
+    return;
+  }
+  const ok = run.status === 'done';
+  const failed = run.status === 'failed' || run.status === 'aborted';
+  const toolRows = (run.toolCalls || []).map(t => {
+    const bad = t.status === 'error' || t.status === 'denied';
+    return `<div class="rd-tool ${bad ? 'bad' : ''}">
+      <span class="rd-tool-name">${esc(toolLabel(t.tool))}</span>
+      <span class="rd-tool-args">${esc(clip(t.args || '', 80))}</span>
+      <span class="rd-tool-st">${esc(badge(t.status))}</span>
+    </div>`;
+  }).join('');
+
+  openPanel({
+    title: '执行记录',
+    subtitle: fmtWhen(run.startedAt),
+    render: el => {
+      el.innerHTML = `
+        <div class="panel-sec"><h4>任务</h4>
+          <div class="rd-task">${esc(run.task || '')}</div>
+        </div>
+        <div class="panel-sec"><h4>状态</h4>
+          <div class="rd-stats">
+            <span class="rd-pill ${ok ? 'ok' : failed ? 'bad' : 'on'}">${esc(ok ? '完成' : failed ? (run.status === 'aborted' ? '已停止' : '失败') : '进行中')}</span>
+            <span>${run.step || 0} 步</span>
+            <span>${(run.tokensIn || 0) + (run.tokensOut || 0)} tokens</span>
+          </div>
+          ${run.error ? `<div class="art-cut">${esc(run.error)}</div>` : ''}
+        </div>
+        ${toolRows ? `<div class="panel-sec"><h4>步骤</h4><div class="rd-tools">${toolRows}</div></div>` : ''}
+        ${run.summary ? `<div class="panel-sec"><h4>结果</h4><div class="md">${mdRender(run.summary)}</div></div>` : ''}
+        ${(run.artifacts || []).length ? `<div class="panel-sec"><h4>产物</h4>
+          <div id="rdArts"></div></div>` : ''}
+        ${run.snapshotId ? `<div class="panel-sec">
+          <button class="btn btn-line btn-sm" id="rdRevert" style="width:100%">回滚这次改动</button>
+        </div>` : ''}`;
+
+      if ((run.artifacts || []).length) {
+        renderAttachments(el.querySelector('#rdArts'), run.artifacts);
+      }
+      el.querySelector('#rdRevert')?.addEventListener('click', async () => {
+        const yes = await confirmModal({
+          title: '回滚这次改动？',
+          text: '会把这次任务改过的文件恢复成执行前的样子。之后手动改过的内容也会一起丢掉。',
+          okText: '回滚', danger: true,
+        });
+        if (!yes) return;
+        try {
+          await api('/v1/runs/' + encodeURIComponent(run.id) + '/revert', { method: 'POST' });
+          toast('已回滚', { type: 'ok' });
+          closePanel();
+        } catch (e) {
+          toast('回滚失败：' + (e.message || ''), { type: 'err' });
+        }
+      });
+    },
+  });
+}
+
+function badge(st) {
+  switch (st) {
+    case 'ok': return '成功';
+    case 'error': return '出错';
+    case 'denied': return '拒绝';
+    case 'pending_approval': return '待批准';
+    default: return st || '';
   }
 }
