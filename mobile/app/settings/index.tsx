@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -82,7 +82,12 @@ export default function Settings() {
 
   const [cache, setCache] = useState('—');
 
-  const [sheet, setSheet] = useState<'theme' | 'level' | 'font' | 'devices' | 'server' | 'account' | null>(null);
+  // 支持从别处深链直接打开某个面板：/settings?sheet=devices
+  // 「我」页的「我的设备」就是走这条，省得用户进来还要再找一次。
+  const params = useLocalSearchParams<{ sheet?: string }>();
+  const [sheet, setSheet] = useState<'theme' | 'level' | 'font' | 'devices' | 'server' | 'account' | null>(
+    (params.sheet as any) ?? null,
+  );
   const [host, setHost] = useState(getBaseURL());
   const [hostBusy, setHostBusy] = useState(false);
 

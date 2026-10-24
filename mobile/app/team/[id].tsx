@@ -657,6 +657,10 @@ export default function Room() {
         onOpenLibrary={() => router.push('/library')}
         onOpenGoals={() => router.push('/goals')}
         onOpenConnect={() => router.push('/connect')}
+        onOpenTask={() => {
+          setInfoOpen(false);
+          router.push(`/team/task?convId=${id}`);
+        }}
       />
     </SafeAreaView>
   );

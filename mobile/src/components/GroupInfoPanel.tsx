@@ -121,6 +121,7 @@ export function GroupInfoPanel({
   onOpenLibrary,
   onOpenGoals,
   onOpenConnect,
+  onOpenTask,
 }: {
   visible: boolean;
   conv: Conversation | null;
@@ -139,6 +140,7 @@ export function GroupInfoPanel({
   onOpenLibrary: () => void;
   onOpenGoals: () => void;
   onOpenConnect: () => void;
+  onOpenTask: () => void;
 }) {
   const t = useTheme();
   const { width } = useWindowDimensions();
@@ -201,6 +203,8 @@ export function GroupInfoPanel({
   const ztId = paperNo(conv?.id);
 
   const APPS = [
+    // 「交给团队」放第一个：这是这个群里最重的操作，其余都是看结果。
+    { icon: 'rocket-outline' as const, label: '交给团队', tint: FILE_COLORS.goal, onPress: onOpenTask },
     { icon: 'folder-outline' as const, label: '文件', tint: FILE_COLORS.doc, onPress: onOpenLibrary },
     { icon: 'image-outline' as const, label: '图片', tint: FILE_COLORS.image, onPress: onOpenLibrary },
     { icon: 'cube-outline' as const, label: '产物', tint: FILE_COLORS.artifact, onPress: onOpenLibrary },

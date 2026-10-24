@@ -6,6 +6,7 @@ import { Canvas } from '../../src/components/Canvas';
 import { Surface } from '../../src/components/Surface';
 import { Button, Icon, Input, NavBar, Row, T } from '../../src/components/ui';
 import { get, humanError, post } from '../../src/lib/api';
+import type { Conversation } from '../../src/lib/types';
 import { useTheme } from '../../src/theme/theme';
 import { CARD_PAD, gap, leading, type } from '../../src/theme/tokens';
 
@@ -26,10 +27,13 @@ export default function TeamTask() {
 
   useEffect(() => {
     if (!convId) return;
-    get<any>(`/v1/conversations/${convId}/activity`)
-      .then((d) => {
-        setBound(!!d?.workspace?.bound);
-        setPerm(d?.defaultPermission || '');
+    // 看会话详情，不是 /activity。后者返回的是成员活动数组，
+    // 读 d?.workspace 永远是 undefined ——之前这页因此永远认为
+    // 「没绑工作区」、提交按钮永久禁用，等于整页不可用。
+    get<Conversation>(`/v1/conversations/${convId}`)
+      .then((c) => {
+        setBound(!!c?.workspace?.root);
+        setPerm(c?.defaultPermission || '');
       })
       .catch(() => setBound(false));
   }, [convId]);
@@ -68,8 +72,26 @@ export default function TeamTask() {
                 <Row gap={gap.xs} align="flex-start">
                   <Icon name="alert-circle-outline" size={16} color={t.bad} style={{ marginTop: 1 }} />
                   <T size={type.sub} color={t.ink2} lh={leading.sub} style={{ flex: 1 }}>
-                    这个团队还没绑定工作区。请在电脑上打开该团队 → 右上角文件夹图标，选择一个本地目录后再试。
+                    这个团队还没绑定工作区。请在电脑上打开该团队 → 右上角文件夹图标，选择一个本地目录。
                   </T>
+                </Row>
+                {/* 只告诉用户「去电脑上弄」等于把他卡在这里。
+                    给两条能立刻做的事：回群里继续聊，或看看设备状态。 */}
+                <Row gap={gap.sm} style={{ marginTop: gap.md }}>
+                  <Button
+                    label="回群聊"
+                    variant="secondary"
+                    size="sm"
+                    onPress={() => router.back()}
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    label="设备状态"
+                    variant="secondary"
+                    size="sm"
+                    onPress={() => router.push('/settings?sheet=devices')}
+                    style={{ flex: 1 }}
+                  />
                 </Row>
               </View>
             </Surface>

@@ -179,27 +179,12 @@ export default function ArtifactDetail() {
                   <Icon name="checkmark-circle" size={15} color={t.okDot} style={{ marginTop: 1 }} />
                   <View style={{ flex: 1 }}>
                     <T size={13} weight={weight.strong} color={t.ok}>
-                      {a.conversationId ? '已写入工作区' : '已归档到资料库'}
+                      已归档到资料库
                     </T>
-                    <T
-                      size={11.5}
-                      color={t.ink3}
-                      numberOfLines={1}
-                      style={{ marginTop: 2, fontFamily: fontFamily('400') }}
-                    >
-                      {workspacePath(a)}
-                    </T>
-                  </View>
-                  <View
-                    style={{
-                      paddingHorizontal: 8,
-                      paddingVertical: 3,
-                      borderRadius: radius.tag,
-                      backgroundColor: t.cardSunken,
-                    }}
-                  >
-                    <T size={10.5} weight={weight.semibold} color={t.ink3}>
-                      v1 · 当前版本
+                    {/* 不再显示 library/xxx.md 这种编出来的路径。
+                        conversationId 只说明它属于某个群，不代表写进了磁盘。 */}
+                    <T size={11.5} color={t.ink3} numberOfLines={1} style={{ marginTop: 2 }}>
+                      {a.conversationTitle ?? '来自团队'}
                     </T>
                   </View>
                 </View>
@@ -208,10 +193,14 @@ export default function ArtifactDetail() {
 
             <FadeInUp delay={40}>
               <Card padded={false} style={{ marginTop: CARD_GAP, marginBottom: CARD_GAP }}>
+                {/* 只放后端真的有的字段。
+                    之前这排是「1 个版本 / N 次被引用 / 已分享给 N 人」，
+                    三个数字全是拿字段有无凑出来的，会把编造的数据
+                    当作事实展示。 */}
                 <Row>
-                  <Stat label="个版本" value="1" first />
-                  <Stat label="次被引用" value={String(refCount(a))} />
-                  <Stat label="已分享给" value={`${shareCount(a)} 人`} />
+                  <Stat label="类型" value={kind.label} first />
+                  <Stat label="来源" value={a.agentName ?? '系统'} />
+                  <Stat label="字数" value={String(content.length)} />
                 </Row>
               </Card>
             </FadeInUp>
@@ -271,26 +260,8 @@ export default function ArtifactDetail() {
               </Row>
             </FadeInUp>
 
-            <T
-              size={type.caption}
-              color={t.ink3}
-              weight={weight.medium}
-              style={{ marginTop: gap.xxl, marginBottom: gap.sm, marginLeft: 2 }}
-            >
-              历史版本
-            </T>
-            <FadeInUp delay={130}>
-              <Card style={{ paddingVertical: 4, paddingHorizontal: CARD_PAD }}>
-                <VersionRow
-                  version="v1"
-                  current
-                  time={hhmm(a.createdAt)}
-                  author={a.agentName ?? '系统'}
-                  note="当前版本"
-                  last
-                />
-              </Card>
-            </FadeInUp>
+            {/* 「历史版本」整块移除：后端没有版本表，这里原来永远只有
+                一条 v1，等于给用户看一个假功能。等真的有多版本再回来。 */}
 
           </ScrollView>
         ) : null}
@@ -484,31 +455,6 @@ function withExt(title: string, kind: string) {
   if (/\.[a-z0-9]{1,5}$/i.test(title)) return title;
   const ext = kind === 'code' ? 'txt' : 'md';
   return `${title}.${ext}`;
-}
-
-/** 产物在资料库里的归档名（后端没有工作区相对路径字段）。 */
-function workspacePath(a: Artifact) {
-  return `library/${withExt(a.title, a.kind)}`;
-}
-
-/**
- * 被引用次数。
- *
- * 一条产物至少有一条来源消息（messageId）；被别的消息引用后端还没记。
- * 列表接口不带 messageId（详情才有），所以只有详情能给出准确的 1 或 0。
- */
-function refCount(a: Artifact) {
-  return a.messageId ? 1 : 0;
-}
-
-/**
- * 已分享给几个人。
- *
- * 产物本身没有分享记录，能确定的只有产出者自己——所以这里永远是 1。
- * 想显示真实数字，得先有 collaborators / 分享记录接口，不拿假设值糊弄。
- */
-function shareCount(a: Artifact) {
-  return a.agentName ? 1 : 0;
 }
 
 const s = StyleSheet.create({

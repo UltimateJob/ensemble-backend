@@ -239,8 +239,11 @@ export function Button({
   full?: boolean;
 }) {
   const t = useTheme();
-  const h = size === 'md' ? 52 : 40;
-  const opacity = disabled ? 0.45 : 1;
+  // 44 是触控目标下限（HIG）。40 的「小按钮」在一列列表里很难点准。
+  const h = size === 'md' ? 52 : 44;
+  // 禁用态靠底色与字色表达，不再整体降透明度——
+  // 0.45 会让本来就浅的灰底按钮上的字彻底看不见。
+  const opacity = 1;
 
   if (variant === 'primary') {
     return (
@@ -263,11 +266,21 @@ export function Button({
           ]}
         >
           {loading ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <ActivityIndicator size="small" color={disabled ? t.ink3 : '#FFFFFF'} />
           ) : (
             <View style={styles.btnRow}>
-              {leadingIcon ? <Icon name={leadingIcon} size={16} color="#FFFFFF" /> : null}
-              <Text style={{ color: '#FFFFFF', fontSize: size === 'md' ? type.body : type.sub, fontWeight: '700' }}>
+              {leadingIcon ? (
+                <Icon name={leadingIcon} size={16} color={disabled ? t.ink3 : '#FFFFFF'} />
+              ) : null}
+              {/* 禁用时用中性字色：浅灰底 + 白字几乎看不见，
+                  用户读不出按钮上写的是什么，只会觉得界面坏了。 */}
+              <Text
+                style={{
+                  color: disabled ? t.ink3 : '#FFFFFF',
+                  fontSize: size === 'md' ? type.body : type.sub,
+                  fontWeight: '700',
+                }}
+              >
                 {label}
               </Text>
             </View>
@@ -320,7 +333,8 @@ export function Button({
 export function IconButton({
   name,
   onPress,
-  size = 40,
+  // 44 是 HIG 的触控下限；40 的返回键在导航栏边缘很难点中
+  size = 44,
   tint,
   bg,
   accessibilityLabel,

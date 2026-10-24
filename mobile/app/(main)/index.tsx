@@ -376,9 +376,10 @@ export default function Main() {
             connected={connected}
             devices={devices}
             onOpenGoals={() => router.push('/goals')}
+            onOpenSolo={() => router.push('/solo')}
             onOpenLibrary={() => router.push('/library')}
             onOpenConnect={() => router.push('/connect')}
-            onOpenDevices={() => router.push('/settings')}
+            onOpenDevices={() => router.push('/settings?sheet=devices')}
             onOpenSettings={() => router.push('/settings')}
           />
         </Pager>
@@ -1073,6 +1074,7 @@ function MePage({
   connected,
   devices,
   onOpenGoals,
+  onOpenSolo,
   onOpenLibrary,
   onOpenConnect,
   onOpenDevices,
@@ -1087,6 +1089,7 @@ function MePage({
   connected?: Connector;
   devices: Device[];
   onOpenGoals: () => void;
+  onOpenSolo: () => void;
   onOpenLibrary: () => void;
   onOpenConnect: () => void;
   onOpenDevices: () => void;
@@ -1206,6 +1209,15 @@ function MePage({
           label="我的目标"
           value={`进行中 ${doing} 个`}
           onPress={onOpenGoals}
+        />
+        <Divider inset={60} />
+        {/* 单聊入口：一个群只有你和一位角色。简单任务用不上整队人。 */}
+        <MenuRow
+          icon="person-circle"
+          colors={[t.slate, t.slate]}
+          label="单聊角色"
+          value="找一个人干"
+          onPress={onOpenSolo}
         />
         <Divider inset={60} />
         <MenuRow

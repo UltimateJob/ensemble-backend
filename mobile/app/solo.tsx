@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '../src/components/Avatar';
 import { Canvas } from '../src/components/Canvas';
@@ -29,13 +29,18 @@ export default function Solo() {
   const [chars, setChars] = useState<Character[]>([]);
   const [busyKey, setBusyKey] = useState('');
   const [err, setErr] = useState('');
+  // 首帧 char 还是空数组时不能直接显示「没找到角色」——
+  // 那会在每次打开时闪一下假空态，网络失败也被伪装成「没有匹配」。
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
 
   const code = scenarios.find((s) => s.key === 'code');
 
   useEffect(() => {
     get<Character[]>('/v1/characters?q=')
       .then((list) => setChars(Array.isArray(list) ? list : []))
-      .catch(() => { /* 角色库不可用不影响代码角色 */ });
+      .catch((e) => setLoadErr(humanError(e)))
+      .finally(() => setLoading(false));
   }, []);
 
   const filtered = useMemo(() => {
@@ -157,7 +162,19 @@ export default function Solo() {
                 </Surface>
               </FadeInUp>
             ))}
-            {!filtered.length ? <Empty icon="people-outline" title="没找到角色" hint="换个关键词试试" /> : null}
+            {loading ? (
+              <View style={{ paddingVertical: gap.xl, alignItems: 'center' }}>
+                <ActivityIndicator color={t.accent} />
+              </View>
+            ) : loadErr ? (
+              <Empty icon="cloud-offline-outline" title="角色库加载失败" hint={loadErr} />
+            ) : !filtered.length ? (
+              <Empty
+                icon="people-outline"
+                title={q.trim() ? '没找到角色' : '角色库是空的'}
+                hint={q.trim() ? '换个关键词试试' : '稍后再来看看'}
+              />
+            ) : null}
           </View>
         </ScrollView>
       </SafeAreaView>
